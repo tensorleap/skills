@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Installer / build scratch
+*.tmp
+/tmp-*/
+
+# Internal build brief / session handoff — never publish (contains internal refs)
+PLAN.md

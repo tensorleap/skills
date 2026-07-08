@@ -1,0 +1,11 @@
+{
+  "name": "tensorleap-integration-creation",
+  "description": "Use when writing or fixing a Tensorleap integration in the decorator style — leap_integration.py / leap.yaml, @tensorleap_preprocess, input/GT encoders, @tensorleap_load_model, @tensorleap_integration_test — or when debugging code-loader validation errors, exit-table rows, batch-dimension warnings, or check_dataset() failures. Drives a progressive author -> run -> read -> fix loop and keeps the integration runnable at every step.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Tensorleap",
+    "email": "support@tensorleap.ai"
+  },
+  "homepage": "https://github.com/tensorleap/skills",
+  "license": "Apache-2.0"
+}

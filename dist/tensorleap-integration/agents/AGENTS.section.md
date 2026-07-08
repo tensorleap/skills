@@ -1,0 +1,339 @@
+<!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
+<!-- Managed by tensorleap/skills. Regenerate; do not edit by hand. -->
+# Writing a Tensorleap integration
+
+You are authoring `leap_integration.py` (the decorator-based style), not the
+legacy `leap_binder.py` registration script. The target layout is root-level
+`leap_integration.py` + root-level `leap.yaml` with `entryFile:
+leap_integration.py`, run through the project's Python environment (agreed in
+Step 0 — pyenv + poetry by default), with a locally materialized `.onnx` or
+`.h5` model.
+
+## What Tensorleap is (and what that implies)
+
+Tensorleap is an **inference-only** analysis platform: it loads a *pre-trained*
+model and runs it over your data to visualize predictions and compute metrics.
+No training happens here. That shapes the whole integration:
+
+- `@tensorleap_load_model` is **mandatory** in every integration.
+- The model returns raw predictions (e.g. logits). Softmax, decoding,
+  thresholding, and other postprocessing belong in visualizers/metrics — never
+  baked into the model or the integration test.
+- **How files reach the platform — anything else is invisible at runtime.** A
+  file the integration reads at runtime is available only if it is (a) listed in
+  `leap.yaml`'s `include` (bundled with the code), or (b) placed in the Tensorleap
+  **data volume**; a path that is neither is not accessible, even though it exists
+  locally. The **model is the exception**: it is uploaded to the platform
+  *separately* (its own upload), so it goes in **neither** — do **not** bundle it
+  in `leap.yaml`. `@tensorleap_load_model` loads the model only for local runs /
+  the integration test; on the platform the model comes from the separate upload
+  and your loader body is not run (its declared `prediction_types` still are).
+  Convention: the **dataset** → data volume (read from a *config-driven* path,
+  never hardcoded); the **model** → separate upload; every **other** asset the
+  integration reads from disk → `leap.yaml`.
+
+## The one rule that drives everything
+
+**Validation fires when a decorated function is *called*, not when it is
+defined.** A decorator can exist in the file and still report as "missing"
+because nothing exercised it. Therefore the integration must be **run
+constantly**, and `leap_integration.py` is not just a file name — it is a
+*progressive validator* for your own work.
+
+This makes the run loop below non-optional. Do not batch up edits and run once at
+the end; you lose the ability to tell which change caused which failure.
+
+## The run loop (do this after every meaningful edit)
+
+```
+1. RUN     .tensorleap/scripts/run_integration.sh
+           (runs `leap_integration.py` through the project env — `poetry run` by
+            default, or set `TL_PY` — from the repo root;
+            the exit-status table only prints when the entry file is named
+            exactly leap_integration.py)
+
+2. READ    the output in this priority order; STOP at the first problem:
+             a. uncaught exception / "Script crashed ... crashed at function '…'"
+                -> fix THAT function before trusting any later row
+             b. "Warnings (Default use. It is recommended to set values explicitly)"
+                -> make the warned value explicit (state=, channel_dim=,
+                   prediction_types=, direction=)
+             c. exit status table
+                -> find the EARLIEST unexercised mandatory row
+             d. "Successful!"
+                -> the current stage's real run + mapping rerun + first-sample
+                   binder check all passed
+
+3. FIX     address only the earliest failure. Re-running surfaces the next one.
+
+4. REPEAT  run again before doing anything else.
+
+GATE       Do NOT author the next interface until the current stage's row is
+           exercised and no mandatory errors remain. One interface at a time.
+```
+
+> The bundled scripts (`.tensorleap/scripts/run_integration.sh`, `.tensorleap/scripts/tl_check.py`) live
+> in this skill's own directory and take the **target integration repo root** as
+> their first argument (default: current directory). Run them from the
+> integration repo, or pass its path explicitly.
+
+For "is it actually done?" decisions, use **both** checks — they cover different
+scopes:
+
+- **`check_dataset()` (structured) — dataset side only:** preprocess, input/GT
+  encoders, metadata. Trust it over the exit table *for these* — the table can show
+  stale crosses when a later dataset interface is what's actually broken.
+- **Exit table (from `integration_test`) — the dataset<->model connections:**
+  `load_model`, `custom_loss`, and any metric/visualizer that consumes model
+  predictions. `check_dataset()` never loads the model, so it is **silent** on
+  these — a `❌` here is real even when `check_dataset()` reports `isValid: True`.
+
+## Preflight gate (run before authoring)
+
+Before writing anything, run the bundled check-only gate from the integration
+repo root:
+
+```
+.tensorleap/scripts/preflight.sh        # CLI defaults to `leap`; set TL_CLI=leapdev to override
+```
+
+It verifies the platform prerequisites that need **no Python environment** (so it
+runs before the project env exists): the CLI is on PATH, the server is **local**
+(v1 supports only a client on the same machine as the server), the server is
+running, a data volume is configured, and you are authenticated. It **only
+checks** — it never installs, authenticates, starts a server, or configures
+anything. React to its exit status:
+
+- **Blocker (exit 2)** — CLI missing / remote server detected / server not
+  running / no data volume. **Relay the printed guidance to the user and STOP.**
+  Do **not** install the CLI, start the server, or configure the volume yourself.
+  (Remote server: v1 runs only on the server host — tell the user to run it
+  there.)
+- **Setup: not authenticated (exit 3)** — guide the user through
+  `leap auth login`, then re-run preflight.
+- **OK (exit 0)** — the platform is ready. Continue to the Python environment and
+  `code_loader` setup in Step 0 below; those need the env to exist, so preflight
+  deliberately leaves them to the skill.
+
+## Authoring order
+
+Write the minimum next piece that unlocks a more informative run. Full detail and
+the `__main__` evolution snippets are in `.tensorleap/reference/authoring-order.md`. The
+order:
+
+0. Setup (after the Preflight gate passes):
+   - **Agree on the Python environment and provision it.** Match the repo's own
+     tooling — `poetry` if it ships `pyproject.toml` + `poetry.lock`, `uv` if
+     `uv.lock`, `conda` if `environment.yml`, otherwise a plain `venv` + `pip` on its
+     `requirements.txt`. Confirm with the user; do **not** silently assume poetry.
+     Use the agreed environment for every command below; the bundled scripts default
+     to `poetry run …`, so set `TL_PY=<path-to-python>` to point them at a different
+     interpreter.
+   - **Validate `code_loader`.** If it isn't installed, install the latest release.
+     If it is, require `code-loader >= 1.0.142`; if older, stop and report it as a
+     blocker.
+   - **Place the dataset in the data volume.** A file is readable on the platform
+     only if it's in `leap.yaml` or the data volume. Put the dataset in the data
+     volume: find the directory with `leap server info` → `datasetVolumes`, create
+     a per-project folder, place the data there, and point the integration's
+     config-driven path at it.
+1. Create `leap_integration.py` + `leap.yaml`; run a one-line `__main__` to
+   confirm imports resolve and the exit hook attaches.
+2. `@tensorleap_preprocess` — return `list[PreprocessResponse]` with explicit
+   `state=` and real `sample_ids` (unique strings; use the row index as the id
+   if natural ids aren't unique). Call it directly from `__main__` and run.
+3. Inspect the model I/O contract (input names, dtypes, shapes without batch
+   dim, output count/meaning, required labels) before writing the loader.
+4. The minimum input encoder set for **one real inference** — one encoder per
+   model input, `channel_dim` explicit, returns a single unbatched
+   `np.float32` array. Call each directly and run. Encoders must return
+   `float32`; if the model needs integer inputs (e.g. `input_ids`), export it to
+   accept `float32` and cast internally (see `.tensorleap/reference/error-signals.md`,
+   load_model).
+5. `@tensorleap_load_model` with explicit `prediction_types`. Call it directly
+   and run.
+6. A minimal `@tensorleap_integration_test` as soon as preprocess + min encoders
+   + load_model exist. Switch `__main__` to call `integration_test(...)`. This is
+   the first point you can see `Successful!`.
+7. Remaining input encoders if the model has more inputs.
+8. GT encoder(s) — call directly, then via `integration_test`.
+9. Expand from one sample to several in training AND validation; then add
+   optional metadata / visualizers / metrics / custom loss **one at a time**,
+   running between each.
+
+`load_model()` alone validates only model type and declared outputs. Useful
+validation starts when a real encoded sample flows into the model.
+
+## Keep `integration_test` thin (the #1 failure class)
+
+When you call `integration_test(sample_id, preprocess_response)`, it runs your
+body once, then **reruns it in mapping mode** where decorated functions return
+placeholders. Plain Python logic cannot be traced in mapping mode and fails.
+
+Inside the integration-test body, do ONLY:
+- call decorated encoders / GT / loss / metric / metadata / visualizer functions
+- call the decorated model loader
+- the minimal runtime-correct inference for the returned model object
+  (e.g. for an ONNX `InferenceSession`: `model.get_inputs()[0].name` +
+  `model.run(...)`)
+
+Do NOT, inside the body:
+- `argmax` / `softmax` / `squeeze` / decode / threshold / clip / reshape
+- arithmetic on arrays, pandas logic
+- read `sample_id` or `preprocess.data` directly
+- index anything except the model's predictions — and even those only **once**:
+  the single output-select `model.run(...)[i]` is fine, but a second index/slice
+  on it (e.g. `[0]` to drop the batch) raises
+  `'TempMapping' object is not subscriptable`
+- manually add a batch dimension (Tensorleap batches encoder/GT outputs here)
+
+Move all of that into decorated interfaces. Inside the test, decorated calls
+return **batched** arrays (leading axis = 1) and the model is fed/returns batched
+data — so design loss/metrics for batched input, and strip the batch axis
+*inside* a visualizer (`if x.ndim == 3: x = x[0]`), never in the test body. When
+the mapping rerun fails, code_loader can mask the real exception (and
+mis-attribute "crashed at function 'X'") — see `.tensorleap/reference/error-signals.md`
+(Integration test) to surface it.
+
+## Reading feedback -> fix
+
+The full catalog of known signals (preprocess, encoder, GT, load_model,
+integration-test, loss, metadata, visualizer, metric, legacy-binder) and the
+exact fix for each is in `.tensorleap/reference/error-signals.md`. Consult it when a signal
+isn't obvious. The highest-frequency ones:
+
+- `Integration test is only allowed to call Tensorleap decorators …` — plain
+  Python leaked into the test body. Move it into a decorated function.
+- `Tensorleap will add a batch dimension at axis 0 …` — an encoder returned a
+  batched shape. Return a single unbatched sample.
+- `The return type should be a numpy array of type float32` — cast with
+  `.astype(np.float32)`.
+- `The function returned None` — missing `return`, or a branch returns nothing.
+  For unlabeled GT, return `np.array([], dtype=np.float32)`, never `None`.
+- `number of declared prediction types(…) != number of model outputs(…)` — fix
+  the `PredictionTypeHandler` list or the model.
+
+## Guardrails
+
+- Keep edits minimal, local, reviewable. Prioritize the integration files; do
+  not refactor or modify unrelated training/business logic.
+- **Never** install or upgrade packages (except `code_loader`, per Step 0) or
+  otherwise mutate the project's environment from inside this task. If a check would
+  require that, stop and report it as a blocker.
+- **Never** run `git commit` / `push` / `rebase` / `reset`. Leave change control
+  to the human / orchestrator.
+- Run Python through the project's agreed environment from Step 0 (pyenv + poetry
+  by default: `poetry run python …`; otherwise the venv/tool the user chose), not
+  a different or global interpreter. Do not probe global site-packages to
+  compensate for an interpreter mismatch.
+- In `leap.yaml`, `include` every **code/asset** file the integration reads at
+  runtime (tokenizer, labels, config, helper modules) — but **not the model**,
+  which is uploaded to the platform separately, nor the **dataset**, which is read
+  from the data volume via a config-driven path. Set `pythonVersion` to match the
+  project's actual runtime — `py310`, `py311`, etc. It is **not** fixed to 3.10;
+  pick whatever `code_loader` and the model/runtime dependencies support (and
+  confirm your pinned deps publish a wheel for that interpreter — e.g. recent
+  `onnxruntime` releases dropped the py310 wheel). If a needed code/asset file is
+  excluded, local validation can pass while platform parsing fails.
+- Ship dependencies as a **`requirements.txt`** listed in `leap.yaml`'s `include`
+  — the platform installs them with **pip**, additively on top of the base image.
+  If you author with poetry/uv, **export** one
+  (`poetry export --without-hashes -o requirements.txt`). Do **not** ship
+  `pyproject.toml`/`poetry.lock` for the platform build: its poetry path resolves
+  against the base image's own `pyproject.toml`, so your deps never get installed.
+  Produce it from your actual working environment rather than hand-curating it — a
+  dropped transitive dependency fails the platform build, and a module's import name
+  can differ from its pip name (e.g. `code_loader.helpers` → `code-loader-helpers`).
+  The build runs on Linux, so when a dependency is OS-specific (e.g. `tensorflow-macos`)
+  add environment markers so it resolves there — e.g.
+  `tensorflow-macos==X; sys_platform=='darwin'` and `tensorflow==X; sys_platform=='linux'`.
+- Keep prints minimal inside `@tensorleap_load_model` and
+  `@tensorleap_integration_test` — the platform invokes these and heavy stdout
+  can interfere. Put diagnostic prints in the `__main__` block, and never let
+  parser success depend on a specific printed message. Import the model runtime
+  **inside** the loader body (`def load_model(): import onnxruntime as ort` /
+  `import keras`), not at module top — keeps the module import light and off the
+  platform parse path.
+- Do **not** add `from __future__ import annotations` to `leap_integration.py`.
+  code_loader reads `function.__annotations__` for the real visualizer return
+  *class* (e.g. `LeapHorizontalBar`); stringized annotations fail registration
+  with a misleading "return type is invalid … should be one of [a list that
+  already contains it]" error.
+- Set `state=`, `channel_dim=`, and prediction-type semantics explicitly — never
+  rely on the defaults the warnings flag.
+
+## Optional surfaces (after the core path is green)
+
+Add these one at a time, running after each:
+
+- **Visualizers** — pick a `LeapDataType` and return its matching `Leap*` class.
+  See `.tensorleap/reference/visualizer-types.md` for the catalog (type -> return class +
+  shape rules) and how to read the original sample (tokens, paths, ids) via a
+  `SamplePreprocessResponse` argument.
+- **Metadata** — `@tensorleap_metadata("name", DatasetMetadataType.<string|float|int|boolean>)`,
+  returning a scalar, `None`, or a flat dict of scalars (never arrays/nested).
+  One function can emit several typed fields: pass a
+  `Dict[str, DatasetMetadataType]` and return a matching dict (each surfaces as
+  `<name>_<key>`).
+- **Metrics / custom loss** — return a **batch-aligned 1D array (one value per
+  sample)**, not a single scalar. Give a metric its `direction`
+  (`MetricDirection.Upward`/`Downward`). A metric/loss must **discriminate
+  better predictions from worse ones** — "it runs and returns varying numbers"
+  is **not** sufficient. Stop and repair if either holds:
+    1. **Placeholder** — it ignores its prediction/GT arguments, or returns
+       zeros/constants/echoes an input. A no-op must not satisfy the wiring.
+    2. **Doesn't track quality** — it returns a real, varying value, but that
+       value doesn't reflect how good the prediction is. Counterfactual test:
+       if the prediction got better or worse, would the value move in a
+       meaningful direction? If not, it's a descriptor, not a metric — replace
+       it. (A prediction-only value is acceptable *only* as a genuine
+       unsupervised quality signal, e.g. calibration or uncertainty.)
+
+## Acceptance (staged definition of done)
+
+Use the validator as a staged signal, not a binary oracle.
+
+- **Early:** preprocess, an input encoder, and load_model each run directly
+  without error.
+- **Middle:** a minimal `integration_test(...)` runs, the mapping rerun does not
+  fail, and `Successful!` prints.
+- **Core:** the exit table shows preprocess, integration test, input encoder, GT
+  encoder, and load_model all exercised, with no unresolved mandatory rows.
+- **Real:** several training AND validation samples pass through
+  `integration_test(...)`, no default-use warnings remain, the structured parse is
+  clean, **and a custom loss is registered** (required to push — the platform build
+  fails without one).
+
+For the Core/Real decision, account for **both** signals — they cover different
+scopes (see above):
+
+```
+poetry run python .tensorleap/scripts/tl_check.py "$(pwd)"   # project env (poetry by default); pass an ABSOLUTE path
+```
+
+It prints JSON from `LeapLoader.check_dataset()`, which validates the **dataset
+side only** (preprocess, input/GT encoders, metadata) — it never loads the model.
+For those, trust `isValid`, `generalError`, and per-handler `payloads[].passed`
+over the human-readable exit table (`print_log` carries the captured stdout). For
+the **dataset<->model rows** — `load_model`, `custom_loss`, and any
+metric/visualizer that consumes predictions — `check_dataset()` is silent; rely on
+the exit table there (a `❌` is real even when `isValid` is `True`). "Clean" =
+`isValid: True` **and** no unresolved model-connection crosses in the table.
+
+## Deploy: push the finished integration
+
+Once the structured parse is clean, ship it to the platform from the repo root.
+
+1. **Auth (re-check)** — auth was verified in the Preflight gate; quickly
+   re-confirm with `leap auth whoami` in case the token expired mid-session. If
+   it no longer returns your user/team, re-run `leap auth login`.
+2. **Project** — the workspace must point at a project (a `projectId` in
+   `leap.yaml`). If `leap projects info` says "No project configured," run
+   `leap projects create <name>` and set its id in `leap.yaml`.
+3. **Push + evaluate** — from the repo root:
+   `leap push -m <model> -n <version> -b <batch> --eval`. `-m` uploads the model
+   separately (it is not bundled); the code bundle comes from `leap.yaml`'s
+   `include`. (`leap push -h` for `-o/--overwrite`, `--no-wait`, `--branch`.)
+4. **Monitor** — `leap run list` (job status) and `leap run logs <run-id>`; the
+   `--eval` appears as an `Evaluate` job.
+<!-- END TENSORLEAP SKILL: tensorleap-integration-creation -->
