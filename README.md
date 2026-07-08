@@ -38,11 +38,12 @@ our section.
 
 ```
 /plugin marketplace add tensorleap/skills
-/plugin install tensorleap@tensorleap
+/plugin install integration@tensorleap
 ```
 
-Installing the `tensorleap` plugin gives you every skill it bundles; Claude
-auto-loads the relevant one per task.
+`integration` is the plugin (a domain-scoped bundle) within the `tensorleap`
+marketplace; installing it gives you its skills, and Claude auto-loads the
+relevant one per task.
 
 ## How it works
 

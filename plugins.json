@@ -9,7 +9,7 @@
   "license": "Apache-2.0",
   "plugins": [
     {
-      "name": "tensorleap",
+      "name": "integration",
       "description": "Tensorleap's AI-assistant skills for authoring and debugging Tensorleap integrations.",
       "version": "0.1.0",
       "skills": [
