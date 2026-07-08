@@ -41,6 +41,15 @@ No training happens here. That shapes the whole integration:
   Convention: the **dataset** → data volume (read from a *config-driven* path,
   never hardcoded); the **model** → separate upload; every **other** asset the
   integration reads from disk → `leap.yaml`.
+- **Remote data (fetched, not bundled).** If the dataset lives in a store the
+  *server* can reach (e.g. S3) and fetching beats bundling it, read it directly
+  from `preprocess`/encoders — but **cache each fetched file inside the data
+  volume** (config-driven path) and reuse the cached copy when present, so repeated
+  runs (and code_loader's in-run re-invocations) don't re-download. If access needs
+  a credential, read it from the **`AUTH_SECRET`** env var — register it with `leap
+  secrets create` and attach it with `leap secrets set` (writes `secretId` into
+  `leap.yaml`); it is auto-injected into platform jobs, so **export it yourself for
+  local runs**. Gate only the download, not cached reads.
 
 ## The one rule that drives everything
 
@@ -142,11 +151,12 @@ order:
    - **Validate `code_loader`.** If it isn't installed, install the latest release.
      If it is, require `code-loader >= 1.0.142`; if older, stop and report it as a
      blocker.
-   - **Place the dataset in the data volume.** A file is readable on the platform
-     only if it's in `leap.yaml` or the data volume. Put the dataset in the data
-     volume: find the directory with `leap server info` → `datasetVolumes`, create
-     a per-project folder, place the data there, and point the integration's
-     config-driven path at it.
+   - **Place the dataset in the data volume** (or fetch it at runtime from a
+     remote store and cache into the volume — see "Remote data" above). A file is
+     readable on the platform only if it's in `leap.yaml` or the data volume. Put
+     the dataset in the data volume: find the directory with `leap server info` →
+     `datasetVolumes`, create a per-project folder, place the data there, and point
+     the integration's config-driven path at it.
 1. Create `leap_integration.py` + `leap.yaml`; run a one-line `__main__` to
    confirm imports resolve and the exit hook attaches.
 2. `@tensorleap_preprocess` — return `list[PreprocessResponse]` with explicit
