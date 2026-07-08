@@ -3,6 +3,7 @@ description: Use when writing or fixing a Tensorleap integration in the decorato
 globs: leap_integration.py,leap.yaml
 alwaysApply: false
 ---
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.1.0 — generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 
 # Writing a Tensorleap integration
 

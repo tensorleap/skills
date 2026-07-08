@@ -6,9 +6,9 @@
   },
   "plugins": [
     {
-      "name": "tensorleap-integration-creation",
-      "source": "./dist/tensorleap-integration/claude",
-      "description": "Author and debug a Tensorleap integration (leap_integration.py + leap.yaml, decorator style) via a progressive author -> run -> fix loop.",
+      "name": "tensorleap",
+      "source": "./dist/claude/tensorleap",
+      "description": "Tensorleap's AI-assistant skills for authoring and debugging Tensorleap integrations.",
       "version": "0.1.0",
       "author": {
         "name": "Tensorleap"

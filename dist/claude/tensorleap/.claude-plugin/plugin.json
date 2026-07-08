@@ -1,0 +1,11 @@
+{
+  "name": "tensorleap",
+  "description": "Tensorleap's AI-assistant skills for authoring and debugging Tensorleap integrations.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Tensorleap",
+    "email": "support@tensorleap.ai"
+  },
+  "homepage": "https://github.com/tensorleap/skills",
+  "license": "Apache-2.0"
+}

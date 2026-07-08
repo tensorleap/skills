@@ -1,0 +1,20 @@
+{
+  "_comment": "SOURCE catalog (input to build/generate.py). Defines the Claude Code marketplace name, shared owner/metadata, and which skills compose which plugins. 'plugin' is a Claude-only grouping: other tools (cursor/copilot/agents) flatten to one file per skill and ignore this file. Skill names are the directory names under skills/. Regenerate after editing: python build/generate.py",
+  "name": "tensorleap",
+  "owner": {
+    "name": "Tensorleap",
+    "email": "support@tensorleap.ai"
+  },
+  "homepage": "https://github.com/tensorleap/skills",
+  "license": "Apache-2.0",
+  "plugins": [
+    {
+      "name": "tensorleap",
+      "description": "Tensorleap's AI-assistant skills for authoring and debugging Tensorleap integrations.",
+      "version": "0.1.0",
+      "skills": [
+        "tensorleap-integration-creation"
+      ]
+    }
+  ]
+}

@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Golden + freshness (Claude wrapper must match the proven baseline; dist/ must be fresh)
+      - name: Golden + freshness (Claude wrappers match the proven baselines; dist/ + marketplace.json fresh)
         run: python build/generate.py --check
 
       - name: Leak scan (no internal references in published files)
@@ -25,18 +25,11 @@ jobs:
         run: python build/check_manifests.py
 
       - name: py_compile (all Python)
-        run: |
-          python -m py_compile \
-            build/generate.py \
-            build/leak_scan.py \
-            build/check_manifests.py \
-            skills/tensorleap-integration/scripts/tl_check.py
+        run: python -m py_compile build/*.py skills/*/scripts/*.py
 
       - name: shellcheck (installer + skill scripts)
         # Gate at warning: the skill scripts are lifted verbatim and carry only
         # info-level style suggestions (e.g. SC2018/SC2019) we don't rewrite.
         run: |
           shellcheck --version
-          shellcheck -S warning install.sh \
-            skills/tensorleap-integration/scripts/preflight.sh \
-            skills/tensorleap-integration/scripts/run_integration.sh
+          shellcheck -S warning install.sh skills/*/scripts/*.sh

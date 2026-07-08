@@ -3,12 +3,13 @@
 # Interim installer for Tensorleap AI-assistant skills.
 #
 # Installs the generated per-tool wrappers into a target repo (or your home dir)
-# from the committed `dist/`. Standalone tools (Claude, Cursor) are written as
-# their own files; shared files (AGENTS.md, Copilot instructions) get an
-# idempotent marked-section upsert that never clobbers content you already own.
+# from the committed dist/. Standalone tools (Claude, Cursor) are written as their
+# own files; shared files (AGENTS.md, Copilot instructions) get an idempotent
+# marked-section upsert that never clobbers content you already own. Installs
+# every skill in the repo (the Claude "plugin" grouping only matters for the
+# native marketplace path, not for this file-copy install).
 #
-# The future front door is `leap skills install <name>`; this script is the
-# bridge until then.
+# The future front door is `leap skills install <name>`; this is the bridge.
 #
 # Usage:
 #   ./install.sh [--tool <claude|cursor|copilot|agents|all>] [--repo|--global] [TARGET_DIR]
@@ -19,10 +20,8 @@
 #   --global   install into your home dir (Claude personal skills, shared scripts)
 #   TARGET_DIR the repo to install into (only in --repo mode; default: ".")
 #
-set -euo pipefail
+set -eu   # not pipefail: dash (Linux `curl|sh`) rejects `set -o pipefail`
 
-SKILL_DIR_NAME="tensorleap-integration"
-SKILL_NAME="tensorleap-integration-creation"
 REPO_URL="https://github.com/tensorleap/skills"
 
 TOOL="all"
@@ -37,7 +36,7 @@ while [ $# -gt 0 ]; do
     --repo)   SCOPE="repo"; shift ;;
     --global) SCOPE="global"; shift ;;
     -h|--help)
-      sed -n '3,26p' "$0" 2>/dev/null || echo "see header of install.sh"; exit 0 ;;
+      sed -n '3,24p' "$0" 2>/dev/null || echo "see header of install.sh"; exit 0 ;;
     -*) echo "install: unknown flag '$1'" >&2; exit 2 ;;
     *)  TARGET="$1"; shift ;;
   esac
@@ -61,7 +60,7 @@ SCRIPT_SRC="${BASH_SOURCE:-$0}"
 SRC=""
 if [ -f "$SCRIPT_SRC" ]; then
   cand="$(cd "$(dirname "$SCRIPT_SRC")" && pwd)"
-  [ -d "$cand/dist/$SKILL_DIR_NAME" ] && SRC="$cand"
+  if [ -d "$cand/dist" ]; then SRC="$cand"; fi
 fi
 CLONED=""
 if [ -z "$SRC" ]; then
@@ -71,21 +70,25 @@ if [ -z "$SRC" ]; then
   git clone --depth 1 "$REPO_URL" "$CLONED" >/dev/null 2>&1
   SRC="$CLONED"
 fi
-cleanup() { [ -n "$CLONED" ] && rm -rf "$CLONED"; }
+cleanup() { [ -n "$CLONED" ] && rm -rf "$CLONED"; return 0; }
 trap cleanup EXIT
 
-DIST="$SRC/dist/$SKILL_DIR_NAME"
-SHARED="$SRC/skills/$SKILL_DIR_NAME"
+DIST="$SRC/dist"
+SKILLS_SRC="$SRC/skills"
 [ -d "$DIST" ] || { echo "install: $DIST not found (run build/generate.py?)" >&2; exit 2; }
 
 # --- helpers ---------------------------------------------------------------- #
 say() { printf '  %s\n' "$1"; }
 
-# Replace the marked block for this skill in $1, or append it if absent.
+list_skills() { for d in "$SKILLS_SRC"/*/; do if [ -f "$d/skill.md" ]; then basename "$d"; fi; done; }
+
+want() { [ "$TOOL" = "all" ] || [ "$TOOL" = "$1" ]; }
+
+# Replace the marked block for a skill in $1, or append it if absent.
 upsert_section() {
-  target="$1"; section="$2"
-  begin="<!-- BEGIN TENSORLEAP SKILL: ${SKILL_NAME} -->"
-  end="<!-- END TENSORLEAP SKILL: ${SKILL_NAME} -->"
+  target="$1"; section="$2"; name="$3"
+  begin="<!-- BEGIN TENSORLEAP SKILL: ${name} -->"
+  end="<!-- END TENSORLEAP SKILL: ${name} -->"
   mkdir -p "$(dirname "$target")"
   [ -f "$target" ] || : > "$target"
   if grep -qF "$begin" "$target"; then
@@ -96,24 +99,24 @@ upsert_section() {
       !skip { print }
     ' "$target" > "$target.tmp"
     mv "$target.tmp" "$target"
-    say "updated section in $target"
+    say "updated $name in $target"
   else
-    [ -s "$target" ] && printf '\n' >> "$target"
+    if [ -s "$target" ]; then printf '\n' >> "$target"; fi
     cat "$section" >> "$target"
-    say "added section to $target"
+    say "added $name to $target"
   fi
 }
 
 install_shared_scripts() {
   mkdir -p "$TARGET/.tensorleap/scripts" "$TARGET/.tensorleap/reference"
-  # Copy files only (a stray __pycache__/ etc. must not break the install).
-  find "$SHARED/scripts" -maxdepth 1 -type f -exec cp {} "$TARGET/.tensorleap/scripts/" \;
-  find "$SHARED/reference" -maxdepth 1 -type f -exec cp {} "$TARGET/.tensorleap/reference/" \;
+  # Files only (a stray __pycache__/ etc. must not break the install).
+  for skill in $(list_skills); do
+    find "$SKILLS_SRC/$skill/scripts" -maxdepth 1 -type f -exec cp {} "$TARGET/.tensorleap/scripts/" \; 2>/dev/null || true
+    find "$SKILLS_SRC/$skill/reference" -maxdepth 1 -type f -exec cp {} "$TARGET/.tensorleap/reference/" \; 2>/dev/null || true
+  done
   chmod +x "$TARGET"/.tensorleap/scripts/*.sh 2>/dev/null || true
   say "shared scripts -> $TARGET/.tensorleap/scripts"
 }
-
-want() { [ "$TOOL" = "all" ] || [ "$TOOL" = "$1" ]; }
 
 # --- installs --------------------------------------------------------------- #
 echo "Installing Tensorleap skills (tool=$TOOL, scope=$SCOPE) into $TARGET"
@@ -124,26 +127,38 @@ if want cursor || want copilot || want agents; then
 fi
 
 if want claude; then
-  dest="$TARGET/.claude/skills/$SKILL_NAME"
-  mkdir -p "$dest"
-  cp -R "$DIST/claude/skills/$SKILL_NAME/." "$dest/"
-  chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
-  say "claude skill -> $dest"
+  for skill in $(list_skills); do
+    src="$(find "$DIST/claude" -type d -path "*/skills/$skill" 2>/dev/null | head -1)"
+    [ -n "$src" ] || continue
+    dest="$TARGET/.claude/skills/$skill"
+    mkdir -p "$dest"
+    cp -R "$src/." "$dest/"
+    chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
+    say "claude skill -> $dest"
+  done
 fi
 
 if want cursor; then
-  dest="$TARGET/.cursor/rules"
-  mkdir -p "$dest"
-  cp "$DIST/cursor/$SKILL_NAME.mdc" "$dest/"
-  say "cursor rule -> $dest/$SKILL_NAME.mdc"
+  mkdir -p "$TARGET/.cursor/rules"
+  for f in "$DIST"/cursor/*.mdc; do
+    [ -e "$f" ] || continue
+    cp "$f" "$TARGET/.cursor/rules/"
+    say "cursor rule -> $TARGET/.cursor/rules/$(basename "$f")"
+  done
 fi
 
 if want agents; then
-  upsert_section "$TARGET/AGENTS.md" "$DIST/agents/AGENTS.section.md"
+  for f in "$DIST"/agents/*.section.md; do
+    [ -e "$f" ] || continue
+    upsert_section "$TARGET/AGENTS.md" "$f" "$(basename "$f" .section.md)"
+  done
 fi
 
 if want copilot; then
-  upsert_section "$TARGET/.github/copilot-instructions.md" "$DIST/copilot/copilot-instructions.section.md"
+  for f in "$DIST"/copilot/*.section.md; do
+    [ -e "$f" ] || continue
+    upsert_section "$TARGET/.github/copilot-instructions.md" "$f" "$(basename "$f" .section.md)"
+  done
 fi
 
 echo "Done."

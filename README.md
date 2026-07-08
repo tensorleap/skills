@@ -8,7 +8,7 @@ shared scripts each skill needs.
 Internal and external users consume the same published artifact. Delivery is via
 the installer below today, and eventually via `leap skills install <name>`.
 
-> **v1 ships one skill:** [`tensorleap-integration-creation`](skills/tensorleap-integration/skill.md)
+> **v1 ships one skill:** [`tensorleap-integration-creation`](skills/tensorleap-integration-creation/skill.md)
 > — authoring and debugging a Tensorleap integration (`leap_integration.py` +
 > `leap.yaml`, decorator style) through a progressive author → run → fix loop.
 
@@ -38,55 +38,75 @@ our section.
 
 ```
 /plugin marketplace add tensorleap/skills
-/plugin install tensorleap-integration-creation@tensorleap
+/plugin install tensorleap@tensorleap
 ```
+
+Installing the `tensorleap` plugin gives you every skill it bundles; Claude
+auto-loads the relevant one per task.
 
 ## How it works
 
-One canonical skill → generated per-tool wrappers. **Claude is the reference:** the
-canonical `skill.md` is a *superset* of the proven Claude `SKILL.md` (same body,
-plus metadata Claude ignores), and a golden-file check asserts the generated Claude
+A **skill** is the unit of authorship — `skills/<name>/skill.md` (the dir name *is*
+the skill name). It's generated into per-tool wrappers. **Claude is the reference:**
+each `skill.md` is a *superset* of the proven Claude `SKILL.md` (same body, plus
+metadata Claude ignores), and a golden-file check asserts the generated Claude
 wrapper is byte-for-byte identical to the proven baseline. No generator change can
 silently degrade the Claude experience.
 
+A **plugin** is a Claude-Code-only grouping of skills, declared in `plugins.json`
+(it also carries plugin-level metadata + version). **Only Claude has plugins** — the
+other tools (Cursor, Copilot, AGENTS.md) **flatten** to one file/section per skill
+and ignore the grouping entirely. So packaging choices only ever affect the Claude
+column.
+
 ```
-skills/
-  tensorleap-integration/
-    skill.md            # canonical: superset frontmatter + tool-neutral body
-    reference/*.md       # shared reference docs
-    scripts/             # shared, repo-agnostic (preflight / run / check)
+skills/                             # the atoms — author here
+  tensorleap-integration-creation/
+    skill.md                        # canonical: superset frontmatter + tool-neutral body
+    reference/*.md                   # shared reference docs
+    scripts/                         # shared, repo-agnostic (preflight / run / check)
+plugins.json                         # which skills compose which Claude plugins (+ metadata/version)
 build/
-  generate.py            # canonical skill.md -> per-tool wrappers  (--check for CI)
-  check_manifests.py     # marketplace.json + plugin.json validity
-  leak_scan.py           # no internal references in published files
-  golden/                # the pinned proven Claude SKILL.md (golden baseline)
-dist/                    # generated wrappers (committed; CI asserts fresh)
-  tensorleap-integration/{claude,cursor,copilot,agents}/
-install.sh               # interim installer (clone-and-run or curl|sh)
-.claude-plugin/marketplace.json
+  generate.py                        # skills + plugins.json -> wrappers   (--check for CI)
+  check_manifests.py                 # marketplace.json + plugin.json validity
+  leak_scan.py                       # no internal references in published files
+  golden/<skill>/SKILL.md            # pinned proven Claude SKILL.md (the don't-degrade tripwire)
+dist/                                # generated wrappers (committed; CI asserts fresh)
+  claude/<plugin>/                   # a Claude plugin: plugin.json + skills/<skill>/{SKILL.md,scripts,reference}
+  cursor/<skill>.mdc                 # flat, one per skill
+  agents/<skill>.section.md          # flat marked-section fragment per skill
+  copilot/<skill>.section.md         # flat marked-section fragment per skill
+.claude-plugin/marketplace.json      # generated; native `marketplace add` path
+install.sh                           # interim installer (clone-and-run or curl|sh)
 ```
 
-The only per-tool differences in the body are the paths to the shared `scripts/`
-and `reference/` files, written canonically as the `{{scripts_dir}}` and
-`{{reference_dir}}` placeholders. The Claude wrapper resolves them to the
-skill-relative `scripts/` and `reference/` (it installs self-contained); every other
-tool resolves them to `.tensorleap/scripts` and `.tensorleap/reference`, where the
-installer places the shared files.
+The two per-tool-variable paths in the body — the shared `scripts/` and `reference/`
+dirs — are written canonically as `{{scripts_dir}}` / `{{reference_dir}}`. Claude
+resolves them skill-relative (self-contained); every other tool resolves them to
+`.tensorleap/scripts` and `.tensorleap/reference`, where the installer places them.
 
 ## Developing
 
 ```bash
-python build/generate.py           # regenerate dist/ after editing a skill
-python build/generate.py --check   # what CI runs: golden + dist freshness
+python build/generate.py           # regenerate dist/ + marketplace.json after an edit
+python build/generate.py --check   # what CI runs: golden + dist/ + marketplace freshness
 python build/leak_scan.py
 python build/check_manifests.py
 ```
 
-**Editing a skill.** Change `skills/tensorleap-integration/skill.md` (or its
-`scripts/` / `reference/`), then regenerate. If your change alters the Claude
-output, the golden check will fail — that is intentional. If the change to the
-Claude experience is deliberate, update the golden baseline under `build/golden/`
-in the same commit so the diff is reviewed.
+**Editing a skill.** Change `skills/<name>/skill.md` (or its `scripts/` /
+`reference/`), then regenerate. If your change alters the Claude output, the golden
+check will fail — that is intentional. If the change to the Claude experience is
+deliberate, update the golden baseline under `build/golden/<name>/` in the same
+commit so the diff is reviewed.
+
+**Adding a skill.** Create `skills/<new-name>/skill.md` (+ `scripts/` / `reference/`),
+pin its proven Claude output at `build/golden/<new-name>/SKILL.md`, add the skill to
+a plugin's `skills` list in `plugins.json` (or a new plugin entry), then regenerate.
+
+**Versioning.** Plugin version lives in `plugins.json` and is stamped into
+`plugin.json` + `marketplace.json` by the generator. Each `skill.md` also carries its
+own `version`, stamped as a comment into the flat (non-Claude) outputs for traceability.
 
 ## License
 

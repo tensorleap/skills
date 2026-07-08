@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Managed by tensorleap/skills. Regenerate; do not edit by hand. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.1.0 — generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
