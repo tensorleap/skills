@@ -203,11 +203,14 @@ runtime (`py310`, `py311`, …; whatever `code_loader` and the model/runtime dep
 support — it is not fixed to 3.10). A locally-readable but un-included file makes
 local validation pass while platform parsing fails.
 
-Dependencies ship as a **`requirements.txt`** in `include`: the platform installs
-them with **pip** (additive, on top of the base image). Export one if you author
-with poetry/uv (`poetry export --without-hashes -o requirements.txt`). Do **not**
-rely on `pyproject.toml`/`poetry.lock` — the platform's poetry path resolves
-against the base image's own pyproject, so your deps wouldn't be installed.
+Dependencies ship as a **`requirements.txt`** in `include`: the platform pip-installs
+them additively on top of its Linux/aarch64 base image. Build the list from what the
+integration imports at runtime (not the training/dev stack) and let pip resolve the
+transitives; do **not** rely on `pyproject.toml`/`poetry.lock` — the platform's poetry
+path resolves against the base image's own pyproject, so your deps wouldn't install.
+Prefer compatible-release pins (`~=`) over exact patch pins (`==`) so the aarch64 build
+finds a wheel, and translate OS-specific deps (`tensorflow-macos` → `tensorflow`, or
+`sys_platform` markers).
 
 Do **not** include the **model** (it is uploaded to the platform separately; your
 `@tensorleap_load_model` loads it only for local runs / the integration test) or

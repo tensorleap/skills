@@ -84,7 +84,7 @@ def main():
         "available": True,
         "entryFile": entry_name,
         "isValid": bool(result.is_valid),
-        "isValidForModel": bool(getattr(result, "is_valid_for_model", False)),
+        "hasCustomLayers": bool(getattr(result, "is_valid_for_model", False)),
         "generalError": result.general_error or "",
         "printLog": result.print_log or "",
         "payloads": [_payload_entry(p) for p in (result.payloads or [])],

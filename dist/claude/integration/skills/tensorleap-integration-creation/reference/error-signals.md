@@ -84,7 +84,7 @@ run (or in `tl_check.py` output) to its row, apply the fix, then re-run.
 | `sample_id type (…) does not match … from the PreprocessResponse` | Fix the call site or preprocess IDs. |
 | `indexing is supported only on the model's predictions inside the integration test` | Move indexing into a decorated interface. |
 | `Integration test is only allowed to call Tensorleap decorators …` | Move all arithmetic/library/Python logic into decorated functions. |
-| `'TempMapping' object is not subscriptable` | A prediction was indexed/sliced more than once in the test body — keep only the single `model.run(...)[i]`; move further slicing into a decorated function. |
+| `'TempMapping' object is not subscriptable` | A prediction was indexed/sliced more than once in the test body — keep only the single `model.run(None, ...)[i]`; move further slicing into a decorated function. |
 | `Successful!` | Real run + mapping rerun + first-sample binder check passed. |
 
 When the mapping rerun fails, code_loader can mask the real exception (it raises

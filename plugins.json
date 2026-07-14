@@ -11,7 +11,7 @@
     {
       "name": "integration",
       "description": "Tensorleap's AI-assistant skills for authoring and debugging Tensorleap integrations.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "skills": [
         "tensorleap-integration-creation"
       ]
