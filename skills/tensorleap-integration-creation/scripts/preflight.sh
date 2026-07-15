@@ -16,18 +16,28 @@
 # by the skill as a setup step — they require the env to exist, so they are not
 # part of this gate.
 #
-# v1 supports only the case where the CLI and the Tensorleap server run on the
-# SAME machine (a local server). A remote server is detected and reported as
-# unsupported.
+# Server topology is decided by the API URL from `leap auth whoami` (that is the
+# server the CLI actually talks to — a local install may exist yet the CLI point
+# at a remote server; whoami wins):
+#   - LOCAL server  -> full local checks (server online + data volume).
+#   - REMOTE server -> NOT a blocker. The local `server info` cannot describe a
+#     remote host and the data volume cannot be inferred/verified from here, so
+#     the script stops with exit 4 and the skill drives the remote flow (confirm
+#     intent -> ask for the remote volume + remote `server info` -> creds via
+#     `leap secrets`).
 #
 # Usage:   scripts/preflight.sh
 # CLI:     default `leap`; override with TL_CLI (e.g. TL_CLI=leapdev)
 #
 # Exit codes:
-#   0  all clear — platform prerequisites met
-#   2  BLOCKER (CLI missing / remote server / server down / no data volume) —
+#   0  all clear — LOCAL platform prerequisites met
+#   2  BLOCKER (CLI missing / local server down / no data volume) —
 #      relay the printed guidance to the user and STOP; do not fix it here
 #   3  SETUP pending (not authenticated) — the skill guides login, then re-run
+#   4  REMOTE server detected — NOT an error. The skill must confirm the user
+#      wants to work remotely and then follow the remote data flow (see SKILL.md
+#      "Preflight gate"). If the user does NOT want remote, they re-point the CLI
+#      at the local server and re-run preflight.
 #
 set -uo pipefail
 
@@ -94,25 +104,49 @@ if ! command -v "$TL_CLI" >/dev/null 2>&1; then
 fi
 pass "CLI present" "$(command -v "$TL_CLI")"
 
-# 2. Topology (read the configured API URL from whoami — no file parsing) -----
+# 2. Topology (the API URL from whoami decides which server the CLI talks to) --
+#    A local install may exist yet the CLI point at a remote server — whoami wins.
 WHO="$("$TL_CLI" auth whoami 2>&1)"
 URL="$(printf '%s\n' "$WHO" | sed -n 's/^API Url:[[:space:]]*//p' | head -1)"
 if [[ -z "$URL" ]]; then
   fail "Server endpoint" "could not read the API URL from '$TL_CLI auth whoami'"
   note "Authenticate first: $TL_CLI auth login"
-  blocked
+  echo; echo "SETUP PENDING — authenticate, then re-run preflight."; exit 3
 fi
+AUTHED=0
+printf '%s\n' "$WHO" | grep -q "^User email:" && AUTHED=1
 HOST="$(printf '%s' "$URL" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#[:/].*$##' | tr 'A-Z' 'a-z')"
+
 case "$HOST" in
   localhost|127.0.0.1|::1|0.0.0.0)
-    pass "Local server" "$URL" ;;
+    pass "Server topology" "local server ($URL)" ;;
   *)
-    fail "Local server" "detected a remote server ($URL)"
-    note "This skill currently only runs on the same machine as the Tensorleap server."
-    note "Please run it again from the server host."
-    blocked ;;
+    # REMOTE server — not a blocker. Local `server info` cannot describe it and the
+    # data volume cannot be inferred/verified from here; the skill drives the flow.
+    pass "Server topology" "remote server ($URL)"
+    if [[ "$AUTHED" -ne 1 ]]; then
+      fail "Authenticated" "not logged in to $URL"
+      note "Authenticate first: $TL_CLI auth login, then re-run preflight."
+      echo; echo "SETUP PENDING — authenticate, then re-run preflight."; exit 3
+    fi
+    pass "Authenticated" "$(printf '%s\n' "$WHO" | sed -n 's/^User email:[[:space:]]*//p' | head -1)"
+    note "Local 'server info' describes only a LOCAL install, so it cannot see this"
+    note "remote server's data volume — data presence cannot be verified from here."
+    echo
+    echo "REMOTE SERVER DETECTED — confirm intent before authoring. The skill must:"
+    echo "  1. Ask whether you want to work remotely (you may have BOTH a local and a"
+    echo "     remote server; the CLI is currently pointed at the remote one)."
+    echo "     - If NOT remote: re-point the CLI at the local server (reconfigure"
+    echo "       apiUrl / re-auth), then re-run preflight."
+    echo "  2. If remote: ask for the remote data volume path, and ask you to run"
+    echo "     '$TL_CLI server info' ON THE REMOTE HOST and paste its datasetvolumes."
+    echo "  3. For a remote data store, register credentials via '$TL_CLI secrets'"
+    echo "     (they become env vars on the platform); the local test uses the same"
+    echo "     env vars set in your local shell."
+    exit 4 ;;
 esac
 
+# --- LOCAL-server-only checks below (topology is local) ---------------------
 # 3 + 4. Server running + data volume (server info reports the LOCAL install) --
 INFO="$("$TL_CLI" server info 2>&1)"
 if printf '%s\n' "$INFO" | grep -qiE "no installation information|not running|cluster not found"; then
