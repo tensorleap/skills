@@ -4,7 +4,29 @@ Write the minimum next piece that unlocks a more informative validator run, then
 run. The `__main__` block evolves stage by stage — it is your run harness, not
 production code.
 
-## Imports (top of `leap_integration.py`)
+## File split (see skill.md "Project layout")
+
+Author across the fixed file set, each decorator in its component file, all
+imported into the entry file `leap_integration.py`:
+
+- `preprocess.py` → `@tensorleap_preprocess`
+- `encoders.py` → input + GT encoders
+- `metrics.py` / `metadata.py` / `visualizers.py` → the matching optional components
+- `project_config.yaml` → constants/config (data root, paths, `sample_limit_per_split`, flags) — no secrets
+- `leap_integration.py` → imports the above + `@tensorleap_load_model`,
+  `@tensorleap_integration_test`, and the `__main__` harness
+
+The decorator imports below come from `code_loader`; put each where its component
+lives. `leap_integration.py` then imports the component symbols:
+
+```python
+# leap_integration.py
+from preprocess import preprocess
+from encoders import image_input, class_gt
+# ... metrics / metadata / visualizers as added
+```
+
+## Decorator imports (in each component file)
 
 ```python
 from typing import List
@@ -28,6 +50,11 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
 
 ## Step 1 — skeleton + tiny `__main__`
 
+Create the file set (`leap_integration.py`, `preprocess.py`, `encoders.py`,
+`project_config.yaml`; add `metrics.py`/`metadata.py`/`visualizers.py` when those
+components arrive) and a `project_config.yaml` with at least the data root and
+`sample_limit_per_split`. Then a tiny entry-file `__main__`:
+
 ```python
 if __name__ == "__main__":
     print("integration module imported")
@@ -38,9 +65,16 @@ attached. The status table will show mostly-missing interfaces — expected.
 
 ## Step 2 — preprocess (the root)
 
+Lives in `preprocess.py`. Apply the **configurable, per-split-balanced sample
+limit** from `project_config.yaml` (`sample_limit_per_split`; `10` for the first
+push — see skill.md Data delivery):
+
 ```python
 @tensorleap_preprocess()
 def preprocess() -> List[PreprocessResponse]:
+    limit = CONFIG.get("sample_limit_per_split")   # None/0 = no limit
+    train_ids = all_train_ids[:limit] if limit else all_train_ids
+    val_ids = all_val_ids[:limit] if limit else all_val_ids   # same cap per split
     train = PreprocessResponse(sample_ids=train_ids, data={...}, state=DataStateType.training)
     val = PreprocessResponse(sample_ids=val_ids, data={...}, state=DataStateType.validation)
     return [train, val]
@@ -60,8 +94,15 @@ fetch — those come after `integration_test` reaches `leap_binder.check()`.
 
 `sample_ids` must be **unique strings**. If the natural ids aren't unique (or
 aren't strings), use the row index: `df.index.astype(str).tolist()`. Read the
-dataset from a **config-driven path** (it is a mount point on the platform), not
-a hardcoded one.
+dataset from a **config-driven data root** (it is a mount point on the platform),
+not a hardcoded one.
+
+For a **remote store** (S3, Elasticsearch, …) `preprocess` **lists** the data and
+stores a **pointer per sample** — the key/URI, not the bytes — in
+`PreprocessResponse.data`; the actual download happens lazily in the encoders (see
+Step 4). See skill.md **Data delivery** for the full row-by-row decision (local vs
+remote server, copy vs lazy-cache, credentials via `AUTH_SECRET`, and the
+data-root switch before push).
 
 ## Step 3 — inspect the model contract
 
@@ -78,6 +119,22 @@ One encoder per model input; enough for one real inference.
 def image_input(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
     row = preprocess.data["records_by_id"][sample_id]
     return load_image(row["image_path"]).astype(np.float32)
+```
+
+**Remote store — lazy download + cache in the data volume.** The pointer stored in
+`preprocess` resolves to a cache path under the config-driven data root; download
+on miss, then load locally. Credentials come from the **`AUTH_SECRET`** env var
+(registered via `leap secrets`, auto-injected on the platform, exported yourself
+for local runs) — never hardcoded:
+
+```python
+@tensorleap_input_encoder(name="image", channel_dim=-1)
+def image_input(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
+    row = preprocess.data["records_by_id"][sample_id]
+    local_path = os.path.join(DATA_ROOT, row["key"])   # cache path in the data volume
+    if not os.path.exists(local_path):
+        download_from_store(row["key"], local_path)     # auth via AUTH_SECRET env var
+    return load_image(local_path).astype(np.float32)
 ```
 
 `__main__`:
@@ -186,19 +243,25 @@ entryFile: leap_integration.py
 pythonVersion: py310        # match the project's runtime (py310/py311/...), not a fixed value
 include:
   - leap.yaml
-  - leap_integration.py
+  - leap_integration.py     # entry file
+  - preprocess.py           # component modules imported by the entry file
+  - encoders.py
+  - metrics.py              # include those that exist
+  - metadata.py
+  - visualizers.py
+  - project_config.yaml     # constants/config the integration reads (NOT secrets)
   - requirements.txt        # deps the platform installs with pip (export from poetry/uv if needed)
   - tokenizer/**            # tokenizer / vocab assets
-  - config.json             # config the integration reads
-  - <your_module>/**.py     # helper modules imported by the integration
+  - <your_module>/**.py     # any extra helper modules imported by the integration
   # NOT the model — it is uploaded to the platform separately, not bundled
 exclude:
   - .git/**
   - .concierge/**
 ```
 
-Include every **code/asset** the integration reads from disk — tokenizer, labels,
-config, helper modules — and declare `pythonVersion` to match the project's actual
+Include every **code/asset** the integration reads from disk — the component
+modules, `project_config.yaml`, tokenizer, labels, helper modules — and declare
+`pythonVersion` to match the project's actual
 runtime (`py310`, `py311`, …; whatever `code_loader` and the model/runtime deps
 support — it is not fixed to 3.10). A locally-readable but un-included file makes
 local validation pass while platform parsing fails.
@@ -214,6 +277,12 @@ finds a wheel, and translate OS-specific deps (`tensorflow-macos` → `tensorflo
 
 Do **not** include the **model** (it is uploaded to the platform separately; your
 `@tensorleap_load_model` loads it only for local runs / the integration test) or
-the **dataset** (it is mounted from the data volume, so `preprocess()` reads it
-from a config-driven path rather than a bundled file).
-(`projectId` / `secretId` / `branch` are managed by the platform.)
+the **dataset** (it lives on the data volume — either copied there or
+runtime-fetched from a remote store — so `preprocess()`/encoders read it from a
+config-driven data root rather than a bundled file).
+
+If the integration reads a **remote store**, add its client dep (e.g. `boto3` /
+`s3fs`) to `requirements.txt`, and register the store credential as `AUTH_SECRET`
+via `leap secrets create` + `leap secrets set` (writes `secretId` into `leap.yaml`
+for auto-injection). (`projectId` / `secretId` / `branch` are managed by the
+platform.)
