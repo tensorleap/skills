@@ -194,15 +194,16 @@ Inside the integration-test body, do ONLY:
 - call decorated encoders / GT / loss / metric / metadata / visualizer functions
 - call the decorated model loader
 - the minimal runtime-correct inference for the returned model object
-  (e.g. for an ONNX `InferenceSession`: `model.get_inputs()[0].name` +
-  `model.run(...)`)
+  (e.g. for an ONNX `InferenceSession`: `model.run(None, {model.get_inputs()[0].name: x})[i]`
+  — pass `None` for the output names to return all outputs, then index the one you
+  need; do not select outputs by name)
 
 Do NOT, inside the body:
 - `argmax` / `softmax` / `squeeze` / decode / threshold / clip / reshape
 - arithmetic on arrays, pandas logic
 - read `sample_id` or `preprocess.data` directly
 - index anything except the model's predictions — and even those only **once**:
-  the single output-select `model.run(...)[i]` is fine, but a second index/slice
+  the single output-select `model.run(None, ...)[i]` is fine, but a second index/slice
   on it (e.g. `[0]` to drop the batch) raises
   `'TempMapping' object is not subscriptable`
 - manually add a batch dimension (Tensorleap batches encoder/GT outputs here)
@@ -255,18 +256,18 @@ isn't obvious. The highest-frequency ones:
   confirm your pinned deps publish a wheel for that interpreter — e.g. recent
   `onnxruntime` releases dropped the py310 wheel). If a needed code/asset file is
   excluded, local validation can pass while platform parsing fails.
-- Ship dependencies as a **`requirements.txt`** listed in `leap.yaml`'s `include`
-  — the platform installs them with **pip**, additively on top of the base image.
-  If you author with poetry/uv, **export** one
-  (`poetry export --without-hashes -o requirements.txt`). Do **not** ship
-  `pyproject.toml`/`poetry.lock` for the platform build: its poetry path resolves
-  against the base image's own `pyproject.toml`, so your deps never get installed.
-  Produce it from your actual working environment rather than hand-curating it — a
-  dropped transitive dependency fails the platform build, and a module's import name
-  can differ from its pip name (e.g. `code_loader.helpers` → `code-loader-helpers`).
-  The build runs on Linux, so when a dependency is OS-specific (e.g. `tensorflow-macos`)
-  add environment markers so it resolves there — e.g.
-  `tensorflow-macos==X; sys_platform=='darwin'` and `tensorflow==X; sys_platform=='linux'`.
+- Ship dependencies as a **`requirements.txt`** listed in `leap.yaml`'s `include` —
+  the platform pip-installs them on top of its Linux (aarch64) base image. Do **not**
+  ship `pyproject.toml`/`poetry.lock` (the platform resolves those against its own base
+  image, so your deps never install). Build the list from the packages your integration
+  imports at runtime — **not** the repo's training/dev stack — so it stays lean and lets
+  pip resolve the transitive deps. Your dev environment is the starting point, but the
+  build runs on Linux/aarch64: carry cross-platform deps as-is and translate the
+  OS-specific ones (e.g. `tensorflow-macos` → `tensorflow`, or `sys_platform` markers).
+  Pin only as tightly as needed — prefer compatible-release pins (`tensorflow~=2.11.0`)
+  over exact patch pins (`==2.11.1`), so the aarch64 build can resolve an available
+  wheel. A package's import name can differ from its pip name (`code_loader.helpers` →
+  `code-loader-helpers`).
 - Keep prints minimal inside `@tensorleap_load_model` and
   `@tensorleap_integration_test` — the platform invokes these and heavy stdout
   can interfere. Put diagnostic prints in the `__main__` block, and never let
