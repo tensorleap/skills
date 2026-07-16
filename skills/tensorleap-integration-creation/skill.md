@@ -183,11 +183,23 @@ repo root:
 
 It verifies the platform prerequisites that need **no Python environment** (so it
 runs before the project env exists): the CLI is on PATH, which **server topology**
-the CLI points at (local vs remote — decided by the `API Url` in
-`leap auth whoami`), and — for a **local** server — that it is running, a data
-volume is configured, and you are authenticated. It **only checks** — it never
-installs, authenticates, starts a server, or configures anything. React to its
-exit status:
+the CLI points at (local vs remote — see the decision below), and — for a
+**local** server — that it is running, a data volume is configured, and you are
+authenticated. It **only checks** — it never installs, authenticates, starts a
+server, or configures anything. React to its exit status:
+
+**Deciding server topology.** Resolve local vs remote in this order:
+1. **The user has told you they work with a remote server** → **remote**,
+   regardless of the URL (they may reach it through a port-forward that looks
+   local). Run the gate with `TL_TOPOLOGY=remote` and follow the remote flow.
+2. **The `API Url` host in `leap auth whoami` is anything other than `localhost`**
+   (`127.0.0.1` / `::1` / `0.0.0.0` count as local) → **remote**.
+3. **The host is `localhost` but the port is not `4589`** (the default
+   local-server port) → **ambiguous**: it could be a local server on a custom
+   port, or a remote server reached via port-forwarding. The gate cannot tell, so
+   it **asks you to decide** — ask the user, then re-run with `TL_TOPOLOGY=local`
+   or `TL_TOPOLOGY=remote`.
+4. **Any other case** (host `localhost`, port `4589` or unspecified) → **local**.
 
 - **Blocker (exit 2)** — either the CLI is missing (checked before topology is
   known), or — **only when `whoami` points at a local server** — that local server
@@ -209,6 +221,14 @@ exit status:
       delivery** below), set up any store credentials via `leap secrets` /
       `AUTH_SECRET`, and remember the **data-root switch before push** and the
       **local data subset** the local test needs.
+- **Ambiguous topology (exit 5)** — the CLI points at `localhost` on a
+  non-`4589` port, which could be a local server on a custom port *or* a remote
+  server reached via port-forwarding. **Ask the user which it is**, then re-run
+  the gate with the answer:
+    - **Local** → `TL_TOPOLOGY=local {{scripts_dir}}/preflight.sh` (runs the
+      local server/volume checks).
+    - **Remote** → `TL_TOPOLOGY=remote {{scripts_dir}}/preflight.sh`, then follow
+      the **remote flow** above.
 - **OK (exit 0)** — the local platform is ready. Continue to the Python
   environment and `code_loader` setup in Step 0 below; those need the env to
   exist, so preflight deliberately leaves them to the skill.
