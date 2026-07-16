@@ -180,6 +180,7 @@ if want copilot; then
     src="$DIST/copilot/$skill"
     [ -d "$src" ] || continue
     dest="$cop_root/$skill"
+    rm -rf "$dest"   # fresh copy: files removed upstream must not linger after updates
     mkdir -p "$dest"
     cp -R "$src/." "$dest/"
     chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
