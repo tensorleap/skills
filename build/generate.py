@@ -15,7 +15,10 @@ OUTPUTS (into dist/, plus a generated .claude-plugin/marketplace.json)
               Skills are GROUPED under their plugin.
   cursor   -> dist/cursor/<skill>.mdc          flat, one file per skill.
   agents   -> dist/agents/<skill>.section.md   flat marked-section fragment per skill.
-  copilot  -> dist/copilot/<skill>.section.md  flat marked-section fragment per skill.
+  copilot  -> dist/copilot/<skill>/            self-contained Copilot Agent Skill:
+              SKILL.md (minimal frontmatter) + scripts + reference. Discovered
+              natively by Copilot from .github/skills/ (project) or
+              ~/.copilot/skills/ (global).
 
   Non-Claude outputs FLATTEN: the plugin grouping is invisible to them.
 
@@ -137,6 +140,17 @@ def render_claude_skill_md(canon):
     return frontmatter + resolve_body(canon, "scripts", "reference")
 
 
+def render_copilot_skill_md(canon):
+    """Copilot Agent Skill: only the documented keys (name, description) —
+    extra-key tolerance is undocumented — plus the same self-contained body
+    as Claude (skill-relative scripts/ and reference/)."""
+    frontmatter = ("---\n"
+                   "name: %s\n" % canon.inline("name")
+                   + "description: %s\n" % canon.description_flat()
+                   + "---\n")
+    return frontmatter + resolve_body(canon, "scripts", "reference")
+
+
 # --------------------------------------------------------------------------- #
 # Loading skills + the plugin catalog
 # --------------------------------------------------------------------------- #
@@ -240,8 +254,23 @@ def emit_claude(catalog, skills, root):
                     os.chmod(os.path.join(skill_out, "scripts", name), 0o755)
 
 
+def emit_copilot(skills, root):
+    """Copilot: one self-contained Agent Skill folder per skill (native discovery)."""
+    for name, canon in skills.items():
+        if "copilot" not in canon.tools():
+            continue
+        skill_out = os.path.join(root, DIST_REL, "copilot", name)
+        _write(os.path.join(skill_out, "SKILL.md"), render_copilot_skill_md(canon))
+        src = os.path.join(SKILLS_DIR, name)
+        _copytree(os.path.join(src, "scripts"), os.path.join(skill_out, "scripts"))
+        _copytree(os.path.join(src, "reference"), os.path.join(skill_out, "reference"))
+        for fname in os.listdir(os.path.join(skill_out, "scripts")):
+            if fname.endswith(".sh"):
+                os.chmod(os.path.join(skill_out, "scripts", fname), 0o755)
+
+
 def emit_flat(skills, root):
-    """Cursor / Copilot / AGENTS: one flat artifact per skill (no plugin grouping)."""
+    """Cursor / AGENTS: one flat artifact per skill (no plugin grouping)."""
     for name, canon in skills.items():
         tools = canon.tools()
         sd, rd = canon.scripts_dir(), canon.reference_dir()
@@ -255,16 +284,13 @@ def emit_flat(skills, root):
             body = resolve_body(canon, sd, rd)
             _write(os.path.join(root, DIST_REL, "cursor", "%s.mdc" % name),
                    fm + head + "\n" + body)
-        if "agents" in tools or "copilot" in tools:
+        if "agents" in tools:
             section = "%s\n%s\n%s\n%s\n" % (
                 MARKER_BEGIN % name, head,
                 resolve_body(canon, sd, rd).strip("\n"),
                 MARKER_END % name,
             )
-            if "agents" in tools:
-                _write(os.path.join(root, DIST_REL, "agents", "%s.section.md" % name), section)
-            if "copilot" in tools:
-                _write(os.path.join(root, DIST_REL, "copilot", "%s.section.md" % name), section)
+            _write(os.path.join(root, DIST_REL, "agents", "%s.section.md" % name), section)
 
 
 def render_marketplace(catalog):
@@ -293,6 +319,7 @@ def build_all(root):
     warnings = validate(catalog, skills)
     emit_claude(catalog, skills, root)
     emit_flat(skills, root)
+    emit_copilot(skills, root)
     _write(os.path.join(root, MARKETPLACE_REL), render_marketplace(catalog))
     return catalog, skills, warnings
 

@@ -3,21 +3,27 @@
 # Interim installer for Tensorleap AI-assistant skills.
 #
 # Installs the generated per-tool wrappers into a target repo (or your home dir)
-# from the committed dist/. Standalone tools (Claude, Cursor) are written as their
-# own files; shared files (AGENTS.md, Copilot instructions) get an idempotent
-# marked-section upsert that never clobbers content you already own. Installs
-# every skill in the repo (the Claude "plugin" grouping only matters for the
-# native marketplace path, not for this file-copy install).
+# from the committed dist/. Standalone tools (Claude, Cursor, Copilot) are
+# written as their own files; AGENTS.md gets an idempotent marked-section upsert
+# that never clobbers content you already own. Copilot gets a native Agent Skill
+# folder — .github/skills/<name>/ in a repo, or ~/.copilot/skills/<name>/ with
+# --global (read by both VS Code and Copilot CLI). Installs every skill in the
+# repo (the Claude "plugin" grouping only matters for the native marketplace
+# path, not for this file-copy install).
 #
 # The future front door is `leap skills install <name>`; this is the bridge.
 #
 # Usage:
-#   ./install.sh [--tool <claude|cursor|copilot|agents|all>] [--repo|--global] [TARGET_DIR]
-#   curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh
+#   ./install.sh [--tool <claude|cursor|copilot|agents|all>] [--repo|--global]
+#                [--ref <branch>] [TARGET_DIR]
+#   curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh \
+#     | sh -s -- --tool copilot [--global] [TARGET_DIR]
 #
 #   --tool     which wrapper(s) to install (default: all)
 #   --repo     install into TARGET_DIR (default: current directory)  [default mode]
-#   --global   install into your home dir (Claude personal skills, shared scripts)
+#   --global   install into your home dir (personal skills, shared scripts)
+#   --ref      git branch/tag to fetch when the installer clones itself
+#              (default: the repo's default branch; only affects curl|sh runs)
 #   TARGET_DIR the repo to install into (only in --repo mode; default: ".")
 #
 set -eu   # not pipefail: dash (Linux `curl|sh`) rejects `set -o pipefail`
@@ -27,6 +33,7 @@ REPO_URL="https://github.com/tensorleap/skills"
 TOOL="all"
 SCOPE="repo"
 TARGET=""
+REF=""
 
 # --- args ------------------------------------------------------------------- #
 while [ $# -gt 0 ]; do
@@ -35,8 +42,10 @@ while [ $# -gt 0 ]; do
     --tool=*) TOOL="${1#*=}"; shift ;;
     --repo)   SCOPE="repo"; shift ;;
     --global) SCOPE="global"; shift ;;
+    --ref)    REF="${2:?--ref needs a value}"; shift 2 ;;
+    --ref=*)  REF="${1#*=}"; shift ;;
     -h|--help)
-      sed -n '3,24p' "$0" 2>/dev/null || echo "see header of install.sh"; exit 0 ;;
+      sed -n '3,27p' "$0" 2>/dev/null || echo "see header of install.sh"; exit 0 ;;
     -*) echo "install: unknown flag '$1'" >&2; exit 2 ;;
     *)  TARGET="$1"; shift ;;
   esac
@@ -66,8 +75,14 @@ CLONED=""
 if [ -z "$SRC" ]; then
   command -v git >/dev/null 2>&1 || { echo "install: git required to fetch skills" >&2; exit 2; }
   CLONED="$(mktemp -d)"
-  echo "Fetching $REPO_URL ..."
-  git clone --depth 1 "$REPO_URL" "$CLONED" >/dev/null 2>&1
+  echo "Fetching $REPO_URL${REF:+ (ref $REF)} ..."
+  if [ -n "$REF" ]; then
+    git clone --depth 1 --branch "$REF" "$REPO_URL" "$CLONED" >/dev/null 2>&1 \
+      || { echo "install: git clone of $REPO_URL (ref '$REF') failed" >&2; exit 2; }
+  else
+    git clone --depth 1 "$REPO_URL" "$CLONED" >/dev/null 2>&1 \
+      || { echo "install: git clone of $REPO_URL failed" >&2; exit 2; }
+  fi
   SRC="$CLONED"
 fi
 cleanup() { [ -n "$CLONED" ] && rm -rf "$CLONED"; return 0; }
@@ -121,8 +136,9 @@ install_shared_scripts() {
 # --- installs --------------------------------------------------------------- #
 echo "Installing Tensorleap skills (tool=$TOOL, scope=$SCOPE) into $TARGET"
 
-# Non-Claude tools reference {{scripts_dir}} = .tensorleap/scripts, so place them.
-if want cursor || want copilot || want agents; then
+# Cursor/AGENTS reference {{scripts_dir}} = .tensorleap/scripts, so place them.
+# (Claude and Copilot skills are self-contained and don't need these.)
+if want cursor || want agents; then
   install_shared_scripts
 fi
 
@@ -155,9 +171,19 @@ if want agents; then
 fi
 
 if want copilot; then
-  for f in "$DIST"/copilot/*.section.md; do
-    [ -e "$f" ] || continue
-    upsert_section "$TARGET/.github/copilot-instructions.md" "$f" "$(basename "$f" .section.md)"
+  if [ "$SCOPE" = "global" ]; then
+    cop_root="$HOME/.copilot/skills"     # read by BOTH VS Code and Copilot CLI
+  else
+    cop_root="$TARGET/.github/skills"
+  fi
+  for skill in $(list_skills); do
+    src="$DIST/copilot/$skill"
+    [ -d "$src" ] || continue
+    dest="$cop_root/$skill"
+    mkdir -p "$dest"
+    cp -R "$src/." "$dest/"
+    chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
+    say "copilot skill -> $dest"
   done
 fi
 
