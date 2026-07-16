@@ -61,14 +61,6 @@ The skill first runs a preflight gate (Tensorleap CLI, server, data volume,
 auth), then drives a progressive author → run → read → fix loop that keeps the
 integration runnable at every step, and finishes with `leap push --eval`.
 
-**Copilot CLI tips:** for a hands-off run,
-`copilot -p "<prompt>" --allow-all-tools` lets the skill execute its bundled
-scripts without per-command approval, and `--add-dir <path>` grants file access
-to data that lives outside the repo (such as the Tensorleap data volume — shell
-access to paths outside the project is otherwise denied in non-interactive
-mode). In interactive mode Copilot simply asks for approval as it goes, so
-neither flag is needed.
-
 **Staying up to date:** the skill checks for a newer version whenever its
 preflight gate runs. A global install (`~/.copilot/skills`) updates itself
 automatically; a **project-local install is never changed without your
