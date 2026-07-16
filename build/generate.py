@@ -33,8 +33,9 @@ INVARIANT
 
 The two per-tool-variable paths in the body are the shared scripts/ and
 reference/ dirs, written canonically as {{scripts_dir}} / {{reference_dir}}.
-Claude resolves them skill-relative (`scripts` / `reference`, self-contained);
-every other tool resolves them to the installed shared paths from frontmatter.
+Claude, Copilot and Cursor resolve them skill-relative (`scripts` /
+`reference`, self-contained); only the AGENTS output resolves them to the
+installed shared paths from frontmatter.
 
 Usage:
   python build/generate.py            # (re)write dist/ + .claude-plugin/marketplace.json
