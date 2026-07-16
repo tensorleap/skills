@@ -7,9 +7,10 @@
 # written as their own files; AGENTS.md gets an idempotent marked-section upsert
 # that never clobbers content you already own. Copilot gets a native Agent Skill
 # folder — .github/skills/<name>/ in a repo, or ~/.copilot/skills/<name>/ with
-# --global (read by both VS Code and Copilot CLI). Installs every skill in the
-# repo (the Claude "plugin" grouping only matters for the native marketplace
-# path, not for this file-copy install).
+# --global (read by both VS Code and Copilot CLI). Cursor gets the same skill
+# folder at .cursor/skills/<name>/ in a repo, or ~/.cursor/skills/<name>/ with
+# --global. Installs every skill in the repo (the Claude "plugin" grouping only
+# matters for the native marketplace path, not for this file-copy install).
 #
 # The future front door is `leap skills install <name>`; this is the bridge.
 #
@@ -136,9 +137,9 @@ install_shared_scripts() {
 # --- installs --------------------------------------------------------------- #
 echo "Installing Tensorleap skills (tool=$TOOL, scope=$SCOPE) into $TARGET"
 
-# Cursor/AGENTS reference {{scripts_dir}} = .tensorleap/scripts, so place them.
-# (Claude and Copilot skills are self-contained and don't need these.)
-if want cursor || want agents; then
+# AGENTS references {{scripts_dir}} = .tensorleap/scripts, so place them.
+# (Claude, Cursor and Copilot skills are self-contained and don't need these.)
+if want agents; then
   install_shared_scripts
 fi
 
@@ -155,11 +156,20 @@ if want claude; then
 fi
 
 if want cursor; then
-  mkdir -p "$TARGET/.cursor/rules"
-  for f in "$DIST"/cursor/*.mdc; do
-    [ -e "$f" ] || continue
-    cp "$f" "$TARGET/.cursor/rules/"
-    say "cursor rule -> $TARGET/.cursor/rules/$(basename "$f")"
+  if [ "$SCOPE" = "global" ]; then
+    cur_root="$HOME/.cursor/skills"      # personal skills — read in every project
+  else
+    cur_root="$TARGET/.cursor/skills"
+  fi
+  for skill in $(list_skills); do
+    src="$DIST/cursor/$skill"
+    [ -d "$src" ] || continue
+    dest="$cur_root/$skill"
+    rm -rf "$dest"   # fresh copy: files removed upstream must not linger after updates
+    mkdir -p "$dest"
+    cp -R "$src/." "$dest/"
+    chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
+    say "cursor skill -> $dest"
   done
 fi
 

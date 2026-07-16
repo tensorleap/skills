@@ -13,7 +13,10 @@ OUTPUTS (into dist/, plus a generated .claude-plugin/marketplace.json)
   claude   -> dist/claude/<plugin>/            a self-contained Claude plugin:
               .claude-plugin/plugin.json + skills/<skill>/SKILL.md + scripts + reference.
               Skills are GROUPED under their plugin.
-  cursor   -> dist/cursor/<skill>.mdc          flat, one file per skill.
+  cursor   -> dist/cursor/<skill>/             self-contained Cursor Agent Skill:
+              SKILL.md (minimal frontmatter) + scripts + reference. Discovered
+              natively by Cursor from .cursor/skills/ (project) or
+              ~/.cursor/skills/ (global).
   agents   -> dist/agents/<skill>.section.md   flat marked-section fragment per skill.
   copilot  -> dist/copilot/<skill>/            self-contained Copilot Agent Skill:
               SKILL.md (minimal frontmatter) + scripts + reference. Discovered
@@ -110,9 +113,6 @@ class Canonical:
         cont = self.raw["description"].splitlines()[1:]  # drop the `description: >` line
         return " ".join(s.strip() for s in cont if s.strip())
 
-    def globs(self):
-        return re.findall(r'"([^"]+)"', self.raw["globs"])
-
     def scripts_dir(self):
         return self.inline("scripts_dir")
 
@@ -140,10 +140,10 @@ def render_claude_skill_md(canon):
     return frontmatter + resolve_body(canon, "scripts", "reference")
 
 
-def render_copilot_skill_md(canon):
-    """Copilot Agent Skill: only the documented keys (name, description) —
-    extra-key tolerance is undocumented — plus the same self-contained body
-    as Claude (skill-relative scripts/ and reference/)."""
+def render_native_skill_md(canon):
+    """Copilot / Cursor Agent Skill: only the documented keys (name,
+    description) — extra-key tolerance is undocumented — plus the same
+    self-contained body as Claude (skill-relative scripts/ and reference/)."""
     frontmatter = ("---\n"
                    "name: %s\n" % canon.inline("name")
                    + "description: %s\n" % canon.description_flat()
@@ -254,15 +254,17 @@ def emit_claude(catalog, skills, root):
                     os.chmod(os.path.join(skill_out, "scripts", name), 0o755)
 
 
-def emit_copilot(skills, root):
-    """Copilot: one self-contained Agent Skill folder per skill (native discovery)."""
+def emit_skill_folders(skills, root, tool):
+    """Copilot / Cursor: one self-contained Agent Skill folder per skill
+    (native discovery). The VERSION file (enables the self-update check in
+    preflight.sh) ships ONLY with Copilot — other copies stay inert."""
     for name, canon in skills.items():
-        if "copilot" not in canon.tools():
+        if tool not in canon.tools():
             continue
-        skill_out = os.path.join(root, DIST_REL, "copilot", name)
-        _write(os.path.join(skill_out, "SKILL.md"), render_copilot_skill_md(canon))
-        # Enables the self-update check in preflight.sh; ships ONLY with Copilot.
-        _write(os.path.join(skill_out, "VERSION"), canon.version() + "\n")
+        skill_out = os.path.join(root, DIST_REL, tool, name)
+        _write(os.path.join(skill_out, "SKILL.md"), render_native_skill_md(canon))
+        if tool == "copilot":
+            _write(os.path.join(skill_out, "VERSION"), canon.version() + "\n")
         src = os.path.join(SKILLS_DIR, name)
         _copytree(os.path.join(src, "scripts"), os.path.join(skill_out, "scripts"))
         _copytree(os.path.join(src, "reference"), os.path.join(skill_out, "reference"))
@@ -272,20 +274,11 @@ def emit_copilot(skills, root):
 
 
 def emit_flat(skills, root):
-    """Cursor / AGENTS: one flat artifact per skill (no plugin grouping)."""
+    """AGENTS: one flat marked-section fragment per skill (no plugin grouping)."""
     for name, canon in skills.items():
         tools = canon.tools()
         sd, rd = canon.scripts_dir(), canon.reference_dir()
         head = stamp(name, canon.version())
-        if "cursor" in tools:
-            fm = ("---\n"
-                  "description: %s\n" % canon.description_flat()
-                  + "globs: %s\n" % ",".join(canon.globs())
-                  + "alwaysApply: %s\n" % canon.inline("alwaysApply")
-                  + "---\n")
-            body = resolve_body(canon, sd, rd)
-            _write(os.path.join(root, DIST_REL, "cursor", "%s.mdc" % name),
-                   fm + head + "\n" + body)
         if "agents" in tools:
             section = "%s\n%s\n%s\n%s\n" % (
                 MARKER_BEGIN % name, head,
@@ -321,7 +314,8 @@ def build_all(root):
     warnings = validate(catalog, skills)
     emit_claude(catalog, skills, root)
     emit_flat(skills, root)
-    emit_copilot(skills, root)
+    emit_skill_folders(skills, root, "copilot")
+    emit_skill_folders(skills, root, "cursor")
     _write(os.path.join(root, MARKETPLACE_REL), render_marketplace(catalog))
     return catalog, skills, warnings
 
