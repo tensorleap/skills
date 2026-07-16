@@ -258,14 +258,14 @@ def emit_claude(catalog, skills, root):
 def emit_skill_folders(skills, root, tool):
     """Copilot / Cursor: one self-contained Agent Skill folder per skill
     (native discovery). The VERSION file (enables the self-update check in
-    preflight.sh) ships ONLY with Copilot — other copies stay inert."""
+    preflight.sh) ships with both folder tools but NEVER with Claude — Claude
+    updates come through the plugin marketplace and its copy stays inert."""
     for name, canon in skills.items():
         if tool not in canon.tools():
             continue
         skill_out = os.path.join(root, DIST_REL, tool, name)
         _write(os.path.join(skill_out, "SKILL.md"), render_native_skill_md(canon))
-        if tool == "copilot":
-            _write(os.path.join(skill_out, "VERSION"), canon.version() + "\n")
+        _write(os.path.join(skill_out, "VERSION"), canon.version() + "\n")
         src = os.path.join(SKILLS_DIR, name)
         _copytree(os.path.join(src, "scripts"), os.path.join(skill_out, "scripts"))
         _copytree(os.path.join(src, "reference"), os.path.join(skill_out, "reference"))

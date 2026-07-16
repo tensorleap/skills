@@ -66,8 +66,8 @@ preflight gate runs. A global install (`~/.copilot/skills`) updates itself
 automatically; a **project-local install is never changed without your
 approval** — Copilot will ask you first (or you'll get a `y/N` prompt when
 running preflight yourself in a terminal). Offline runs skip the check
-silently. This applies to Copilot installs only — Claude installs are not
-touched (Claude updates come through its plugin marketplace).
+silently. This applies to Copilot and Cursor installs only — Claude installs
+are not touched (Claude updates come through its plugin marketplace).
 
 **Upgrading from an older install:** earlier installer versions pasted the skill
 into `.github/copilot-instructions.md`. If that file contains a
@@ -137,6 +137,14 @@ Tensorleap-integration language; a good starting prompt:
 > at `<path/to/data>`. Start with the skill's preflight gate, then follow its run
 > loop until check_dataset() passes and the integration-test exit table is green.
 
+**Staying up to date:** the skill checks for a newer version whenever its
+preflight gate runs. A global install (`~/.cursor/skills`) updates itself
+automatically; a **project-local install is never changed without your
+approval** — the agent will ask you first (or you'll get a `y/N` prompt when
+running preflight yourself in a terminal). Offline runs skip the check
+silently. If Cursor's sandbox blocks the global auto-update (it writes to your
+home directory), preflight prints the manual update command instead.
+
 **Upgrading from an older install:** earlier installer versions wrote a Cursor
 *rule* at `.cursor/rules/tensorleap-integration-creation.mdc` plus helper files
 under `.tensorleap/` (with `--global`: the same paths under your home dir).
@@ -185,7 +193,7 @@ build/
 dist/                                # generated wrappers (committed; CI asserts fresh)
   claude/<plugin>/                   # a Claude plugin: plugin.json + skills/<skill>/{SKILL.md,scripts,reference}
   copilot/<skill>/                   # a Copilot Agent Skill: SKILL.md + scripts + reference (self-contained)
-  cursor/<skill>/                    # a Cursor Agent Skill: same shape, no VERSION file
+  cursor/<skill>/                    # a Cursor Agent Skill: same shape
   agents/<skill>.section.md          # flat marked-section fragment per skill
 .claude-plugin/marketplace.json      # generated; native `marketplace add` path
 install.sh                           # interim installer (clone-and-run or curl|sh)
@@ -219,8 +227,8 @@ a plugin's `skills` list in `plugins.json` (or a new plugin entry), then regener
 **Versioning.** Plugin version lives in `plugins.json` and is stamped into
 `plugin.json` + `marketplace.json` by the generator. Each `skill.md` also carries its
 own `version`, stamped as a comment into the flat AGENTS output for traceability
-(and shipped as the `VERSION` file in the Copilot skill, where it drives the
-self-update check).
+(and shipped as the `VERSION` file in the Copilot and Cursor skills, where it
+drives the self-update check).
 
 ## License
 
