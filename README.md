@@ -139,8 +139,9 @@ Tensorleap-integration language; a good starting prompt:
 
 **Upgrading from an older install:** earlier installer versions wrote a Cursor
 *rule* at `.cursor/rules/tensorleap-integration-creation.mdc` plus helper files
-under `.tensorleap/`. Delete that `.mdc` file so the content isn't loaded twice
-(and `.tensorleap/`, unless an `AGENTS.md` install still uses it).
+under `.tensorleap/` (with `--global`: the same paths under your home dir).
+Delete that `.mdc` file so the content isn't loaded twice (and `.tensorleap/`,
+unless an `AGENTS.md` install still uses it).
 
 ## AGENTS.md / everything at once
 

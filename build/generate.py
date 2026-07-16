@@ -62,7 +62,7 @@ MARKETPLACE_REL = os.path.join(".claude-plugin", "marketplace.json")
 
 # Frontmatter keys the superset ADDS on top of the proven Claude SKILL.md.
 # The Claude adapter drops exactly these, reproducing the baseline frontmatter.
-SUPERSET_ONLY = ("version", "globs", "alwaysApply", "tools", "scripts_dir", "reference_dir")
+SUPERSET_ONLY = ("version", "tools", "scripts_dir", "reference_dir")
 
 MARKER_BEGIN = "<!-- BEGIN TENSORLEAP SKILL: %s -->"
 MARKER_END = "<!-- END TENSORLEAP SKILL: %s -->"

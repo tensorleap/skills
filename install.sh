@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
     --ref)    REF="${2:?--ref needs a value}"; shift 2 ;;
     --ref=*)  REF="${1#*=}"; shift ;;
     -h|--help)
-      sed -n '3,27p' "$0" 2>/dev/null || echo "see header of install.sh"; exit 0 ;;
+      sed -n '3,28p' "$0" 2>/dev/null || echo "see header of install.sh"; exit 0 ;;
     -*) echo "install: unknown flag '$1'" >&2; exit 2 ;;
     *)  TARGET="$1"; shift ;;
   esac

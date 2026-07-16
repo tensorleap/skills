@@ -9,8 +9,6 @@ description: >
   loop and keeps the integration runnable at every step.
 group: tensorleap
 version: 0.1.1
-globs: ["leap_integration.py", "leap.yaml"]
-alwaysApply: false
 tools: [claude, cursor, copilot, agents]
 scripts_dir: .tensorleap/scripts
 reference_dir: .tensorleap/reference
