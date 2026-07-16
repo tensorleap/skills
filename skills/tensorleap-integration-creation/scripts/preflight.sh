@@ -48,7 +48,8 @@
 #
 # Exit codes:
 #   0  all clear — LOCAL platform prerequisites met
-#   2  BLOCKER (CLI missing / local server down / no data volume) —
+#   2  BLOCKER (CLI missing / invalid TL_TOPOLOGY / local server up but no data
+#      volume / forced-local with no server) —
 #      relay the printed guidance to the user and STOP; do not fix it here
 #   3  SETUP pending (not authenticated) — the skill guides login, then re-run
 #   4  REMOTE server detected — NOT an error. The skill must confirm the user
@@ -132,7 +133,7 @@ if [[ -n "$TL_TOOL" && -f "$SKILL_DIR/VERSION" && -z "${TL_SKILL_NO_UPDATE:-}" ]
   fi
 fi
 
-echo "Tensorleap preflight (v1 — local server only)"
+echo "Tensorleap preflight"
 
 # 1. CLI on PATH -------------------------------------------------------------
 if ! command -v "$TL_CLI" >/dev/null 2>&1; then
