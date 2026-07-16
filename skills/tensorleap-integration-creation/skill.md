@@ -254,7 +254,7 @@ Pick the row, then act:
 
 | # | Server | Data is… | Data delivery | Skill action | Verify present? |
 |---|--------|----------|---------------|--------------|-----------------|
-| 1 | Local  | Local path | Volume | detect existing project folder → else ask → copy in | ✅ emptiness gate |
+| 1 | Local  | Local path | Volume | detect existing project folder → if none, ask whether data is a local path (this row), a remote store (row 3), or on a remote volume (row 4) → for a local path, copy in | ✅ emptiness gate |
 | 2 | Local  | Already on volume | Volume | detect & **reuse**, point config, don't copy | ✅ emptiness gate |
 | 3 | Local  | Remote store (S3/ES/…) | **Lazy-cache** into local volume (eager if small/convenient) | ask creds + fetch logic; `preprocess` lists→pointers; encoder downloads-on-miss; config root = local volume | ✅ list the store |
 | 4 | Remote | Pre-staged on volume | Volume | ask remote volume path + user runs `leap server info` on the remote host; point **platform** config at it; **never copy**; ask user to **manually download a few images** to a local dir for the local test (1/split *not* enforced here) | ❌ can't verify |
@@ -328,11 +328,16 @@ order:
      runtime-fetched into the volume (see **Data delivery** above). For the common
      **local server + local data** case: find the volume with
      `leap server info` → `datasetVolumes`, **detect an existing per-project
-     folder and reuse it, else ask and create one**, place the data there, and
-     point the integration's config-driven root at it. For a **remote store** set
-     up the lazy-cache pattern and `AUTH_SECRET` credential; for a **remote
-     server** follow the remote-flow steps from the Preflight gate. Then run the
-     **emptiness gate** before authoring (skipped, with a note, only for row 4).
+     folder and reuse it**. If no local data is found, **do not assume a local
+     path — ask the user whether (a) the data is at a local path to copy in
+     (row 1), or (b) it lives on a remote store like S3/ES (row 3), or (c) it is
+     pre-staged on a remote volume (row 4)**, and route to that row. Only after
+     the user picks a local path do you create the project folder and copy the
+     data in. Then point the integration's config-driven root at it. For a
+     **remote store** set up the lazy-cache pattern and `AUTH_SECRET` credential;
+     for a **remote server** follow the remote-flow steps from the Preflight gate.
+     Then run the **emptiness gate** before authoring (skipped, with a note, only
+     for row 4).
 1. Create the file set (`leap_integration.py`, `preprocess.py`, `encoders.py`,
    `project_config.yaml`, `leap.yaml`; add `metrics.py`/`metadata.py`/
    `visualizers.py` when those components arrive — see **Project layout**); run a
