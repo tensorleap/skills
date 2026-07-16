@@ -16,18 +16,30 @@
 # by the skill as a setup step — they require the env to exist, so they are not
 # part of this gate.
 #
-# Server topology is decided by the API URL from `leap auth whoami` (that is the
-# server the CLI actually talks to — a local install may exist yet the CLI point
-# at a remote server; whoami wins):
-#   - LOCAL server  -> full local checks (server online + data volume).
-#   - REMOTE server -> NOT a blocker. The local `server info` cannot describe a
-#     remote host and the data volume cannot be inferred/verified from here, so
-#     the script stops with exit 4 and the skill drives the remote flow (confirm
+# Server topology is decided from the API URL in `leap auth whoami` (the server
+# the CLI actually talks to — a local install may exist yet the CLI point at a
+# remote server; whoami wins), unless TL_TOPOLOGY forces it. Decision order:
+#   1. TL_TOPOLOGY=local|remote set  -> use it verbatim (the skill sets this when
+#      the user has already stated they work remotely, or after resolving an
+#      ambiguous case below).
+#   2. API URL host is NOT localhost (127.0.0.1/::1/0.0.0.0 count as local)
+#      -> REMOTE.
+#   3. Host IS localhost but the port is NOT 4589 (the default local-server port)
+#      -> AMBIGUOUS: could be a local server on a non-default port, or a remote
+#      server reached via port-forwarding. The script cannot tell; it stops with
+#      exit 5 and the skill asks the user, then re-runs with TL_TOPOLOGY set.
+#   4. Otherwise (localhost, port 4589 or unspecified) -> LOCAL.
+# Then:
+#   - LOCAL  -> full local checks (server online + data volume).
+#   - REMOTE -> NOT a blocker. The local `server info` cannot describe a remote
+#     host and the data volume cannot be inferred/verified from here, so the
+#     script stops with exit 4 and the skill drives the remote flow (confirm
 #     intent -> ask for the remote volume + remote `server info` -> creds via
 #     `leap secrets`).
 #
 # Usage:   scripts/preflight.sh
 # CLI:     default `leap`; override with TL_CLI (e.g. TL_CLI=leapdev)
+# Topology override: TL_TOPOLOGY=local|remote (skips the URL-based decision)
 #
 # Exit codes:
 #   0  all clear — LOCAL platform prerequisites met
@@ -38,6 +50,9 @@
 #      wants to work remotely and then follow the remote data flow (see SKILL.md
 #      "Preflight gate"). If the user does NOT want remote, they re-point the CLI
 #      at the local server and re-run preflight.
+#   5  AMBIGUOUS topology (localhost on a non-4589 port) — NOT an error. The skill
+#      must ask the user whether this is a local server or a remote server reached
+#      via port-forwarding, then re-run with TL_TOPOLOGY=local|remote.
 #
 set -uo pipefail
 
@@ -115,36 +130,68 @@ if [[ -z "$URL" ]]; then
 fi
 AUTHED=0
 printf '%s\n' "$WHO" | grep -q "^User email:" && AUTHED=1
-HOST="$(printf '%s' "$URL" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#[:/].*$##' | tr 'A-Z' 'a-z')"
+NOSCHEME="$(printf '%s' "$URL" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#/.*$##')"  # host[:port]
+HOST="$(printf '%s' "$NOSCHEME" | sed 's#:.*$##' | tr 'A-Z' 'a-z')"
+PORT="$(printf '%s' "$NOSCHEME" | sed -n 's#^[^:]*:##p')"                                    # empty if no port
 
-case "$HOST" in
-  localhost|127.0.0.1|::1|0.0.0.0)
-    pass "Server topology" "local server ($URL)" ;;
-  *)
-    # REMOTE server — not a blocker. Local `server info` cannot describe it and the
-    # data volume cannot be inferred/verified from here; the skill drives the flow.
-    pass "Server topology" "remote server ($URL)"
-    if [[ "$AUTHED" -ne 1 ]]; then
-      fail "Authenticated" "not logged in to $URL"
-      note "Authenticate first: $TL_CLI auth login, then re-run preflight."
-      echo; echo "SETUP PENDING — authenticate, then re-run preflight."; exit 3
-    fi
-    pass "Authenticated" "$(printf '%s\n' "$WHO" | sed -n 's/^User email:[[:space:]]*//p' | head -1)"
-    note "Local 'server info' describes only a LOCAL install, so it cannot see this"
-    note "remote server's data volume — data presence cannot be verified from here."
-    echo
-    echo "REMOTE SERVER DETECTED — confirm intent before authoring. The skill must:"
-    echo "  1. Ask whether you want to work remotely (you may have BOTH a local and a"
-    echo "     remote server; the CLI is currently pointed at the remote one)."
-    echo "     - If NOT remote: re-point the CLI at the local server (reconfigure"
-    echo "       apiUrl / re-auth), then re-run preflight."
-    echo "  2. If remote: ask for the remote data volume path, and ask you to run"
-    echo "     '$TL_CLI server info' ON THE REMOTE HOST and paste its datasetvolumes."
-    echo "  3. For a remote data store, register credentials via '$TL_CLI secrets'"
-    echo "     (they become env vars on the platform); the local test uses the same"
-    echo "     env vars set in your local shell."
-    exit 4 ;;
-esac
+# Decide topology (see header). TL_TOPOLOGY forces it; otherwise derive from URL.
+TOPO="${TL_TOPOLOGY:-}"
+if [[ -n "$TOPO" && "$TOPO" != "local" && "$TOPO" != "remote" ]]; then
+  fail "Server topology" "TL_TOPOLOGY='$TOPO' is invalid (use local|remote)"
+  blocked
+fi
+if [[ -z "$TOPO" ]]; then
+  case "$HOST" in
+    localhost|127.0.0.1|::1|0.0.0.0)
+      if [[ -z "$PORT" || "$PORT" == "4589" ]]; then TOPO=local; else TOPO=ambiguous; fi ;;
+    *)
+      TOPO=remote ;;
+  esac
+fi
+
+if [[ "$TOPO" == "ambiguous" ]]; then
+  # localhost on a non-4589 port — cannot tell a local server on a custom port
+  # apart from a remote server reached via port-forwarding. The skill must ask.
+  pass "Server topology" "localhost:$PORT — AMBIGUOUS (local custom port or remote port-forward?)"
+  echo
+  echo "AMBIGUOUS TOPOLOGY — the CLI points at localhost on port $PORT, not the"
+  echo "default local-server port 4589. This may be a local server on a custom port,"
+  echo "or a REMOTE server reached via port-forwarding. The skill must:"
+  echo "  1. Ask the user which it is."
+  echo "  2. Re-run this gate with the answer:"
+  echo "     - local:  TL_TOPOLOGY=local  $0"
+  echo "     - remote: TL_TOPOLOGY=remote $0"
+  exit 5
+fi
+
+if [[ "$TOPO" == "remote" ]]; then
+  # REMOTE server — not a blocker. Local `server info` cannot describe it and the
+  # data volume cannot be inferred/verified from here; the skill drives the flow.
+  pass "Server topology" "remote server ($URL)"
+  if [[ "$AUTHED" -ne 1 ]]; then
+    fail "Authenticated" "not logged in to $URL"
+    note "Authenticate first: $TL_CLI auth login, then re-run preflight."
+    echo; echo "SETUP PENDING — authenticate, then re-run preflight."; exit 3
+  fi
+  pass "Authenticated" "$(printf '%s\n' "$WHO" | sed -n 's/^User email:[[:space:]]*//p' | head -1)"
+  note "Local 'server info' describes only a LOCAL install, so it cannot see this"
+  note "remote server's data volume — data presence cannot be verified from here."
+  echo
+  echo "REMOTE SERVER DETECTED — confirm intent before authoring. The skill must:"
+  echo "  1. Ask whether you want to work remotely (you may have BOTH a local and a"
+  echo "     remote server; the CLI is currently pointed at the remote one)."
+  echo "     - If NOT remote: re-point the CLI at the local server (reconfigure"
+  echo "       apiUrl / re-auth), then re-run preflight."
+  echo "  2. If remote: ask for the remote data volume path, and ask you to run"
+  echo "     '$TL_CLI server info' ON THE REMOTE HOST and paste its datasetvolumes."
+  echo "  3. For a remote data store, register credentials via '$TL_CLI secrets'"
+  echo "     (they become env vars on the platform); the local test uses the same"
+  echo "     env vars set in your local shell."
+  exit 4
+fi
+
+# TOPO=local
+pass "Server topology" "local server ($URL)"
 
 # --- LOCAL-server-only checks below (topology is local) ---------------------
 # 3 + 4. Server running + data volume (server info reports the LOCAL install) --
