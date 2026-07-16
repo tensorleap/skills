@@ -261,6 +261,8 @@ def emit_copilot(skills, root):
             continue
         skill_out = os.path.join(root, DIST_REL, "copilot", name)
         _write(os.path.join(skill_out, "SKILL.md"), render_copilot_skill_md(canon))
+        # Enables the self-update check in preflight.sh; ships ONLY with Copilot.
+        _write(os.path.join(skill_out, "VERSION"), canon.version() + "\n")
         src = os.path.join(SKILLS_DIR, name)
         _copytree(os.path.join(src, "scripts"), os.path.join(skill_out, "scripts"))
         _copytree(os.path.join(src, "reference"), os.path.join(skill_out, "reference"))

@@ -35,6 +35,44 @@ fail(){ printf '  [FAIL] %-24s %s\n' "$1" "$2"; }
 note(){ printf '         -> %s\n' "$1"; }
 blocked(){ echo; echo "BLOCKED — do not begin authoring. Resolve the item above and re-run preflight."; exit 2; }
 
+# 0. Skill self-update — Copilot installs only. The VERSION file ships only in
+#    the Copilot skill folder, so Claude/Cursor/AGENTS copies (no VERSION file)
+#    skip this block entirely. Global installs (~/.copilot/skills) update
+#    automatically; a project-local install is never changed without approval.
+#    Skips silently when offline. Set TL_SKILL_NO_UPDATE=1 to opt out.
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ -f "$SKILL_DIR/VERSION" && -z "${TL_SKILL_NO_UPDATE:-}" ]] && command -v curl >/dev/null 2>&1; then
+  RAW_BASE="${TL_SKILLS_RAW_BASE:-https://raw.githubusercontent.com/tensorleap/skills/main}"
+  LOCAL_V="$(cat "$SKILL_DIR/VERSION" 2>/dev/null)"
+  REMOTE_V="$(curl -fsSL --max-time 5 "$RAW_BASE/dist/copilot/$(basename "$SKILL_DIR")/VERSION" 2>/dev/null || true)"
+  if [[ -n "$LOCAL_V" && -n "$REMOTE_V" && "$REMOTE_V" != "$LOCAL_V" ]]; then
+    if [[ "$SKILL_DIR" == "$HOME/.copilot/skills/"* ]]; then
+      echo "Tensorleap skill: updating v$LOCAL_V -> v$REMOTE_V (global install auto-updates) ..."
+      if curl -fsSL "$RAW_BASE/install.sh" | sh -s -- --tool copilot --global >/dev/null; then
+        TL_SKILL_NO_UPDATE=1 exec "$0" "$@"
+      fi
+      echo "Tensorleap skill: auto-update failed; continuing with v$LOCAL_V"
+    else
+      PROJ_ROOT="$(cd "$SKILL_DIR/../../.." && pwd)"
+      if [ -t 0 ]; then
+        printf 'Tensorleap skill v%s is available (installed: v%s). Update the project-local copy? [y/N] ' "$REMOTE_V" "$LOCAL_V"
+        read -r ans
+        if [[ "$ans" == [yY] ]]; then
+          if curl -fsSL "$RAW_BASE/install.sh" | sh -s -- --tool copilot "$PROJ_ROOT" >/dev/null; then
+            TL_SKILL_NO_UPDATE=1 exec "$0" "$@"
+          fi
+          echo "Tensorleap skill: update failed; continuing with v$LOCAL_V"
+        fi
+      else
+        echo "NOTE: Tensorleap skill v$REMOTE_V is available (installed: v$LOCAL_V)."
+        echo "      Project-local install: ASK THE USER for approval before updating. If approved, run:"
+        echo "      curl -fsSL $RAW_BASE/install.sh | sh -s -- --tool copilot \"$PROJ_ROOT\""
+        echo "      then re-run preflight. If declined, continue with the installed version."
+      fi
+    fi
+  fi
+fi
+
 echo "Tensorleap preflight (v1 — local server only)"
 
 # 1. CLI on PATH -------------------------------------------------------------

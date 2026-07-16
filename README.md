@@ -69,6 +69,14 @@ access to paths outside the project is otherwise denied in non-interactive
 mode). In interactive mode Copilot simply asks for approval as it goes, so
 neither flag is needed.
 
+**Staying up to date:** the skill checks for a newer version whenever its
+preflight gate runs. A global install (`~/.copilot/skills`) updates itself
+automatically; a **project-local install is never changed without your
+approval** — Copilot will ask you first (or you'll get a `y/N` prompt when
+running preflight yourself in a terminal). Offline runs skip the check
+silently. This applies to Copilot installs only — Claude installs are not
+touched (Claude updates come through its plugin marketplace).
+
 **Upgrading from an older install:** earlier installer versions pasted the skill
 into `.github/copilot-instructions.md`. If that file contains a
 `TENSORLEAP SKILL` marker section, delete the section (or the whole file, if the
