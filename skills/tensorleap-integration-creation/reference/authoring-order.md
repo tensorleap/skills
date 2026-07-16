@@ -12,6 +12,7 @@ imported into the entry file `leap_integration.py`:
 - `preprocess.py` → `@tensorleap_preprocess`
 - `encoders.py` → input + GT encoders
 - `metrics.py` / `metadata.py` / `visualizers.py` → the matching optional components
+  (`metrics.py` holds the **custom loss** `@tensorleap_custom_loss` alongside custom metrics)
 - `project_config.yaml` → constants/config (data root, paths, `sample_limit_per_split`, flags) — no secrets
 - `leap_integration.py` → imports the above + `@tensorleap_load_model`,
   `@tensorleap_integration_test`, and the `__main__` harness

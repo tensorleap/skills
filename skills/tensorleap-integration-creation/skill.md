@@ -100,7 +100,9 @@ keeps each component reviewable and the entry file thin:
 - **`preprocess.py`** — `@tensorleap_preprocess`.
 - **`encoders.py`** — all input and GT encoders.
 - **`metrics.py`**, **`metadata.py`**, **`visualizers.py`** — the matching
-  optional components, one concern per file.
+  optional components, one concern per file. **`metrics.py` holds the custom
+  loss** (`@tensorleap_custom_loss`) as well as custom metrics — loss and metrics
+  are the same shape of per-sample function, so they live together.
 
 All component files must be listed in `leap.yaml`'s `include` (along with
 `project_config.yaml`). Validation still fires from running the entry file, so the
