@@ -63,7 +63,7 @@ MARKETPLACE_REL = os.path.join(".claude-plugin", "marketplace.json")
 
 # Frontmatter keys the superset ADDS on top of the proven Claude SKILL.md.
 # The Claude adapter drops exactly these, reproducing the baseline frontmatter.
-SUPERSET_ONLY = ("version", "tools", "scripts_dir", "reference_dir")
+SUPERSET_ONLY = ("version", "globs", "alwaysApply", "tools", "scripts_dir", "reference_dir")
 
 MARKER_BEGIN = "<!-- BEGIN TENSORLEAP SKILL: %s -->"
 MARKER_END = "<!-- END TENSORLEAP SKILL: %s -->"
@@ -113,6 +113,9 @@ class Canonical:
     def description_flat(self):
         cont = self.raw["description"].splitlines()[1:]  # drop the `description: >` line
         return " ".join(s.strip() for s in cont if s.strip())
+
+    def globs(self):
+        return re.findall(r'"([^"]+)"', self.raw["globs"])
 
     def scripts_dir(self):
         return self.inline("scripts_dir")

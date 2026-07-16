@@ -48,8 +48,8 @@ blocked(){ echo; echo "BLOCKED — do not begin authoring. Resolve the item abov
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TL_TOOL=""; TL_SCOPE=""
 case "$SKILL_DIR" in
-  "$HOME/.copilot/skills/"*) TL_TOOL=copilot; TL_SCOPE=global ;;
-  "$HOME/.cursor/skills/"*)  TL_TOOL=cursor;  TL_SCOPE=global ;;
+  "${HOME:-}/.copilot/skills/"*) TL_TOOL=copilot; TL_SCOPE=global ;;
+  "${HOME:-}/.cursor/skills/"*)  TL_TOOL=cursor;  TL_SCOPE=global ;;
   */.github/skills/*)        TL_TOOL=copilot; TL_SCOPE=project ;;
   */.cursor/skills/*)        TL_TOOL=cursor;  TL_SCOPE=project ;;
 esac
