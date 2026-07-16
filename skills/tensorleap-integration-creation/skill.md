@@ -189,24 +189,33 @@ authenticated. It **only checks** — it never installs, authenticates, starts a
 server, or configures anything. React to its exit status:
 
 **Deciding server topology.** Resolve local vs remote in this order:
-1. **The user has told you they work with a remote server** → **remote**,
-   regardless of the URL (they may reach it through a port-forward that looks
-   local). Run the gate with `TL_TOPOLOGY=remote` and follow the remote flow.
+1. **The user explicitly stated their topology in the prompt** → that wins in
+   **every** case, regardless of the URL. Said **remote** → run the gate with
+   `TL_TOPOLOGY=remote` (they may reach it through a port-forward that looks
+   local) and follow the remote flow. Said **local** → run with
+   `TL_TOPOLOGY=local`; the URL-based guesses (rules 2–3) and the remote question
+   are skipped, and a missing local server is a plain blocker (install/start it).
 2. **The `API Url` host in `leap auth whoami` is anything other than `localhost`**
    (`127.0.0.1` / `::1` / `0.0.0.0` count as local) → **remote**.
-3. **The host is `localhost` but the port is not `4589`** (the default
-   local-server port) → **ambiguous**: it could be a local server on a custom
-   port, or a remote server reached via port-forwarding. The gate cannot tell, so
-   it **asks you to decide** — ask the user, then re-run with `TL_TOPOLOGY=local`
-   or `TL_TOPOLOGY=remote`.
-4. **Any other case** (host `localhost`, port `4589` or unspecified) → **local**.
+3. **The host is `localhost` (any port)** → the gate probes `leap server info`,
+   because a localhost URL alone can't prove there's a *local* server (a
+   port-forward to a remote one looks identical):
+   - **No server answers** (any port) → **ambiguous (exit 6)**: could be a remote
+     server reached via a port-forward — which can bind **any** local port — or no
+     server installed here. Ask whether it's installed remotely; route to remote
+     or tell the user to install it.
+   - **A server answers on a non-`4589` port** → **ambiguous (exit 5)**: local
+     server on a custom port, or a live remote port-forward. Ask, then re-run with
+     `TL_TOPOLOGY=local`/`remote`.
+   - **A server answers on `4589`** (or unspecified) → **local**.
 
 - **Blocker (exit 2)** — either the CLI is missing (checked before topology is
   known), or — **only when `whoami` points at a local server** — that local server
-  is not running / has no data volume. These server/volume checks never fire for a
-  remote server (that path exits 4 first), so "server not running" is never a
-  blocker in the remote case. **Relay the printed guidance to the user and STOP.**
-  Do **not** install the CLI, start the server, or configure the volume yourself.
+  responds but **has no data volume** configured. (A local server that does *not*
+  respond is treated as ambiguous — exit 6 below — not a hard blocker.) These
+  checks never fire for a remote server (that path exits 4 first). **Relay the
+  printed guidance to the user and STOP.** Do **not** install the CLI, start the
+  server, or configure the volume yourself.
 - **Setup: not authenticated (exit 3)** — guide the user through
   `leap auth login`, then re-run preflight.
 - **Remote server (exit 4)** — *not* an error. The CLI is pointed at a remote
@@ -221,14 +230,30 @@ server, or configures anything. React to its exit status:
       delivery** below), set up any store credentials via `leap secrets` /
       `AUTH_SECRET`, and remember the **data-root switch before push** and the
       **local data subset** the local test needs.
-- **Ambiguous topology (exit 5)** — the CLI points at `localhost` on a
-  non-`4589` port, which could be a local server on a custom port *or* a remote
-  server reached via port-forwarding. **Ask the user which it is**, then re-run
-  the gate with the answer:
+- **Ambiguous topology (exit 5)** — a server **answers** at `localhost` on a
+  non-`4589` port, which could be a local server on a custom port *or* a live
+  remote server reached via port-forwarding. **Ask the user which it is**, then
+  re-run the gate with the answer:
     - **Local** → `TL_TOPOLOGY=local {{scripts_dir}}/preflight.sh` (runs the
       local server/volume checks).
     - **Remote** → `TL_TOPOLOGY=remote {{scripts_dir}}/preflight.sh`, then follow
       the **remote flow** above.
+- **No local server (exit 6)** — the URL is local (`localhost`, **any port**),
+  topology was **derived** (the user did *not* explicitly say local/remote), but
+  `leap server info` reports nothing running/installed. Ambiguous: it may be a
+  **remote server reached via a port-forward** (which can bind **any** local port,
+  not just 4589), or simply **no server installed here**. **Ask the user whether
+  the Tensorleap server is installed remotely**:
+    - **Yes (remote)** → ensure the CLI points at a **reachable** remote endpoint
+      (the remote URL, or a live port-forward on whatever port — re-point/re-auth
+      if the current URL is dead), then re-run
+      `TL_TOPOLOGY=remote {{scripts_dir}}/preflight.sh` and follow the **remote
+      flow** above.
+    - **No** → the local server must be installed/started (`leap server run`).
+      **Relay that guidance and STOP** — do not install or start it yourself.
+  - **Exception:** if the user **explicitly said local** (`TL_TOPOLOGY=local`),
+    the explicit choice wins — a missing server is a plain **blocker (exit 2)**,
+    "install/start your local server," with **no** remote question asked.
 - **OK (exit 0)** — the local platform is ready. Continue to the Python
   environment and `code_loader` setup in Step 0 below; those need the env to
   exist, so preflight deliberately leaves them to the skill.
