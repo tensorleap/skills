@@ -24,11 +24,16 @@
 #      ambiguous case below).
 #   2. API URL host is NOT localhost (127.0.0.1/::1/0.0.0.0 count as local)
 #      -> REMOTE.
-#   3. Host IS localhost but the port is NOT 4589 (the default local-server port)
-#      -> AMBIGUOUS: could be a local server on a non-default port, or a remote
-#      server reached via port-forwarding. The script cannot tell; it stops with
-#      exit 5 and the skill asks the user, then re-runs with TL_TOPOLOGY set.
-#   4. Otherwise (localhost, port 4589 or unspecified) -> LOCAL.
+#   3. Host IS localhost (any port) -> probe `server info` to disambiguate:
+#      a. No server answers -> exit 6 AMBIGUOUS: with ANY local port this may be a
+#         remote server reached via a port-forward (a forward can bind any local
+#         port), or simply no server installed here. The skill asks whether it is
+#         installed remotely; yes -> re-run TL_TOPOLOGY=remote, no -> install/start
+#         the local server and STOP.
+#      b. A server answers on a NON-4589 port -> exit 5 AMBIGUOUS: could be a local
+#         server on a custom port, or a live remote port-forward. The skill asks,
+#         then re-runs with TL_TOPOLOGY set.
+#      c. A server answers on port 4589 (or unspecified) -> LOCAL.
 # Then:
 #   - LOCAL  -> full local checks (server online + data volume).
 #   - REMOTE -> NOT a blocker. The local `server info` cannot describe a remote
@@ -50,9 +55,18 @@
 #      wants to work remotely and then follow the remote data flow (see SKILL.md
 #      "Preflight gate"). If the user does NOT want remote, they re-point the CLI
 #      at the local server and re-run preflight.
-#   5  AMBIGUOUS topology (localhost on a non-4589 port) — NOT an error. The skill
-#      must ask the user whether this is a local server or a remote server reached
-#      via port-forwarding, then re-run with TL_TOPOLOGY=local|remote.
+#   5  AMBIGUOUS topology (localhost on a non-4589 port, and a server ANSWERS) —
+#      NOT an error. Could be a local server on a custom port or a live remote
+#      port-forward. The skill must ask the user which it is, then re-run with
+#      TL_TOPOLOGY=local|remote.
+#   6  NO local server answered at a DERIVED localhost URL (ANY port; `server info`
+#      reports not running / not installed) — NOT an error. Ambiguous: this may be a
+#      REMOTE server reached via a port-forward (which can bind any local port), or
+#      simply no server installed here. The skill must ask whether the server is
+#      installed REMOTELY. Yes -> re-run TL_TOPOLOGY=remote (remote flow). No -> the
+#      local server must be installed/started; relay guidance and STOP.
+#      (If TL_TOPOLOGY=local was forced, the explicit choice wins: no server is a
+#      plain blocker -> exit 2, not this remote question.)
 #
 set -uo pipefail
 
@@ -135,38 +149,19 @@ HOST="$(printf '%s' "$NOSCHEME" | sed 's#:.*$##' | tr 'A-Z' 'a-z')"
 PORT="$(printf '%s' "$NOSCHEME" | sed -n 's#^[^:]*:##p')"                                    # empty if no port
 
 # Decide topology (see header). TL_TOPOLOGY forces it; otherwise derive from URL.
-TOPO="${TL_TOPOLOGY:-}"
-if [[ -n "$TOPO" && "$TOPO" != "local" && "$TOPO" != "remote" ]]; then
-  fail "Server topology" "TL_TOPOLOGY='$TOPO' is invalid (use local|remote)"
+FORCED="${TL_TOPOLOGY:-}"
+if [[ -n "$FORCED" && "$FORCED" != "local" && "$FORCED" != "remote" ]]; then
+  fail "Server topology" "TL_TOPOLOGY='$FORCED' is invalid (use local|remote)"
   blocked
 fi
-if [[ -z "$TOPO" ]]; then
-  case "$HOST" in
-    localhost|127.0.0.1|::1|0.0.0.0)
-      if [[ -z "$PORT" || "$PORT" == "4589" ]]; then TOPO=local; else TOPO=ambiguous; fi ;;
-    *)
-      TOPO=remote ;;
-  esac
-fi
+case "$HOST" in
+  localhost|127.0.0.1|::1|0.0.0.0) IS_LOCALHOST=1 ;;
+  *) IS_LOCALHOST=0 ;;
+esac
 
-if [[ "$TOPO" == "ambiguous" ]]; then
-  # localhost on a non-4589 port — cannot tell a local server on a custom port
-  # apart from a remote server reached via port-forwarding. The skill must ask.
-  pass "Server topology" "localhost:$PORT — AMBIGUOUS (local custom port or remote port-forward?)"
-  echo
-  echo "AMBIGUOUS TOPOLOGY — the CLI points at localhost on port $PORT, not the"
-  echo "default local-server port 4589. This may be a local server on a custom port,"
-  echo "or a REMOTE server reached via port-forwarding. The skill must:"
-  echo "  1. Ask the user which it is."
-  echo "  2. Re-run this gate with the answer:"
-  echo "     - local:  TL_TOPOLOGY=local  $0"
-  echo "     - remote: TL_TOPOLOGY=remote $0"
-  exit 5
-fi
-
-if [[ "$TOPO" == "remote" ]]; then
-  # REMOTE server — not a blocker. Local `server info` cannot describe it and the
-  # data volume cannot be inferred/verified from here; the skill drives the flow.
+# REMOTE — forced remote, or (no override) a non-localhost host. Not a blocker;
+# local `server info` cannot describe a remote server, so the skill drives the flow.
+if [[ "$FORCED" == "remote" || ( -z "$FORCED" && "$IS_LOCALHOST" -eq 0 ) ]]; then
   pass "Server topology" "remote server ($URL)"
   if [[ "$AUTHED" -ne 1 ]]; then
     fail "Authenticated" "not logged in to $URL"
@@ -190,17 +185,52 @@ if [[ "$TOPO" == "remote" ]]; then
   exit 4
 fi
 
-# TOPO=local
-pass "Server topology" "local server ($URL)"
-
-# --- LOCAL-server-only checks below (topology is local) ---------------------
-# 3 + 4. Server running + data volume (server info reports the LOCAL install) --
+# LOCAL-ish (forced local, or a localhost URL). The real test is whether a local
+# server actually answers — probe it before committing to the local flow.
+# --- 3 + 4. Server running + data volume (server info reports the LOCAL install) --
 INFO="$("$TL_CLI" server info 2>&1)"
 if printf '%s\n' "$INFO" | grep -qiE "no installation information|not running|cluster not found"; then
-  fail "Server online" "the local server is not running (or not installed)"
-  note "If Tensorleap is installed here, start it:  $TL_CLI server run"
-  blocked
+  if [[ "$FORCED" == "local" ]]; then
+    # The user explicitly said LOCAL — honor it. No server responding is then a
+    # plain blocker (install/start the local server), NOT a remote question.
+    fail "Server online" "topology forced local, but no local server responded at $URL"
+    note "Install/start the local server:  $TL_CLI server run"
+    blocked
+  fi
+  # DERIVED localhost + no server answering — AMBIGUOUS regardless of port. It may
+  # be a REMOTE server reached via a port-forward (a forward can bind ANY local
+  # port), or simply no server installed here. Do NOT block outright; the skill asks.
+  fail "Server online" "no local server responded at $URL (not running or not installed)"
+  echo
+  echo "NO LOCAL SERVER — the URL is local but nothing answered. This may be a REMOTE"
+  echo "server reached via a port-forward (which can be on ANY local port, not just 4589),"
+  echo "or no server installed here. The skill must:"
+  echo "  1. Ask whether the Tensorleap server is installed REMOTELY."
+  echo "     - Yes: ensure the CLI points at a REACHABLE remote endpoint (the remote URL,"
+  echo "            or a live port-forward on whatever port), then re-run as remote:"
+  echo "            TL_TOPOLOGY=remote $0   (then follow the remote flow)."
+  echo "     - No:  the local server must be installed/started -> $TL_CLI server run; then STOP."
+  exit 6
 fi
+
+# A server answered. If topology was DERIVED (no override) from a localhost URL on
+# a NON-4589 port, it is still ambiguous whether this is a local server on a custom
+# port or a live remote port-forward — the skill must ask.
+if [[ -z "$FORCED" && "$IS_LOCALHOST" -eq 1 && -n "$PORT" && "$PORT" != "4589" ]]; then
+  pass "Server topology" "localhost:$PORT — AMBIGUOUS (local custom port or live remote port-forward?)"
+  echo
+  echo "AMBIGUOUS TOPOLOGY — a server answers on localhost:$PORT, not the default"
+  echo "local-server port 4589. This may be a local server on a custom port, or a"
+  echo "REMOTE server reached via a live port-forward. The skill must:"
+  echo "  1. Ask the user which it is."
+  echo "  2. Re-run this gate with the answer:"
+  echo "     - local:  TL_TOPOLOGY=local  $0"
+  echo "     - remote: TL_TOPOLOGY=remote $0"
+  exit 5
+fi
+
+# LOCAL server confirmed (localhost:4589 / unspecified, or forced local).
+pass "Server topology" "local server ($URL)"
 pass "Server online" "reachable at $URL"
 
 VOL="$(printf '%s\n' "$INFO" | awk '
