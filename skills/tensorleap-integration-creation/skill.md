@@ -55,8 +55,10 @@ No training happens here. That shapes the whole integration:
   a credential, read it from the **`AUTH_SECRET`** env var — register it with `leap
   secrets create` and attach it with `leap secrets set` (writes `secretId` into
   `leap.yaml`); it is auto-injected into platform jobs, so **export it yourself for
-  local runs**. Gate only the download, not cached reads. Full row-by-row detail
-  (local vs remote server, copy vs lazy-cache) is in **Data delivery** below.
+  local runs**. Prefer sourcing the value from a **local credentials file** the
+  user points you at rather than pasting it into the session (see **Credentials**
+  under Data delivery). Gate only the download, not cached reads. Full row-by-row
+  detail (local vs remote server, copy vs lazy-cache) is in **Data delivery** below.
 
 ## Starting point: usually an existing repo
 
@@ -283,7 +285,7 @@ Pick the row, then act:
 | 2 | Local  | Already on volume | Volume | detect & **reuse**, point config, don't copy | ✅ emptiness gate |
 | 3 | Local  | Remote store (S3/ES/…) | **Lazy-cache** into local volume (eager if small/convenient) | ask creds + fetch logic; `preprocess` lists→pointers; encoder downloads-on-miss; config root = local volume | ✅ list the store |
 | 4 | Remote | Pre-staged on volume | Volume | ask remote volume path + user runs `leap server info` on the remote host; point **platform** config at it; **never copy**; ask user to **manually download a few images** to a local dir for the local test (1/split *not* enforced here) | ❌ can't verify |
-| 5 | Remote | Remote store (S3/ES/…) | **Lazy-cache** into volume | ask creds (→ `AUTH_SECRET`) + fetch logic; local test downloads **1 sample/split** to a local dir; **before push, switch config root → remote volume** | ✅ list the store (client-side) |
+| 5 | Remote | Remote store (S3/ES/…) | **Lazy-cache** into volume | ask for a **creds file path** (→ `AUTH_SECRET`, set from the file) + fetch logic; local test downloads **1 sample/split** to a local dir; **before push, switch config root → remote volume** | ✅ list the store (client-side) |
 | 6 | Remote | Local path only | **Unsupported** | detect & **stop**: no client→remote-volume copy path; user must stage to a store or pre-stage on the remote volume | — |
 
 ### Cross-cutting rules
@@ -305,13 +307,25 @@ Pick the row, then act:
   so on their instruction. This is separate from the local-test subset above:
   the limit caps what `preprocess` returns; the local test iterates a few of
   those.
-- **Credentials.** Follow the **`AUTH_SECRET`** convention from "Remote data"
-  above: the integration reads the credential from the `AUTH_SECRET` env var;
-  register it with `leap secrets create` + `leap secrets set` (writes `secretId`
-  into `leap.yaml`, auto-injected into platform jobs), and **export it yourself for
-  local runs**. Never hardcode credentials, and always **ask the user** for the
-  value and for any **non-trivial fetch logic** (custom client, endpoint, query,
-  pagination).
+- **Credentials — don't make the user paste secrets into the session.** The
+  common case is the user does **not** want to hand raw credentials to the Claude
+  session. So the default flow is: **ask the user for a path to a local
+  credentials file** (preferably JSON or a similar `{key: value}` format), and
+  **register the secret from that file** with the `leap` CLI — the raw value never
+  enters the conversation. `leap secrets create` takes the file path as its second
+  positional argument (`secretKeyPath`):
+  ```bash
+  leap secrets create <name> <path-to-creds-file>   # reads the content FROM the file
+  leap secrets set --secret-id <secretId>           # attaches it (writes secretId into leap.yaml)
+  ```
+  (`-k/--secret-key-content "<value>"` is the inline alternative — use it only if
+  the user **volunteers** the value.) The integration reads the credential at
+  runtime from the **`AUTH_SECRET`** env var (the secret is auto-injected into
+  platform jobs). For **local runs**, export it from the same file rather than
+  typing it (e.g. `export AUTH_SECRET="$(cat <path-to-creds-file>)"`), so the value
+  stays out of the transcript. Never hardcode credentials, and always **ask the
+  user** for the credentials-file path (or value) and for any **non-trivial fetch
+  logic** (custom client, endpoint, query, pagination).
 - **Data-root switch (any remote server — rows 4 & 5).** There are two roots: a
   **local directory** for the local integration test, and the **remote data
   volume** for the platform run. **Before pushing, edit the `data_root` in
@@ -456,8 +470,10 @@ isn't obvious. The highest-frequency ones:
   to the human / orchestrator.
 - **Never hardcode data-store credentials** in the integration. Read them from the
   **`AUTH_SECRET`** env var (registered via `leap secrets create` + `leap secrets
-  set`, auto-injected on the platform; exported yourself for local runs). Ask the
-  user for the value — never invent it.
+  set`, auto-injected on the platform; exported yourself for local runs). Prefer
+  asking the user for a **local credentials-file path** and setting the secret from
+  that file so the value stays out of the session (see **Credentials**); ask for
+  the value inline only if the user offers it — never invent it.
 - Run Python through the project's agreed environment from Step 0 (pyenv + poetry
   by default: `poetry run python …`; otherwise the venv/tool the user chose), not
   a different or global interpreter. Do not probe global site-packages to
