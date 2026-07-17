@@ -39,7 +39,60 @@ No training happens here. That shapes the whole integration:
   a credential, read it from the **`AUTH_SECRET`** env var — register it with `leap
   secrets create` and attach it with `leap secrets set` (writes `secretId` into
   `leap.yaml`); it is auto-injected into platform jobs, so **export it yourself for
-  local runs**. Gate only the download, not cached reads.
+  local runs**. Prefer sourcing the value from a **local credentials file** the
+  user points you at rather than pasting it into the session (see **Credentials**
+  under Data delivery). Gate only the download, not cached reads. Full row-by-row
+  detail (local vs remote server, copy vs lazy-cache) is in **Data delivery** below.
+
+## Starting point: usually an existing repo
+
+The classic activation is **inside the customer's existing repo** (or one the user
+points you to) whose task is to *become* a Tensorleap integration. **Infer from
+that repo before asking** — it typically already contains what the integration
+needs:
+
+- the **data store** (local paths vs a remote bucket/index) and the code that
+  lists/loads data → informs the Data delivery row;
+- the **preprocessing / transforms**, **label handling**, and any existing
+  **metrics / metadata / loss** logic → reuse these in the decorated components
+  rather than reinventing them;
+- the **dependencies** (`requirements.txt` / `pyproject.toml` / imports) → the
+  starting point for the integration's environment.
+
+Only when the skill is activated **without** such a repo, or a specific detail
+genuinely can't be determined from it, **ask the user** for that piece — data
+location and credentials, the model file, preprocessing/label semantics, etc. Do
+not silently guess a detail the repo doesn't establish.
+
+## Project layout
+
+Split the integration into these root-level files (the Python components are all
+imported into `leap_integration.py`, the entry file) rather than one monolith — it
+keeps each component reviewable and the entry file thin:
+
+- **`leap_integration.py`** — entry file; imports the component modules below and
+  holds `@tensorleap_load_model` + `@tensorleap_integration_test` and the
+  `__main__` run harness.
+- **`leap.yaml`** — the **platform manifest** (a *different* file from
+  `project_config.yaml`): `entryFile: leap_integration.py`, `pythonVersion`, the
+  `include` list, `projectId`/`secretId`/`branch`. Required to push the
+  integration to the platform; it is config *for the platform*, not read by your
+  Python code.
+- **`project_config.yaml`** — every constant/config **your integration code**
+  reads: data root, directory names and other paths, the **optional per-split sample cap** (`sample_limit_per_split`), and any
+  flags or constants used by project logic/computations. **No secrets** — those
+  live in the `leap secrets` / `AUTH_SECRET` flow (see "Remote data" above). Loaded
+  once and shared by the component modules.
+- **`preprocess.py`** — `@tensorleap_preprocess`.
+- **`encoders.py`** — all input and GT encoders.
+- **`metrics.py`**, **`metadata.py`**, **`visualizers.py`** — the matching
+  optional components, one concern per file. **`metrics.py` holds the custom
+  loss** (`@tensorleap_custom_loss`) as well as custom metrics — loss and metrics
+  are the same shape of per-sample function, so they live together.
+
+All component files must be listed in `leap.yaml`'s `include` (along with
+`project_config.yaml`). Validation still fires from running the entry file, so the
+run loop below is unchanged — it exercises the imported decorators.
 
 ## The one rule that drives everything
 
@@ -86,6 +139,14 @@ GATE       Do NOT author the next interface until the current stage's row is
 > their first argument (default: current directory). Run them from the
 > integration repo, or pass its path explicitly.
 
+**Keep an `integration-report.md` (in the integration repo root).** As you author,
+**log every issue you hit** — the failing signal, what caused it, and how you
+resolved it (or that it's still open, e.g. data that can't be verified on a remote
+volume, a missing dependency, an ambiguous model contract). Append as you go
+rather than reconstructing at the end. This is the artifact the user can hand to
+the Tensorleap team when something needs their help, so make each entry
+self-contained: the exact error text and the file/interface it came from.
+
 For "is it actually done?" decisions, use **both** checks — they cover different
 scopes:
 
@@ -107,22 +168,165 @@ repo root:
 ```
 
 It verifies the platform prerequisites that need **no Python environment** (so it
-runs before the project env exists): the CLI is on PATH, the server is **local**
-(v1 supports only a client on the same machine as the server), the server is
-running, a data volume is configured, and you are authenticated. It **only
-checks** — it never installs, authenticates, starts a server, or configures
-anything. React to its exit status:
+runs before the project env exists): the CLI is on PATH, which **server topology**
+the CLI points at (local vs remote — see the decision below), and — for a
+**local** server — that it is running, a data volume is configured, and you are
+authenticated. It **only checks** — it never installs, authenticates, starts a
+server, or configures anything. React to its exit status:
 
-- **Blocker (exit 2)** — CLI missing / remote server detected / server not
-  running / no data volume. **Relay the printed guidance to the user and STOP.**
-  Do **not** install the CLI, start the server, or configure the volume yourself.
-  (Remote server: v1 runs only on the server host — tell the user to run it
-  there.)
+**Deciding server topology.** Resolve local vs remote in this order:
+1. **The user explicitly stated their topology in the prompt** → that wins in
+   **every** case, regardless of the URL. Said **remote** → run the gate with
+   `TL_TOPOLOGY=remote` (they may reach it through a port-forward that looks
+   local) and follow the remote flow. Said **local** → run with
+   `TL_TOPOLOGY=local`; the URL-based guesses (rules 2–3) and the remote question
+   are skipped, and a missing local server is a plain blocker (install/start it).
+2. **The `API Url` host in `leap auth whoami` is anything other than `localhost`**
+   (`127.0.0.1` / `::1` / `0.0.0.0` count as local) → **remote**.
+3. **The host is `localhost` (any port)** → the gate probes `leap server info`,
+   because a localhost URL alone can't prove there's a *local* server (a
+   port-forward to a remote one looks identical):
+   - **No server answers** (any port) → **ambiguous (exit 6)**: could be a remote
+     server reached via a port-forward — which can bind **any** local port — or no
+     server installed here. Ask whether it's installed remotely; route to remote
+     or tell the user to install it.
+   - **A server answers on a non-`4589` port** → **ambiguous (exit 5)**: local
+     server on a custom port, or a live remote port-forward. Ask, then re-run with
+     `TL_TOPOLOGY=local`/`remote`.
+   - **A server answers on `4589`** (or unspecified) → **local**.
+
+- **Blocker (exit 2)** — either the CLI is missing (checked before topology is
+  known), or — **only when `whoami` points at a local server** — that local server
+  responds but **has no data volume** configured. (A local server that does *not*
+  respond is treated as ambiguous — exit 6 below — not a hard blocker.) These
+  checks never fire for a remote server (that path exits 4 first). **Relay the
+  printed guidance to the user and STOP.** Do **not** install the CLI, start the
+  server, or configure the volume yourself.
 - **Setup: not authenticated (exit 3)** — guide the user through
   `leap auth login`, then re-run preflight.
-- **OK (exit 0)** — the platform is ready. Continue to the Python environment and
-  `code_loader` setup in Step 0 below; those need the env to exist, so preflight
-  deliberately leaves them to the skill.
+- **Remote server (exit 4)** — *not* an error. The CLI is pointed at a remote
+  server. **Ask the user whether they want to work remotely** (they may have both
+  a local and a remote server; the CLI is currently pointed at the remote one).
+    - **No** → tell them to re-point the CLI at the local server (reconfigure
+      `apiUrl` / re-auth), then re-run preflight.
+    - **Yes** → follow the **remote flow**: the remote data volume cannot be
+      inferred or verified from here, so **ask the user for the remote data volume
+      path** and **ask them to run `leap server info` on the remote host** and
+      paste its `datasetvolumes`. Then pick the data-delivery row (see **Data
+      delivery** below), set up any store credentials via `leap secrets` /
+      `AUTH_SECRET`, and remember the **data-root switch before push** and the
+      **local data subset** the local test needs.
+- **Ambiguous topology (exit 5)** — a server **answers** at `localhost` on a
+  non-`4589` port, which could be a local server on a custom port *or* a live
+  remote server reached via port-forwarding. **Ask the user which it is**, then
+  re-run the gate with the answer:
+    - **Local** → `TL_TOPOLOGY=local .tensorleap/scripts/preflight.sh` (runs the
+      local server/volume checks).
+    - **Remote** → `TL_TOPOLOGY=remote .tensorleap/scripts/preflight.sh`, then follow
+      the **remote flow** above.
+- **No local server (exit 6)** — the URL is local (`localhost`, **any port**),
+  topology was **derived** (the user did *not* explicitly say local/remote), but
+  `leap server info` reports nothing running/installed. Ambiguous: it may be a
+  **remote server reached via a port-forward** (which can bind **any** local port,
+  not just 4589), or simply **no server installed here**. **Ask the user whether
+  the Tensorleap server is installed remotely**:
+    - **Yes (remote)** → ensure the CLI points at a **reachable** remote endpoint
+      (the remote URL, or a live port-forward on whatever port — re-point/re-auth
+      if the current URL is dead), then re-run
+      `TL_TOPOLOGY=remote .tensorleap/scripts/preflight.sh` and follow the **remote
+      flow** above.
+    - **No** → the local server must be installed/started (`leap server run`).
+      **Relay that guidance and STOP** — do not install or start it yourself.
+  - **Exception:** if the user **explicitly said local** (`TL_TOPOLOGY=local`),
+    the explicit choice wins — a missing server is a plain **blocker (exit 2)**,
+    "install/start your local server," with **no** remote question asked.
+- **OK (exit 0)** — the local platform is ready. Continue to the Python
+  environment and `code_loader` setup in Step 0 below; those need the env to
+  exist, so preflight deliberately leaves them to the skill.
+
+## Data delivery (how the dataset reaches the code)
+
+The dataset must end up readable from a **config-driven data root** (never
+hardcoded) — but *how* it gets there depends on the **server topology** (local vs
+remote, from the Preflight gate) and **where the data currently lives**. There are
+two delivery strategies:
+
+- **Volume** — the data sits as files on the data volume; encoders read a
+  filesystem path under the data root.
+- **Lazy-cache** — for a **remote store** (S3, Elasticsearch, …): `preprocess`
+  lists the data and stores a **pointer per sample** (not bytes); each encoder
+  resolves the pointer to a cache path under the data root and **downloads-on-miss
+  into the volume** (see "Remote data"), so steady state is local reads. *Eager
+  one-shot* is the small/convenient variant — pull everything up front when the
+  dataset is small or has a convenient one-shot API where lazy-caching is
+  non-trivial (e.g. Ultralytics, MNIST).
+
+Pick the row, then act:
+
+| # | Server | Data is… | Data delivery | Skill action | Verify present? |
+|---|--------|----------|---------------|--------------|-----------------|
+| 1 | Local  | Local path | Volume | detect existing project folder → if none, ask whether data is a local path (this row), a remote store (row 3), or on a remote volume (row 4) → for a local path, copy in | ✅ emptiness gate |
+| 2 | Local  | Already on volume | Volume | detect & **reuse**, point config, don't copy | ✅ emptiness gate |
+| 3 | Local  | Remote store (S3/ES/…) | **Lazy-cache** into local volume (eager if small/convenient) | ask creds + fetch logic; `preprocess` lists→pointers; encoder downloads-on-miss; config root = local volume | ✅ list the store |
+| 4 | Remote | Pre-staged on volume | Volume | ask remote volume path + user runs `leap server info` on the remote host; point **platform** config at it; **never copy**; ask user to **manually download a few images** to a local dir for the local test (1/split *not* enforced here) | ❌ can't verify |
+| 5 | Remote | Remote store (S3/ES/…) | **Lazy-cache** into volume | ask for a **creds file path** (→ `AUTH_SECRET`, set from the file) + fetch logic; local test downloads **1 sample/split** to a local dir; **before push, switch config root → remote volume** | ✅ list the store (client-side) |
+| 6 | Remote | Local path only | **Unsupported** | detect & **stop**: no client→remote-volume copy path; user must stage to a store or pre-stage on the remote volume | — |
+
+### Cross-cutting rules
+
+- **Local integration test uses a small local subset, never the full dataset.**
+  For a **remote server**: row 5 downloads **one sample per split** (training +
+  validation) to a **local directory** for the test; row 4 (data opaque on the
+  remote volume) instead asks the user to **manually place a few images** in a
+  local dir — **1/split is not enforced** there. For a **local server** the test
+  runs against the volume directly — real files (rows 1–2) or lazy-cached
+  on-demand into the local volume (row 3), no separate local dir needed.
+- **Optional sample cap (balanced per split), full dataset by default.** `preprocess`
+  must support a configurable cap on the number of samples, applied **balanced across
+  splits** (same count per split), read from `project_config.yaml`
+  (`sample_limit_per_split`). **Default to no cap**: leave it unset/`0` so the
+  evaluation runs on the **full dataset**. The cap is a knob **the user can set when
+  the user wants faster iterations**; do **not** set a cap yourself unless the user
+  asks for one. This is separate from the local-test subset above: the cap (when the
+  user sets one) limits what `preprocess` returns; the local test iterates a few of
+  those.
+- **Credentials — don't make the user paste secrets into the session.** The
+  common case is the user does **not** want to hand raw credentials to the Claude
+  session. So the default flow is: **ask the user for a path to a local
+  credentials file** (preferably JSON or a similar `{key: value}` format), and
+  **register the secret from that file** with the `leap` CLI — the raw value never
+  enters the conversation. `leap secrets create` takes the file path as its second
+  positional argument (`secretKeyPath`):
+  ```bash
+  leap secrets create <name> <path-to-creds-file>   # reads the content FROM the file
+  leap secrets set --secret-id <secretId>           # attaches it (writes secretId into leap.yaml)
+  ```
+  (`-k/--secret-key-content "<value>"` is the inline alternative — use it only if
+  the user **volunteers** the value.) The integration reads the credential at
+  runtime from the **`AUTH_SECRET`** env var (the secret is auto-injected into
+  platform jobs). For **local runs**, export it from the same file rather than
+  typing it (e.g. `export AUTH_SECRET="$(cat <path-to-creds-file>)"`), so the value
+  stays out of the transcript. Never hardcode credentials, and always **ask the
+  user** for the credentials-file path (or value) and for any **non-trivial fetch
+  logic** (custom client, endpoint, query, pagination).
+- **Data-root switch (any remote server — rows 4 & 5).** There are two roots: a
+  **local directory** for the local integration test, and the **remote data
+  volume** for the platform run. **Before pushing, edit the `data_root` in
+  `project_config.yaml` to the remote-volume path**, and leave the local path as a
+  **commented-out line with a verbal note** to switch back before re-running the
+  local test. e.g. in `project_config.yaml`:
+  ```yaml
+  # data_root: "/Users/me/tl-local-subset"        # LOCAL TEST: switch to this to re-run the local integration test
+  data_root: "/remote/tensorleap/data/my-project" # PLATFORM: active for push
+  ```
+- **Emptiness gate.** Before authoring, verify the data is present — rows 1–2 by
+  the data-root path being non-empty, rows 3 & 5 by the store prefix listing ≥1
+  object (client-side; the local volume cache legitimately starts empty). Row 4
+  **cannot be verified** from the client; say so explicitly rather than skipping
+  silently.
+- **Dependencies.** A remote store adds a client dep (e.g. `boto3` / `s3fs` for
+  S3) — put it in `requirements.txt` and `leap.yaml`'s `include` so the platform
+  build installs it (see Guardrails).
 
 ## Authoring order
 
@@ -141,17 +345,31 @@ order:
    - **Validate `code_loader`.** If it isn't installed, install the latest release.
      If it is, require `code-loader >= 1.0.142`; if older, stop and report it as a
      blocker.
-   - **Place the dataset in the data volume** (or fetch it at runtime from a
-     remote store and cache into the volume — see "Remote data" above). A file is
-     readable on the platform only if it's in `leap.yaml` or the data volume. Put
-     the dataset in the data volume: find the directory with `leap server info` →
-     `datasetVolumes`, create a per-project folder, place the data there, and point
-     the integration's config-driven path at it.
-1. Create `leap_integration.py` + `leap.yaml`; run a one-line `__main__` to
-   confirm imports resolve and the exit hook attaches.
-2. `@tensorleap_preprocess` — return `list[PreprocessResponse]` with explicit
-   `state=` and real `sample_ids` (unique strings; use the row index as the id
-   if natural ids aren't unique). Call it directly from `__main__` and run.
+   - **Make the dataset reachable — pick the Data delivery row.** A file is
+     readable on the platform only if it's in `leap.yaml`, the data volume, or
+     runtime-fetched into the volume (see **Data delivery** above). For the common
+     **local server + local data** case: find the volume with
+     `leap server info` → `datasetVolumes`, **detect an existing per-project
+     folder and reuse it**. If no local data is found, **do not assume a local
+     path — ask the user whether (a) the data is at a local path to copy in
+     (row 1), or (b) it lives on a remote store like S3/ES (row 3), or (c) it is
+     pre-staged on a remote volume (row 4)**, and route to that row. Only after
+     the user picks a local path do you create the project folder and copy the
+     data in. Then point the integration's config-driven root at it. For a
+     **remote store** set up the lazy-cache pattern and `AUTH_SECRET` credential;
+     for a **remote server** follow the remote-flow steps from the Preflight gate.
+     Then run the **emptiness gate** before authoring (skipped, with a note, only
+     for row 4).
+1. Create the file set (`leap_integration.py`, `preprocess.py`, `encoders.py`,
+   `project_config.yaml`, `leap.yaml`; add `metrics.py`/`metadata.py`/
+   `visualizers.py` when those components arrive — see **Project layout**); run a
+   one-line entry-file `__main__` to confirm imports resolve and the exit hook
+   attaches.
+2. `@tensorleap_preprocess` (in `preprocess.py`) — return `list[PreprocessResponse]`
+   with explicit `state=` and real `sample_ids` (unique strings; use the row index
+   as the id if natural ids aren't unique), applying the config-driven
+   per-split-balanced `sample_limit_per_split` (uncapped by default). Call it directly from `__main__`
+   and run.
 3. Inspect the model I/O contract (input names, dtypes, shapes without batch
    dim, output count/meaning, required labels) before writing the loader.
 4. The minimum input encoder set for **one real inference** — one encoder per
@@ -233,14 +451,23 @@ isn't obvious. The highest-frequency ones:
   require that, stop and report it as a blocker.
 - **Never** run `git commit` / `push` / `rebase` / `reset`. Leave change control
   to the human / orchestrator.
+- **Never hardcode data-store credentials** in the integration. Read them from the
+  **`AUTH_SECRET`** env var (registered via `leap secrets create` + `leap secrets
+  set`, auto-injected on the platform; exported yourself for local runs). Prefer
+  asking the user for a **local credentials-file path** and setting the secret from
+  that file so the value stays out of the session (see **Credentials**); ask for
+  the value inline only if the user offers it — never invent it.
 - Run Python through the project's agreed environment from Step 0 (pyenv + poetry
   by default: `poetry run python …`; otherwise the venv/tool the user chose), not
   a different or global interpreter. Do not probe global site-packages to
   compensate for an interpreter mismatch.
 - In `leap.yaml`, `include` every **code/asset** file the integration reads at
-  runtime (tokenizer, labels, config, helper modules) — but **not the model**,
-  which is uploaded to the platform separately, nor the **dataset**, which is read
-  from the data volume via a config-driven path. Set `pythonVersion` to match the
+  runtime (the component modules `preprocess.py`/`encoders.py`/`metrics.py`/
+  `metadata.py`/`visualizers.py`, `project_config.yaml`, tokenizer, labels, helper
+  modules) — but **not the model**, which is uploaded to the platform separately,
+  nor the **dataset**, which is read from the data volume via a config-driven
+  path. A component module left out of `include` fails platform parsing even
+  though the local run imported it fine. Set `pythonVersion` to match the
   project's actual runtime — `py310`, `py311`, etc. It is **not** fixed to 3.10;
   pick whatever `code_loader` and the model/runtime dependencies support (and
   confirm your pinned deps publish a wheel for that interpreter — e.g. recent
@@ -341,10 +568,23 @@ Once the structured parse is clean, ship it to the platform from the repo root.
 2. **Project** — the workspace must point at a project (a `projectId` in
    `leap.yaml`). If `leap projects info` says "No project configured," run
    `leap projects create <name>` and set its id in `leap.yaml`.
-3. **Push + evaluate** — from the repo root:
+3. **Remote-server prep (rows 4 & 5 only)** — before pushing, **switch the
+   `data_root` in `project_config.yaml` from the local test path to the remote
+   data-volume path** (leave the local path as a commented line with a note — see
+   Data delivery). If the integration reads a remote store, ensure its credential
+   is registered as `AUTH_SECRET` (`leap secrets create` + `leap secrets set`,
+   which writes `secretId` into `leap.yaml` for auto-injection).
+4. **Push + evaluate** — from the repo root:
    `leap push -m <model> -n <version> -b <batch> --eval`. `-m` uploads the model
    separately (it is not bundled); the code bundle comes from `leap.yaml`'s
-   `include`. (`leap push -h` for `-o/--overwrite`, `--no-wait`, `--branch`.)
-4. **Monitor** — `leap run list` (job status) and `leap run logs <run-id>`; the
-   `--eval` appears as an `Evaluate` job.
+   `include`. (`leap push -h` for `-o/--overwrite`, `--no-wait`, `--branch`.) This
+   evaluates on the **full dataset** by default. If the user wants faster iterations,
+   the user can set `sample_limit_per_split` in `project_config.yaml` to cap samples
+   per split; only do that when the user asks.
+5. **Monitor in the background (to save tokens)** — push + evaluation are long, so
+   **do not poll synchronously in-context** (that burns tokens idling). Either
+   `leap push … --no-wait` and check back later, or run the waiting command in the
+   **background** (a background shell, or a `/loop`) and resume only when it exits.
+   Then read status with `leap run list` and `leap run logs <run-id>`; the `--eval`
+   appears as an `Evaluate` job.
 <!-- END TENSORLEAP SKILL: tensorleap-integration-creation -->

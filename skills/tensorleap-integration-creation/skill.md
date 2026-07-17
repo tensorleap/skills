@@ -95,7 +95,7 @@ keeps each component reviewable and the entry file thin:
   integration to the platform; it is config *for the platform*, not read by your
   Python code.
 - **`project_config.yaml`** — every constant/config **your integration code**
-  reads: data root, directory names and other paths, the **sample limit**, and any
+  reads: data root, directory names and other paths, the **optional per-split sample cap** (`sample_limit_per_split`), and any
   flags or constants used by project logic/computations. **No secrets** — those
   live in the `leap secrets` / `AUTH_SECRET` flow (see "Remote data" above). Loaded
   once and shared by the component modules.
@@ -297,15 +297,14 @@ Pick the row, then act:
   local dir — **1/split is not enforced** there. For a **local server** the test
   runs against the volume directly — real files (rows 1–2) or lazy-cached
   on-demand into the local volume (row 3), no separate local dir needed.
-- **Configurable sample limit (balanced per split).** `preprocess` must support a
-  configurable cap on the number of samples, applied **balanced across splits**
-  (same count per split), read from `project_config.yaml` (e.g.
-  `sample_limit_per_split`). For the **first push to the platform**, set it to
-  **10 samples per split** so the initial evaluation is fast. **Tell the user**
-  the limit is at that key in `project_config.yaml` and that they should raise it
-  (or set it to unlimited) before a **full evaluation** — or that Claude will do
-  so on their instruction. This is separate from the local-test subset above:
-  the limit caps what `preprocess` returns; the local test iterates a few of
+- **Optional sample cap (balanced per split), full dataset by default.** `preprocess`
+  must support a configurable cap on the number of samples, applied **balanced across
+  splits** (same count per split), read from `project_config.yaml`
+  (`sample_limit_per_split`). **Default to no cap**: leave it unset/`0` so the
+  evaluation runs on the **full dataset**. The cap is a knob **the user can set when
+  the user wants faster iterations**; do **not** set a cap yourself unless the user
+  asks for one. This is separate from the local-test subset above: the cap (when the
+  user sets one) limits what `preprocess` returns; the local test iterates a few of
   those.
 - **Credentials — don't make the user paste secrets into the session.** The
   common case is the user does **not** want to hand raw credentials to the Claude
@@ -385,7 +384,7 @@ order:
 2. `@tensorleap_preprocess` (in `preprocess.py`) — return `list[PreprocessResponse]`
    with explicit `state=` and real `sample_ids` (unique strings; use the row index
    as the id if natural ids aren't unique), applying the config-driven
-   per-split-balanced `sample_limit_per_split`. Call it directly from `__main__`
+   per-split-balanced `sample_limit_per_split` (uncapped by default). Call it directly from `__main__`
    and run.
 3. Inspect the model I/O contract (input names, dtypes, shapes without batch
    dim, output count/meaning, required labels) before writing the loader.
@@ -594,10 +593,10 @@ Once the structured parse is clean, ship it to the platform from the repo root.
 4. **Push + evaluate** — from the repo root:
    `leap push -m <model> -n <version> -b <batch> --eval`. `-m` uploads the model
    separately (it is not bundled); the code bundle comes from `leap.yaml`'s
-   `include`. (`leap push -h` for `-o/--overwrite`, `--no-wait`, `--branch`.) The
-   **first push keeps `sample_limit_per_split: 10`** in `project_config.yaml` for a
-   fast initial evaluation — **remind the user** to raise it (or unset it) there
-   before a full evaluation, or offer to do it on their instruction.
+   `include`. (`leap push -h` for `-o/--overwrite`, `--no-wait`, `--branch`.) This
+   evaluates on the **full dataset** by default. If the user wants faster iterations,
+   the user can set `sample_limit_per_split` in `project_config.yaml` to cap samples
+   per split; only do that when the user asks.
 5. **Monitor in the background (to save tokens)** — push + evaluation are long, so
    **do not poll synchronously in-context** (that burns tokens idling). Either
    `leap push … --no-wait` and check back later, or run the waiting command in the
