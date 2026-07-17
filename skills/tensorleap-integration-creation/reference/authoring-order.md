@@ -53,8 +53,8 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
 
 Create the file set (`leap_integration.py`, `preprocess.py`, `encoders.py`,
 `project_config.yaml`; add `metrics.py`/`metadata.py`/`visualizers.py` when those
-components arrive) and a `project_config.yaml` with at least the data root and
-`sample_limit_per_split`. Then a tiny entry-file `__main__`:
+components arrive) and a `project_config.yaml` with at least the data root (the
+`sample_limit_per_split` cap is optional and unset by default). Then a tiny entry-file `__main__`:
 
 ```python
 if __name__ == "__main__":
@@ -66,14 +66,15 @@ attached. The status table will show mostly-missing interfaces — expected.
 
 ## Step 2 — preprocess (the root)
 
-Lives in `preprocess.py`. Apply the **configurable, per-split-balanced sample
-limit** from `project_config.yaml` (`sample_limit_per_split`; `10` for the first
-push — see skill.md Data delivery):
+Lives in `preprocess.py`. Apply the **configurable, per-split-balanced sample cap** from
+`project_config.yaml` (`sample_limit_per_split`; unset/`0` = no cap by default, i.e.
+full dataset; the user sets a number only when the user wants faster iterations, see
+skill.md Data delivery):
 
 ```python
 @tensorleap_preprocess()
 def preprocess() -> List[PreprocessResponse]:
-    limit = CONFIG.get("sample_limit_per_split")   # None/0 = no limit
+    limit = CONFIG.get("sample_limit_per_split")   # None/0 = no cap -> full dataset (default)
     train_ids = all_train_ids[:limit] if limit else all_train_ids
     val_ids = all_val_ids[:limit] if limit else all_val_ids   # same cap per split
     train = PreprocessResponse(sample_ids=train_ids, data={...}, state=DataStateType.training)
