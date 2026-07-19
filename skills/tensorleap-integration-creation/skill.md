@@ -389,7 +389,7 @@ Pick the row, then act:
   **commented-out line with a verbal note** to switch back before re-running the
   local test. e.g. in `project_config.yaml`:
   ```yaml
-  # data_root: "/Users/me/tl-local-subset"        # LOCAL TEST: switch to this to re-run the local integration test
+  # data_root: "/path/to/tl-local-subset"         # LOCAL TEST: switch to this to re-run the local integration test
   data_root: "/remote/tensorleap/data/my-project" # PLATFORM: active for push
   ```
 - **Emptiness gate.** Before authoring, verify the data is present — rows 1–2 by
@@ -665,40 +665,54 @@ yes/no question.
 4. **Push + evaluate** — from the repo root:
    `leap push -m <model> -n <version> -b <batch> --eval`. `-m` uploads the model
    separately (it is not bundled); the code bundle comes from `leap.yaml`'s
-   `include`. (`leap push -h` for `-o/--overwrite`, `--branch`; **don't use
-   `--no-wait`** — background the blocking command instead, see step 5.) By
-   default the push evaluates the **full dataset** (no `sample_limit_per_split`);
-   apply a cap only if the **user explicitly asked** for a smaller initial
-   evaluation, in which case that key in `project_config.yaml` holds it.
-5. **Run the push in the background (to save tokens)** — push + evaluation are
-   long, so **do not poll synchronously in-context** (that burns tokens) and **do
-   NOT use `--no-wait`**. Run the blocking `leap push … --eval` in the
-   **background** (a background shell, or a `/loop`) and resume only when it exits,
-   so the harness re-invokes you once on completion and you keep the CLI's own
-   push pass/fail output.
-6. **Check the evaluate job — the skill is done when a successful Evaluate ends.**
-   The `--eval` runs as an `Evaluate` job on the platform; a clean push does **not**
-   mean a clean evaluation, so check the job's outcome explicitly:
+   `include`. (`leap push -h` for `-o/--overwrite`, `--branch`.) **Never use
+   `--no-wait`** — it returns before the push completes, so the `--eval` step never
+   runs and no Evaluate job is created. By default the push evaluates the **full
+   dataset** (no `sample_limit_per_split`); apply a cap only if the **user
+   explicitly asked** for a smaller initial evaluation, in which case that key in
+   `project_config.yaml` holds it.
+5. **Run the push and get the Evaluate started.** Capture output to a file:
    ```
-   leap run list -t Evaluate            # find the Evaluate run and its STATUS
-   leap run list -t Evaluate -s FAILED  # or filter straight to failed runs
+   leap push -m <model> -n <version> -b <batch> --eval < /dev/null > push.log 2>&1
    ```
-   - **No `Evaluate` job exists at all** → the eval was **not triggered**. Re-run
-     `leap push -o <version> --eval` (in the background) and let it finish, then
-     check again.
-   - Read the **status** column: **`FINISHED` = success**; **`FAILED` (or
-     `STOPPED` / `TERMINATED`) = the evaluation errored** (`PENDING` /
-     `INITIALIZING` / `STARTED` = still running; wait). On failure, pull the logs:
-     ```
-     leap run logs <run-id>                    # error traceback / logs
-     leap run logs <run-id> --output <file>    # save the logs to a file (log report)
-     ```
-     Then **loop like the local run loop**: read the earliest real error → fix it
-     in the integration → re-push (`-o/--overwrite`) → re-check the Evaluate
-     status. Errors that surface only here are typically platform-only conditions
-     the local test can't see (the data-root/volume switch, `AUTH_SECRET` not
-     injected, a missing `include`, or a dependency absent from `requirements.txt`).
-
-   **The skill's terminal success is a `FINISHED` Evaluate job** — not a clean
-   push, not a clean local run. Keep looping (fix → re-push → re-check) until an
-   `Evaluate` job reaches `FINISHED`; only then is the integration done.
+   `--eval` starts an Evaluate job **after the push completes**; the command
+   returns once that job has *started* (not finished). `< /dev/null` and the
+   `push.log` redirect keep the push non-interactive and keep the loader's output
+   out of your context.
+   **Failure behavior you must handle (`leap` ≤ 0.0.155):** on a **build failure**
+   these versions do **not** exit — on a non-interactive shell they stall at the
+   prompt `View errors in interactive mode? (Y/n):`, waiting for input that never
+   comes, so the command **hangs**. (Dev/newer CLIs exit non-zero instead.) So **if
+   `push.log` contains `View errors in interactive mode`, the push FAILED** — stop
+   waiting for it and kill it; never treat a non-returning push as "still working".
+   The real error is **not** in `push.log` — read it from the failed Push run's
+   server-side log: `leap run list -t Push` (newest) → `leap run logs <run-id>`.
+   Fix the error, then re-push (`-o/--overwrite`).
+6. **Confirm the Evaluate started — then it runs asynchronously.** The `--eval`
+   runs as an `Evaluate` job on the platform; a clean push does **not** mean a
+   clean evaluation, and on the **full dataset the job can take hours to a day**.
+   ```
+   leap run list -t Evaluate      # find the run you just created; note its id (EVAL_ID)
+   ```
+   - **No `Evaluate` job exists at all** → the eval was **not triggered**. Re-push
+     `leap push -o <version> --eval` and re-check.
+   - Once an `Evaluate` job exists and is running (`PENDING` / `INITIALIZING` /
+     `STARTED`), the integration is wired up and the evaluation is underway.
+   **Don't poll it with your own turns** — a turn per check burns tokens, for up to
+   a day. Instead launch a **background shell** that watches *this* run and exits
+   when it reaches a terminal state; the loop is token-free (not your turns) and
+   re-invokes you once on completion:
+   ```
+   # background; poll every 5 min; exit when THIS run (EVAL_ID) is terminal
+   while :; do
+     s=$(leap run list -t Evaluate | grep "$EVAL_ID")   # match the exact run, not the newest
+     case "$s" in *FINISHED*|*FAILED*|*STOPPED*|*TERMINATED*) echo "$s"; break;; esac
+     sleep 300                                            # empty/failed list => keep waiting, not terminal
+   done
+   ```
+   When it exits: **`FINISHED`** → the integration is done. **`FAILED` / `STOPPED` /
+   `TERMINATED`** → pull `leap run logs <run-id>`, read the earliest real error, fix
+   it in the integration, re-push, and track the new eval the same way. (Errors that
+   surface only here are typically platform-only conditions the local test can't
+   see — the data-root/volume switch, `AUTH_SECRET` not injected, a missing
+   `include`, or a dependency absent from `requirements.txt`.)
