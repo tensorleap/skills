@@ -6,8 +6,9 @@ production code.
 
 ## File split (see skill.md "Project layout")
 
-Author across the fixed file set, each decorator in its component file, all
-imported into the entry file `leap_integration.py`:
+Author across the fixed file set — **all under the `tensorleap/` directory** at
+the integration repo root — each decorator in its component file, all imported
+into the entry file `leap_integration.py`:
 
 - `preprocess.py` → `@tensorleap_preprocess`
 - `encoders.py` → input + GT encoders
@@ -51,10 +52,11 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
 
 ## Step 1 — skeleton + tiny `__main__`
 
-Create the file set (`leap_integration.py`, `preprocess.py`, `encoders.py`,
-`project_config.yaml`; add `metrics.py`/`metadata.py`/`visualizers.py` when those
-components arrive) and a `project_config.yaml` with at least the data root and
-`sample_limit_per_split`. Then a tiny entry-file `__main__`:
+Create the file set **inside `tensorleap/`** (`tensorleap/leap_integration.py`,
+`tensorleap/preprocess.py`, `tensorleap/encoders.py`,
+`tensorleap/project_config.yaml`; add `metrics.py`/`metadata.py`/`visualizers.py`
+when those components arrive) and a `project_config.yaml` with at least the data
+root and `sample_limit_per_split`. Then a tiny entry-file `__main__`:
 
 ```python
 if __name__ == "__main__":
@@ -240,6 +242,10 @@ it; metadata / visualizers / metrics are optional.
 
 ## leap.yaml
 
+Lives at `tensorleap/leap.yaml`; `entryFile` and every `include` path are relative
+to it (i.e. to `tensorleap/`), so the component modules below are listed by their
+bare names. Run `leap push` from inside `tensorleap/`.
+
 ```yaml
 entryFile: leap_integration.py
 pythonVersion: py310        # match the project's runtime (py310/py311/...), not a fixed value
@@ -254,7 +260,10 @@ include:
   - project_config.yaml     # constants/config the integration reads (NOT secrets)
   - requirements.txt        # deps the platform installs with pip (export from poetry/uv if needed)
   - tokenizer/**            # tokenizer / vocab assets
-  - <your_module>/**.py     # any extra helper modules imported by the integration
+  - <your_module>/**.py     # extra helper modules imported by the integration (living in tensorleap/)
+  # Parent-repo modules the integration imports live OUTSIDE tensorleap/: reference
+  # them with a relative path (e.g. ../<pkg>/**.py). If a parent path can't be
+  # bundled, vendor a copy of the needed module into tensorleap/ instead.
   # NOT the model — it is uploaded to the platform separately, not bundled
 exclude:
   - .git/**

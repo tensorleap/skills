@@ -19,11 +19,18 @@ reference_dir: .tensorleap/reference
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
-legacy `leap_binder.py` registration script. The target layout is root-level
-`leap_integration.py` + root-level `leap.yaml` with `entryFile:
-leap_integration.py`, run through the project's Python environment (agreed in
-Step 0 — pyenv + poetry by default), with a locally materialized `.onnx` or
-`.h5` model.
+legacy `leap_binder.py` registration script. **Put every file you create under a
+`tensorleap/` directory at the integration repo root** — never scattered in the
+repo root — so the integration is self-contained and doesn't clutter the
+customer's project. So the layout is `tensorleap/leap_integration.py` +
+`tensorleap/leap.yaml` with `entryFile: leap_integration.py` (paths in `leap.yaml`
+are relative to `leap.yaml`, i.e. to `tensorleap/`), run through the project's
+Python environment (agreed in Step 0 — pyenv + poetry by default), with a locally
+materialized `.onnx` or `.h5` model. Run the run-loop and `leap push` **from
+inside `tensorleap/`**. If the integration imports the customer's repo modules,
+add the repo root to `sys.path` in the entry file (e.g.
+`sys.path.insert(0, str(Path(__file__).resolve().parents[1]))`) so those imports
+resolve for local runs.
 
 ## What Tensorleap is (and what that implies)
 
@@ -102,9 +109,11 @@ not silently guess a detail the repo doesn't establish.
 
 ## Project layout
 
-Split the integration into these root-level files (the Python components are all
-imported into `leap_integration.py`, the entry file) rather than one monolith — it
-keeps each component reviewable and the entry file thin:
+Split the integration into these files, **all under the `tensorleap/` directory**
+(the Python components are all imported into `leap_integration.py`, the entry
+file) rather than one monolith — it keeps each component reviewable, the entry
+file thin, and the whole integration confined to `tensorleap/` instead of the
+customer's repo root:
 
 - **`leap_integration.py`** — entry file; imports the component modules below and
   holds `@tensorleap_load_model` + `@tensorleap_integration_test` and the
@@ -144,9 +153,9 @@ the end; you lose the ability to tell which change caused which failure.
 ## The run loop (do this after every meaningful edit)
 
 ```
-1. RUN     {{scripts_dir}}/run_integration.sh
-           (runs `leap_integration.py` through the project env — `poetry run` by
-            default, or set `TL_PY` — from the repo root;
+1. RUN     {{scripts_dir}}/run_integration.sh tensorleap
+           (runs `tensorleap/leap_integration.py` through the project env —
+            `poetry run` by default, or set `TL_PY` — from the `tensorleap/` dir;
             the exit-status table only prints when the entry file is named
             exactly leap_integration.py)
 
@@ -171,11 +180,12 @@ GATE       Do NOT author the next interface until the current stage's row is
 ```
 
 > The bundled scripts (`{{scripts_dir}}/run_integration.sh`, `{{scripts_dir}}/tl_check.py`) live
-> in this skill's own directory and take the **target integration repo root** as
-> their first argument (default: current directory). Run them from the
-> integration repo, or pass its path explicitly.
+> in this skill's own directory and take the path to run in as their first
+> argument (default: current directory). Point them at the **`tensorleap/`
+> directory** (e.g. `{{scripts_dir}}/run_integration.sh tensorleap`), or run them
+> from inside it.
 
-**Keep an `integration-report.md` (in the integration repo root).** As you author,
+**Keep an `integration-report.md` (in `tensorleap/`).** As you author,
 **log every issue you hit** — the failing signal, what caused it, and how you
 resolved it (or that it's still open, e.g. data that can't be verified on a remote
 volume, a missing dependency, an ambiguous model contract). Append as you go
@@ -495,9 +505,13 @@ isn't obvious. The highest-frequency ones:
 
 - Keep edits minimal, local, reviewable. Prioritize the integration files; do
   not refactor or modify unrelated training/business logic.
-- **Never** install or upgrade packages (except `code_loader`, per Step 0) or
-  otherwise mutate the project's environment from inside this task. If a check would
-  require that, stop and report it as a blocker.
+- **Install packages as needed** — when a runtime import is missing, install it
+  **autonomously** into the agreed project environment from Step 0, using that
+  env's tool (`poetry add` / `uv add` / `pip install` / `conda install`). **Mirror
+  every runtime dependency you add into `requirements.txt`** (see the deps
+  guardrail below) so the platform build installs it too. Keep it scoped to what
+  the integration needs — don't gratuitously upgrade unrelated packages or
+  restructure the project's stack.
 - **Never** run `git commit` / `push` / `rebase` / `reset`. Leave change control
   to the human / orchestrator.
 - **Never hardcode data-store credentials** in the integration. Read them from the
@@ -525,15 +539,18 @@ isn't obvious. The highest-frequency ones:
 - Ship dependencies as a **`requirements.txt`** listed in `leap.yaml`'s `include` —
   the platform pip-installs them on top of its Linux (aarch64) base image. Do **not**
   ship `pyproject.toml`/`poetry.lock` (the platform resolves those against its own base
-  image, so your deps never install). Build the list from the packages your integration
-  imports at runtime — **not** the repo's training/dev stack — so it stays lean and lets
-  pip resolve the transitive deps. Your dev environment is the starting point, but the
-  build runs on Linux/aarch64: carry cross-platform deps as-is and translate the
-  OS-specific ones (e.g. `tensorflow-macos` → `tensorflow`, or `sys_platform` markers).
-  Pin only as tightly as needed — prefer compatible-release pins (`tensorflow~=2.11.0`)
-  over exact patch pins (`==2.11.1`), so the aarch64 build can resolve an available
-  wheel. A package's import name can differ from its pip name (`code_loader.helpers` →
-  `code-loader-helpers`).
+  image, so your deps never install). **Build the list additively — never seed it from
+  the repo's `requirements.txt`/`pyproject.toml`.** Start empty and add one line per
+  package the integration **actually imports at runtime**, as you add each import (the
+  same deps you install per the *install packages as needed* rule). Because the list
+  only ever grows from real runtime imports, the repo's training/dev stack never
+  enters — so it stays lean with no pruning step. Two adjustments when you add a line,
+  since the build runs on **Linux/aarch64**: translate OS-specific packages to their
+  cross-platform form (e.g. `tensorflow-macos` → `tensorflow`, or `sys_platform`
+  markers), and pin only as tightly as needed — prefer compatible-release pins
+  (`tensorflow~=2.11.0`) over exact patch pins (`==2.11.1`) so the aarch64 build can
+  resolve an available wheel. A package's import name can differ from its pip name
+  (`code_loader.helpers` → `code-loader-helpers`).
 - Keep prints minimal inside `@tensorleap_load_model` and
   `@tensorleap_integration_test` — the platform invokes these and heavy stdout
   can interfere. Put diagnostic prints in the `__main__` block, and never let
@@ -595,7 +612,7 @@ For the Core/Real decision, account for **both** signals — they cover differen
 scopes (see above):
 
 ```
-poetry run python {{scripts_dir}}/tl_check.py "$(pwd)"   # project env (poetry by default); pass an ABSOLUTE path
+poetry run python {{scripts_dir}}/tl_check.py "$(pwd)/tensorleap"   # project env (poetry by default); pass the ABSOLUTE path to tensorleap/
 ```
 
 It prints JSON from `LeapLoader.check_dataset()`, which validates the **dataset
@@ -609,7 +626,8 @@ the exit table there (a `❌` is real even when `isValid` is `True`). "Clean" =
 
 ## Deploy: push the finished integration
 
-Once the structured parse is clean, ship it to the platform from the repo root.
+Once the structured parse is clean, ship it to the platform **from inside
+`tensorleap/`** (where `leap.yaml` lives).
 **Push by default — don't ask.** As soon as the integration validates, proceed
 through the steps below automatically (switch `data_root` to the remote volume,
 ensure a project, upload the model, run `leap push … --eval`). Only **hold and
@@ -630,35 +648,43 @@ yes/no question.
    Data delivery). If the integration reads a remote store, ensure its credential
    is registered as `AUTH_SECRET` (`leap secrets create` + `leap secrets set`,
    which writes `secretId` into `leap.yaml` for auto-injection).
-4. **Push + evaluate** — from the repo root:
+4. **Push + evaluate** — from inside `tensorleap/`:
    `leap push -m <model> -n <version> -b <batch> --eval`. `-m` uploads the model
    separately (it is not bundled); the code bundle comes from `leap.yaml`'s
-   `include`. (`leap push -h` for `-o/--overwrite`, `--no-wait`, `--branch`.) By
+   `include`. (`leap push -h` for `-o/--overwrite`, `--branch`; **don't use
+   `--no-wait`** — background the blocking command instead, see step 5.) By
    default the push evaluates the **full dataset** (no `sample_limit_per_split`);
    apply a cap only if the **user explicitly asked** for a smaller initial
    evaluation, in which case that key in `project_config.yaml` holds it.
-5. **Monitor in the background (to save tokens)** — push + evaluation are long, so
-   **do not poll synchronously in-context** (that burns tokens idling). Either
-   `leap push … --no-wait` and check back later, or run the waiting command in the
-   **background** (a background shell, or a `/loop`) and resume only when it exits.
-6. **Check the evaluate job for errors.** The `--eval` runs as an `Evaluate` job on
-   the platform — a clean push does **not** mean a clean evaluation, so you must
-   check the job's outcome explicitly:
+5. **Run the push in the background (to save tokens)** — push + evaluation are
+   long, so **do not poll synchronously in-context** (that burns tokens) and **do
+   NOT use `--no-wait`**. Run the blocking `leap push … --eval` in the
+   **background** (a background shell, or a `/loop`) and resume only when it exits,
+   so the harness re-invokes you once on completion and you keep the CLI's own
+   push pass/fail output.
+6. **Check the evaluate job — the skill is done when a successful Evaluate ends.**
+   The `--eval` runs as an `Evaluate` job on the platform; a clean push does **not**
+   mean a clean evaluation, so check the job's outcome explicitly:
    ```
    leap run list -t Evaluate            # find the Evaluate run and its STATUS
    leap run list -t Evaluate -s FAILED  # or filter straight to failed runs
    ```
-   Read the **status** column: `FINISHED` = success; **`FAILED` (or `STOPPED` /
-   `TERMINATED`) = the evaluation errored** (other values — `PENDING`,
-   `INITIALIZING`, `STARTED` — mean still running; wait). On failure, pull the
-   logs to diagnose:
-   ```
-   leap run logs <run-id>                    # error traceback / logs
-   leap run logs <run-id> --output <file>    # save the logs to a file (log report)
-   ```
-   Then **loop like the local run loop**: read the earliest real error in the
-   evaluate logs → fix that in the integration → re-push (`-o/--overwrite`) →
-   re-check the Evaluate status. Repeat until the Evaluate job reports `FINISHED`.
-   Errors that surface only here are typically platform-only conditions the local
-   test can't see (the data-root/volume switch, `AUTH_SECRET` not injected, a
-   missing `include`, or a dependency absent from `requirements.txt`).
+   - **No `Evaluate` job exists at all** → the eval was **not triggered**. Re-run
+     `leap push -o <version> --eval` (in the background) and let it finish, then
+     check again.
+   - Read the **status** column: **`FINISHED` = success**; **`FAILED` (or
+     `STOPPED` / `TERMINATED`) = the evaluation errored** (`PENDING` /
+     `INITIALIZING` / `STARTED` = still running; wait). On failure, pull the logs:
+     ```
+     leap run logs <run-id>                    # error traceback / logs
+     leap run logs <run-id> --output <file>    # save the logs to a file (log report)
+     ```
+     Then **loop like the local run loop**: read the earliest real error → fix it
+     in the integration → re-push (`-o/--overwrite`) → re-check the Evaluate
+     status. Errors that surface only here are typically platform-only conditions
+     the local test can't see (the data-root/volume switch, `AUTH_SECRET` not
+     injected, a missing `include`, or a dependency absent from `requirements.txt`).
+
+   **The skill's terminal success is a `FINISHED` Evaluate job** — not a clean
+   push, not a clean local run. Keep looping (fix → re-push → re-check) until an
+   `Evaluate` job reaches `FINISHED`; only then is the integration done.
