@@ -67,8 +67,9 @@ attached. The status table will show mostly-missing interfaces — expected.
 ## Step 2 — preprocess (the root)
 
 Lives in `preprocess.py`. Apply the **configurable, per-split-balanced sample
-limit** from `project_config.yaml` (`sample_limit_per_split`; `10` for the first
-push — see skill.md Data delivery):
+limit** from `project_config.yaml` (`sample_limit_per_split`; **no limit by
+default** — set a cap only if the user explicitly asks; see skill.md Data
+delivery):
 
 ```python
 @tensorleap_preprocess()

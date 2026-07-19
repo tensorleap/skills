@@ -25,6 +25,26 @@ leap_integration.py`, run through the project's Python environment (agreed in
 Step 0 — pyenv + poetry by default), with a locally materialized `.onnx` or
 `.h5` model.
 
+## Operating principle: run autonomously; ask only when blocked
+
+Drive the work forward on your own as far as you can. **Infer configuration from
+the repo and the environment before asking** (the data store and load code,
+dependencies, label semantics, a *local* data volume via `leap server info`,
+etc.), and **use anything the user already supplied proactively** — in the
+prompt, a config file, or the repo — without re-asking for it. Some settings
+genuinely **cannot** be obtained autonomously — most notably the **remote data
+volume when running against a remote server** (a local `leap server info` can't
+reach it) — and must come from the user.
+
+**Ask the user for an important config setting (remote data volume, credentials,
+bucket URI, topology, …) only when you are actually *blocked* on it and could not
+obtain it yourself and it wasn't provided.** Don't front-load a questionnaire at
+the start: defer each ask to the exact step that needs the value (e.g. the remote
+volume at the data-root switch before push; store credentials when a fetch first
+needs them). When you must ask, ask for the specific missing piece, then continue
+autonomously. This keeps the run hands-off unless a genuine blocker requires the
+user.
+
 ## What Tensorleap is (and what that implies)
 
 Tensorleap is an **inference-only** analysis platform: it loads a *pre-trained*
@@ -225,13 +245,17 @@ server, or configures anything. React to its exit status:
   a local and a remote server; the CLI is currently pointed at the remote one).
     - **No** → tell them to re-point the CLI at the local server (reconfigure
       `apiUrl` / re-auth), then re-run preflight.
-    - **Yes** → follow the **remote flow**: the remote data volume cannot be
-      inferred or verified from here, so **ask the user for the remote data volume
-      path** and **ask them to run `leap server info` on the remote host** and
-      paste its `datasetvolumes`. Then pick the data-delivery row (see **Data
-      delivery** below), set up any store credentials via `leap secrets` /
-      `AUTH_SECRET`, and remember the **data-root switch before push** and the
-      **local data subset** the local test needs.
+    - **Yes** → follow the **remote flow**, staying autonomous (see *Operating
+      principle*): **use any remote volume path / creds the user already gave**.
+      The remote data volume **cannot be inferred locally** — a local
+      `leap server info` can't reach the remote server — so the **user must supply
+      it** (they can obtain it by running `leap server info` **on the remote host**
+      and pasting its `datasetvolumes`). **Defer each ask to the step that needs
+      it** (the remote volume at the **data-root switch before push**; store
+      credentials when a fetch first needs them, via `leap secrets` /
+      `AUTH_SECRET`), and don't re-ask for anything already provided. Then pick the
+      data-delivery row (see **Data delivery** below) and remember the **local data
+      subset** the local test needs.
 - **Ambiguous topology (exit 5)** — a server **answers** at `localhost` on a
   non-`4589` port, which could be a local server on a custom port *or* a live
   remote server reached via port-forwarding. **Ask the user which it is**, then
@@ -283,9 +307,9 @@ Pick the row, then act:
 |---|--------|----------|---------------|--------------|-----------------|
 | 1 | Local  | Local path | Volume | detect existing project folder → if none, ask whether data is a local path (this row), a remote store (row 3), or on a remote volume (row 4) → for a local path, copy in | ✅ emptiness gate |
 | 2 | Local  | Already on volume | Volume | detect & **reuse**, point config, don't copy | ✅ emptiness gate |
-| 3 | Local  | Remote store (S3/ES/…) | **Lazy-cache** into local volume (eager if small/convenient) | ask creds + fetch logic; `preprocess` lists→pointers; encoder downloads-on-miss; config root = local volume | ✅ list the store |
-| 4 | Remote | Pre-staged on volume | Volume | ask remote volume path + user runs `leap server info` on the remote host; point **platform** config at it; **never copy**; ask user to **manually download a few images** to a local dir for the local test (1/split *not* enforced here) | ❌ can't verify |
-| 5 | Remote | Remote store (S3/ES/…) | **Lazy-cache** into volume | ask for a **creds file path** (→ `AUTH_SECRET`, set from the file) + fetch logic; local test downloads **1 sample/split** to a local dir; **before push, switch config root → remote volume** | ✅ list the store (client-side) |
+| 3 | Local  | Remote store (S3/ES/…) | **Lazy-cache** into local volume (eager if small/convenient) | infer fetch logic from the repo; `preprocess` lists→pointers; encoder downloads-on-miss; config root = local volume; creds only when a fetch needs auth (defer, don't front-load) | ✅ list the store |
+| 4 | Remote | Pre-staged on volume | Volume | remote volume path **can't be inferred locally** — user supplies it (via `leap server info` **on the remote host**) unless already given; point **platform** config at it; **never copy**; ask user to **manually download a few images** to a local dir for the local test (1/split *not* enforced here) | ❌ can't verify |
+| 5 | Remote | Remote store (S3/ES/…) | **Lazy-cache** into volume | infer fetch logic from the repo; creds via a **creds file path** (→ `AUTH_SECRET`) **only when a fetch needs auth** and not already supplied; local test downloads **1 sample/split** to a local dir; **before push, switch config root → remote volume** | ✅ list the store (client-side) |
 | 6 | Remote | Local path only | **Unsupported** | detect & **stop**: no client→remote-volume copy path; user must stage to a store or pre-stage on the remote volume | — |
 
 ### Cross-cutting rules
@@ -300,20 +324,22 @@ Pick the row, then act:
 - **Configurable sample limit (balanced per split).** `preprocess` must support a
   configurable cap on the number of samples, applied **balanced across splits**
   (same count per split), read from `project_config.yaml` (e.g.
-  `sample_limit_per_split`). For the **first push to the platform**, set it to
-  **10 samples per split** so the initial evaluation is fast. **Tell the user**
-  the limit is at that key in `project_config.yaml` and that they should raise it
-  (or set it to unlimited) before a **full evaluation** — or that Claude will do
-  so on their instruction. This is separate from the local-test subset above:
+  `sample_limit_per_split`). **Default to NO limit — the push evaluates the full
+  dataset.** Do **not** set an initial cap on your own; only apply one when the
+  **user explicitly asks** for it (e.g. a small, fast initial evaluation). When
+  they do, tell the user the cap lives at that key in `project_config.yaml` and
+  how to change or remove it. This is separate from the local-test subset above:
   the limit caps what `preprocess` returns; the local test iterates a few of
   those.
-- **Credentials — don't make the user paste secrets into the session.** The
-  common case is the user does **not** want to hand raw credentials to the Claude
-  session. So the default flow is: **ask the user for a path to a local
-  credentials file** (preferably JSON or a similar `{key: value}` format), and
-  **register the secret from that file** with the `leap` CLI — the raw value never
-  enters the conversation. `leap secrets create` takes the file path as its second
-  positional argument (`secretKeyPath`):
+- **Credentials — don't make the user paste secrets into the session.** Only set
+  this up **when a remote-store fetch actually needs auth** (per *Operating
+  principle*, defer it to that point) and the user hasn't already pointed you at a
+  creds file / registered the secret. The common case is the user does **not**
+  want to hand raw credentials to the Claude session, so when you do need them:
+  **ask for a path to a local credentials file** (preferably JSON or a similar
+  `{key: value}` format) and **register the secret from that file** with the
+  `leap` CLI — the raw value never enters the conversation. `leap secrets create`
+  takes the file path as its second positional argument (`secretKeyPath`):
   ```bash
   leap secrets create <name> <path-to-creds-file>   # reads the content FROM the file
   leap secrets set --secret-id <secretId>           # attaches it (writes secretId into leap.yaml)
@@ -323,9 +349,9 @@ Pick the row, then act:
   runtime from the **`AUTH_SECRET`** env var (the secret is auto-injected into
   platform jobs). For **local runs**, export it from the same file rather than
   typing it (e.g. `export AUTH_SECRET="$(cat <path-to-creds-file>)"`), so the value
-  stays out of the transcript. Never hardcode credentials, and always **ask the
-  user** for the credentials-file path (or value) and for any **non-trivial fetch
-  logic** (custom client, endpoint, query, pagination).
+  stays out of the transcript. Never hardcode credentials; when the creds file (or
+  non-trivial fetch logic — custom client, endpoint, query, pagination) can't be
+  inferred and wasn't supplied, **ask for that specific piece**, then continue.
 - **Data-root switch (any remote server — rows 4 & 5).** There are two roots: a
   **local directory** for the local integration test, and the **remote data
   volume** for the platform run. **Before pushing, edit the `data_root` in
@@ -594,13 +620,32 @@ Once the structured parse is clean, ship it to the platform from the repo root.
 4. **Push + evaluate** — from the repo root:
    `leap push -m <model> -n <version> -b <batch> --eval`. `-m` uploads the model
    separately (it is not bundled); the code bundle comes from `leap.yaml`'s
-   `include`. (`leap push -h` for `-o/--overwrite`, `--no-wait`, `--branch`.) The
-   **first push keeps `sample_limit_per_split: 10`** in `project_config.yaml` for a
-   fast initial evaluation — **remind the user** to raise it (or unset it) there
-   before a full evaluation, or offer to do it on their instruction.
+   `include`. (`leap push -h` for `-o/--overwrite`, `--no-wait`, `--branch`.) By
+   default the push evaluates the **full dataset** (no `sample_limit_per_split`);
+   apply a cap only if the **user explicitly asked** for a smaller initial
+   evaluation, in which case that key in `project_config.yaml` holds it.
 5. **Monitor in the background (to save tokens)** — push + evaluation are long, so
    **do not poll synchronously in-context** (that burns tokens idling). Either
    `leap push … --no-wait` and check back later, or run the waiting command in the
    **background** (a background shell, or a `/loop`) and resume only when it exits.
-   Then read status with `leap run list` and `leap run logs <run-id>`; the `--eval`
-   appears as an `Evaluate` job.
+6. **Check the evaluate job for errors.** The `--eval` runs as an `Evaluate` job on
+   the platform — a clean push does **not** mean a clean evaluation, so you must
+   check the job's outcome explicitly:
+   ```
+   leap run list -t Evaluate            # find the Evaluate run and its STATUS
+   leap run list -t Evaluate -s FAILED  # or filter straight to failed runs
+   ```
+   Read the **status** column: `FINISHED` = success; **`FAILED` (or `STOPPED` /
+   `TERMINATED`) = the evaluation errored** (other values — `PENDING`,
+   `INITIALIZING`, `STARTED` — mean still running; wait). On failure, pull the
+   logs to diagnose:
+   ```
+   leap run logs <run-id>                    # error traceback / logs
+   leap run logs <run-id> --output <file>    # save the logs to a file (log report)
+   ```
+   Then **loop like the local run loop**: read the earliest real error in the
+   evaluate logs → fix that in the integration → re-push (`-o/--overwrite`) →
+   re-check the Evaluate status. Repeat until the Evaluate job reports `FINISHED`.
+   Errors that surface only here are typically platform-only conditions the local
+   test can't see (the data-root/volume switch, `AUTH_SECRET` not injected, a
+   missing `include`, or a dependency absent from `requirements.txt`).
