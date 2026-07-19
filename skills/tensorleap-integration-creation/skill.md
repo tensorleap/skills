@@ -352,6 +352,12 @@ Pick the row, then act:
   stays out of the transcript. Never hardcode credentials; when the creds file (or
   non-trivial fetch logic — custom client, endpoint, query, pagination) can't be
   inferred and wasn't supplied, **ask for that specific piece**, then continue.
+  - **Default when a creds file WAS supplied: register it as the `AUTH_SECRET`
+    secret and move on — do NOT ask.** In particular, **do not assume the remote
+    host has an IAM role / instance profile** and do not offer the platform's
+    default credential chain as an option. Only skip the secret and rely on that
+    chain if the user **explicitly states** the remote server already has S3
+    access.
 - **Data-root switch (any remote server — rows 4 & 5).** There are two roots: a
   **local directory** for the local integration test, and the **remote data
   volume** for the platform run. **Before pushing, edit the `data_root` in
@@ -604,6 +610,13 @@ the exit table there (a `❌` is real even when `isValid` is `True`). "Clean" =
 ## Deploy: push the finished integration
 
 Once the structured parse is clean, ship it to the platform from the repo root.
+**Push by default — don't ask.** As soon as the integration validates, proceed
+through the steps below automatically (switch `data_root` to the remote volume,
+ensure a project, upload the model, run `leap push … --eval`). Only **hold and
+leave the code unpushed** if the user **explicitly asked** not to push yet (or to
+review first). If a project name is genuinely required and can't be inferred,
+create a sensible one or ask for just that — don't turn the whole push into a
+yes/no question.
 
 1. **Auth (re-check)** — auth was verified in the Preflight gate; quickly
    re-confirm with `leap auth whoami` in case the token expired mid-session. If
