@@ -25,26 +25,6 @@ leap_integration.py`, run through the project's Python environment (agreed in
 Step 0 — pyenv + poetry by default), with a locally materialized `.onnx` or
 `.h5` model.
 
-## Operating principle: run autonomously; ask only when blocked
-
-Drive the work forward on your own as far as you can. **Infer configuration from
-the repo and the environment before asking** (the data store and load code,
-dependencies, label semantics, a *local* data volume via `leap server info`,
-etc.), and **use anything the user already supplied proactively** — in the
-prompt, a config file, or the repo — without re-asking for it. Some settings
-genuinely **cannot** be obtained autonomously — most notably the **remote data
-volume when running against a remote server** (a local `leap server info` can't
-reach it) — and must come from the user.
-
-**Ask the user for an important config setting (remote data volume, credentials,
-bucket URI, topology, …) only when you are actually *blocked* on it and could not
-obtain it yourself and it wasn't provided.** Don't front-load a questionnaire at
-the start: defer each ask to the exact step that needs the value (e.g. the remote
-volume at the data-root switch before push; store credentials when a fetch first
-needs them). When you must ask, ask for the specific missing piece, then continue
-autonomously. This keeps the run hands-off unless a genuine blocker requires the
-user.
-
 ## What Tensorleap is (and what that implies)
 
 Tensorleap is an **inference-only** analysis platform: it loads a *pre-trained*
@@ -79,6 +59,26 @@ No training happens here. That shapes the whole integration:
   user points you at rather than pasting it into the session (see **Credentials**
   under Data delivery). Gate only the download, not cached reads. Full row-by-row
   detail (local vs remote server, copy vs lazy-cache) is in **Data delivery** below.
+
+## Operating principle: run autonomously; ask only when blocked
+
+Drive the work forward on your own as far as you can. **Infer configuration from
+the repo and the environment before asking** (the data store and load code,
+dependencies, label semantics, a *local* data volume via `leap server info`,
+etc.), and **use anything the user already supplied proactively** — in the
+prompt, a config file, or the repo — without re-asking for it. Some settings
+genuinely **cannot** be obtained autonomously — most notably the **remote data
+volume when running against a remote server** (a local `leap server info` can't
+reach it) — and must come from the user.
+
+**Ask the user for an important config setting (remote data volume, credentials,
+bucket URI, topology, …) only when you are actually *blocked* on it and could not
+obtain it yourself and it wasn't provided.** Don't front-load a questionnaire at
+the start: defer each ask to the exact step that needs the value (e.g. the remote
+volume at the data-root switch before push; store credentials when a fetch first
+needs them). When you must ask, ask for the specific missing piece, then continue
+autonomously. This keeps the run hands-off unless a genuine blocker requires the
+user.
 
 ## Starting point: usually an existing repo
 
