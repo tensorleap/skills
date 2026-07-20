@@ -13,26 +13,18 @@ group: tensorleap
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
-legacy `leap_binder.py` registration script. **File layout: keep
-`leap_integration.py` and `leap.yaml` at the integration repo ROOT — the
-Tensorleap tooling requires them there — and put every other file you create
-(`preprocess.py`, `encoders.py`, `metrics.py`/`metadata.py`/`visualizers.py`,
-`project_config.yaml`, `integration-report.md`) under a `tensorleap/`
-subdirectory** so they don't clutter the customer's repo root. `requirements.txt`
-also stays at the **root** (the tooling detects it there and the platform build
-installs it from the bundle root). `entryFile: leap_integration.py` and the
-`include` paths in `leap.yaml` are relative to the root. Because the components
-live in `tensorleap/`, the entry file adds that dir to `sys.path` so its bare
-imports resolve:
-```python
-import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tensorleap"))
-from preprocess import preprocess   # tensorleap/preprocess.py
-```
-Run through the project's Python environment (agreed in Step 0 — pyenv + poetry by
-default), with a locally materialized `.onnx` or `.h5` model. Run the run-loop and
-`leap push` **from the repo root** (where `leap_integration.py` / `leap.yaml`
-live).
+legacy `leap_binder.py` registration script. **Put every file you create under a
+`tensorleap/` directory at the integration repo root** — never scattered in the
+repo root — so the integration is self-contained and doesn't clutter the
+customer's project. So the layout is `tensorleap/leap_integration.py` +
+`tensorleap/leap.yaml` with `entryFile: leap_integration.py` (paths in `leap.yaml`
+are relative to `leap.yaml`, i.e. to `tensorleap/`), run through the project's
+Python environment (agreed in Step 0 — pyenv + poetry by default), with a locally
+materialized `.onnx` or `.h5` model. Run the run-loop and `leap push` **from
+inside `tensorleap/`**. If the integration imports the customer's repo modules,
+add the repo root to `sys.path` in the entry file (e.g.
+`sys.path.insert(0, str(Path(__file__).resolve().parents[1]))`) so those imports
+resolve for local runs.
 
 ## What Tensorleap is (and what that implies)
 
@@ -111,42 +103,35 @@ not silently guess a detail the repo doesn't establish.
 
 ## Project layout
 
-Split the integration into these files rather than one monolith — it keeps each
-component reviewable and the entry file thin. **`leap_integration.py` and
-`leap.yaml` sit at the repo ROOT** (the tooling requires them there); **the
-component modules and `project_config.yaml` go under `tensorleap/`** so they don't
-clutter the customer's repo:
+Split the integration into these files, **all under the `tensorleap/` directory**
+(the Python components are all imported into `leap_integration.py`, the entry
+file) rather than one monolith — it keeps each component reviewable, the entry
+file thin, and the whole integration confined to `tensorleap/` instead of the
+customer's repo root:
 
-- **`leap_integration.py`** *(repo root)* — entry file; adds `tensorleap/` to
-  `sys.path`, imports the component modules below, and holds
-  `@tensorleap_load_model` + `@tensorleap_integration_test` and the `__main__` run
-  harness.
-- **`leap.yaml`** *(repo root)* — the **platform manifest** (a *different* file
-  from `project_config.yaml`): `entryFile: leap_integration.py`, `pythonVersion`,
-  the `include` list (which lists `tensorleap/**`), `projectId`/`secretId`/`branch`.
-  Required to push the integration to the platform; it is config *for the
-  platform*, not read by your Python code.
-- **`requirements.txt`** *(repo root)* — runtime deps the platform pip-installs
-  (built additively; see Guardrails). Kept at root so the tooling detects it and
-  the platform build installs it.
-- **`tensorleap/project_config.yaml`** — every constant/config **your integration
-  code** reads: data root, directory names and other paths, the **sample limit**,
-  and any flags or constants used by project logic/computations. **No secrets** —
-  those live in the `leap secrets` / `AUTH_SECRET` flow (see "Remote data" above).
-  Loaded once and shared by the component modules (resolve its path relative to the
-  module's own `__file__`, since it sits alongside them in `tensorleap/`).
-- **`tensorleap/preprocess.py`** — `@tensorleap_preprocess`.
-- **`tensorleap/encoders.py`** — all input and GT encoders.
-- **`tensorleap/metrics.py`**, **`tensorleap/metadata.py`**,
-  **`tensorleap/visualizers.py`** — the matching optional components, one concern
-  per file. **`metrics.py` holds the custom loss** (`@tensorleap_custom_loss`) as
-  well as custom metrics — loss and metrics are the same shape of per-sample
-  function, so they live together.
+- **`leap_integration.py`** — entry file; imports the component modules below and
+  holds `@tensorleap_load_model` + `@tensorleap_integration_test` and the
+  `__main__` run harness.
+- **`leap.yaml`** — the **platform manifest** (a *different* file from
+  `project_config.yaml`): `entryFile: leap_integration.py`, `pythonVersion`, the
+  `include` list, `projectId`/`secretId`/`branch`. Required to push the
+  integration to the platform; it is config *for the platform*, not read by your
+  Python code.
+- **`project_config.yaml`** — every constant/config **your integration code**
+  reads: data root, directory names and other paths, the **sample limit**, and any
+  flags or constants used by project logic/computations. **No secrets** — those
+  live in the `leap secrets` / `AUTH_SECRET` flow (see "Remote data" above). Loaded
+  once and shared by the component modules.
+- **`preprocess.py`** — `@tensorleap_preprocess`.
+- **`encoders.py`** — all input and GT encoders.
+- **`metrics.py`**, **`metadata.py`**, **`visualizers.py`** — the matching
+  optional components, one concern per file. **`metrics.py` holds the custom
+  loss** (`@tensorleap_custom_loss`) as well as custom metrics — loss and metrics
+  are the same shape of per-sample function, so they live together.
 
-The `tensorleap/` component files must be covered by `leap.yaml`'s `include` (e.g.
-`tensorleap/**`), along with `leap_integration.py` and `requirements.txt` at root.
-Validation still fires from running the entry file, so the run loop below is
-unchanged — it exercises the imported decorators.
+All component files must be listed in `leap.yaml`'s `include` (along with
+`project_config.yaml`). Validation still fires from running the entry file, so the
+run loop below is unchanged — it exercises the imported decorators.
 
 ## The one rule that drives everything
 
@@ -162,9 +147,9 @@ the end; you lose the ability to tell which change caused which failure.
 ## The run loop (do this after every meaningful edit)
 
 ```
-1. RUN     scripts/run_integration.sh
-           (runs `leap_integration.py` at the repo root through the project env —
-            `poetry run` by default, or set `TL_PY` — from the repo root;
+1. RUN     scripts/run_integration.sh tensorleap
+           (runs `tensorleap/leap_integration.py` through the project env —
+            `poetry run` by default, or set `TL_PY` — from the `tensorleap/` dir;
             the exit-status table only prints when the entry file is named
             exactly leap_integration.py)
 
@@ -189,9 +174,10 @@ GATE       Do NOT author the next interface until the current stage's row is
 ```
 
 > The bundled scripts (`scripts/run_integration.sh`, `scripts/tl_check.py`) live
-> in this skill's own directory and take the **integration repo root** (where
-> `leap_integration.py` / `leap.yaml` live) as their first argument (default:
-> current directory). Run them from the repo root, or pass its path explicitly.
+> in this skill's own directory and take the path to run in as their first
+> argument (default: current directory). Point them at the **`tensorleap/`
+> directory** (e.g. `scripts/run_integration.sh tensorleap`), or run them
+> from inside it.
 
 **Keep an `integration-report.md` (in `tensorleap/`).** As you author,
 **log every issue you hit** — the failing signal, what caused it, and how you
@@ -620,7 +606,7 @@ For the Core/Real decision, account for **both** signals — they cover differen
 scopes (see above):
 
 ```
-poetry run python scripts/tl_check.py "$(pwd)"   # project env (poetry by default); pass the ABSOLUTE repo-root path
+poetry run python scripts/tl_check.py "$(pwd)/tensorleap"   # project env (poetry by default); pass the ABSOLUTE path to tensorleap/
 ```
 
 It prints JSON from `LeapLoader.check_dataset()`, which validates the **dataset
@@ -634,8 +620,8 @@ the exit table there (a `❌` is real even when `isValid` is `True`). "Clean" =
 
 ## Deploy: push the finished integration
 
-Once the structured parse is clean, ship it to the platform **from the repo root**
-(where `leap.yaml` / `leap_integration.py` live).
+Once the structured parse is clean, ship it to the platform **from inside
+`tensorleap/`** (where `leap.yaml` lives).
 **Push by default — don't ask.** As soon as the integration validates, proceed
 through the steps below automatically (switch `data_root` to the remote volume,
 ensure a project, upload the model, run `leap push … --eval`). Only **hold and
@@ -656,7 +642,7 @@ yes/no question.
    Data delivery). If the integration reads a remote store, ensure its credential
    is registered as `AUTH_SECRET` (`leap secrets create` + `leap secrets set`,
    which writes `secretId` into `leap.yaml` for auto-injection).
-4. **Push + evaluate** — from the repo root:
+4. **Push + evaluate** — from inside `tensorleap/`:
    `leap push -m <model> -n <version> -b <batch> --eval`. `-m` uploads the model
    separately (it is not bundled); the code bundle comes from `leap.yaml`'s
    `include`. (`leap push -h` for `-o/--overwrite`, `--branch`.) **Never use

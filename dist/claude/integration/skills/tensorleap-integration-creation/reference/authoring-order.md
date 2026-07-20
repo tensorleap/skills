@@ -6,36 +6,27 @@ production code.
 
 ## File split (see skill.md "Project layout")
 
-`leap_integration.py` and `leap.yaml` sit at the **repo root** (the tooling
-requires them there); the component modules and `project_config.yaml` go under
-**`tensorleap/`**; `requirements.txt` stays at the **root**. Each decorator lives
-in its component file, all imported into the entry file:
+Author across the fixed file set — **all under the `tensorleap/` directory** at
+the integration repo root — each decorator in its component file, all imported
+into the entry file `leap_integration.py`:
 
-- `tensorleap/preprocess.py` → `@tensorleap_preprocess`
-- `tensorleap/encoders.py` → input + GT encoders
-- `tensorleap/metrics.py` / `metadata.py` / `visualizers.py` → the matching optional components
+- `preprocess.py` → `@tensorleap_preprocess`
+- `encoders.py` → input + GT encoders
+- `metrics.py` / `metadata.py` / `visualizers.py` → the matching optional components
   (`metrics.py` holds the **custom loss** `@tensorleap_custom_loss` alongside custom metrics)
-- `tensorleap/project_config.yaml` → constants/config (data root, paths, `sample_limit_per_split`, flags) — no secrets
-- `leap_integration.py` *(root)* → puts `tensorleap/` on `sys.path`, imports the
-  above + `@tensorleap_load_model`, `@tensorleap_integration_test`, and the
-  `__main__` harness
+- `project_config.yaml` → constants/config (data root, paths, `sample_limit_per_split`, flags) — no secrets
+- `leap_integration.py` → imports the above + `@tensorleap_load_model`,
+  `@tensorleap_integration_test`, and the `__main__` harness
 
 The decorator imports below come from `code_loader`; put each where its component
-lives. The root `leap_integration.py` adds `tensorleap/` to `sys.path`, then
-imports the component symbols with bare names:
+lives. `leap_integration.py` then imports the component symbols:
 
 ```python
-# leap_integration.py  (repo root)
-import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tensorleap"))
-from preprocess import preprocess          # tensorleap/preprocess.py
-from encoders import image_input, class_gt # tensorleap/encoders.py
+# leap_integration.py
+from preprocess import preprocess
+from encoders import image_input, class_gt
 # ... metrics / metadata / visualizers as added
 ```
-
-Component modules under `tensorleap/` import each other with bare names too (they
-share the same dir on `sys.path`), and read `project_config.yaml` relative to
-their own `__file__`.
 
 ## Decorator imports (in each component file)
 
@@ -61,12 +52,11 @@ from code_loader.inner_leap_binder.leapbinder_decorators import (
 
 ## Step 1 — skeleton + tiny `__main__`
 
-Create the file set: `leap_integration.py` at the **repo root**, and
-`preprocess.py`, `encoders.py`, `project_config.yaml` under **`tensorleap/`** (add
-`metrics.py`/`metadata.py`/`visualizers.py` when those components arrive). Give
-`tensorleap/project_config.yaml` at least the data root and
-`sample_limit_per_split`. The entry file puts `tensorleap/` on `sys.path` (see
-File split), then a tiny `__main__`:
+Create the file set **inside `tensorleap/`** (`tensorleap/leap_integration.py`,
+`tensorleap/preprocess.py`, `tensorleap/encoders.py`,
+`tensorleap/project_config.yaml`; add `metrics.py`/`metadata.py`/`visualizers.py`
+when those components arrive) and a `project_config.yaml` with at least the data
+root and `sample_limit_per_split`. Then a tiny entry-file `__main__`:
 
 ```python
 if __name__ == "__main__":
@@ -252,23 +242,28 @@ it; metadata / visualizers / metrics are optional.
 
 ## leap.yaml
 
-Lives at the **repo root**; `entryFile` and every `include` path are relative to
-the root. The entry file and `requirements.txt` are at root; the component modules
-and `project_config.yaml` are under `tensorleap/`. Run `leap push` from the repo
-root.
+Lives at `tensorleap/leap.yaml`; `entryFile` and every `include` path are relative
+to it (i.e. to `tensorleap/`), so the component modules below are listed by their
+bare names. Run `leap push` from inside `tensorleap/`.
 
 ```yaml
-entryFile: leap_integration.py       # at the repo root
+entryFile: leap_integration.py
 pythonVersion: py310        # match the project's runtime (py310/py311/...), not a fixed value
 include:
   - leap.yaml
-  - leap_integration.py     # entry file (root)
-  - requirements.txt        # deps the platform installs with pip (root; export from poetry/uv if needed)
-  - tensorleap/**           # component modules + project_config.yaml (preprocess/encoders/metrics/...)
-  - tokenizer/**            # tokenizer / vocab assets (wherever they live)
-  # any extra helper modules the integration imports — under tensorleap/ if you
-  # created them; if it imports the customer's existing repo modules, include those
-  # paths too (e.g. <pkg>/**.py at the root).
+  - leap_integration.py     # entry file
+  - preprocess.py           # component modules imported by the entry file
+  - encoders.py
+  - metrics.py              # include those that exist
+  - metadata.py
+  - visualizers.py
+  - project_config.yaml     # constants/config the integration reads (NOT secrets)
+  - requirements.txt        # deps the platform installs with pip (export from poetry/uv if needed)
+  - tokenizer/**            # tokenizer / vocab assets
+  - <your_module>/**.py     # extra helper modules imported by the integration (living in tensorleap/)
+  # Parent-repo modules the integration imports live OUTSIDE tensorleap/: reference
+  # them with a relative path (e.g. ../<pkg>/**.py). If a parent path can't be
+  # bundled, vendor a copy of the needed module into tensorleap/ instead.
   # NOT the model — it is uploaded to the platform separately, not bundled
 exclude:
   - .git/**
