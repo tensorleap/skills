@@ -1,9 +1,7 @@
 ---
+name: tensorleap-integration-creation
 description: Use when writing or fixing a Tensorleap integration in the decorator style — leap_integration.py / leap.yaml, @tensorleap_preprocess, input/GT encoders, @tensorleap_load_model, @tensorleap_integration_test — or when debugging code-loader validation errors, exit-table rows, batch-dimension warnings, or check_dataset() failures. Drives a progressive author -> run -> read -> fix loop and keeps the integration runnable at every step.
-globs: leap_integration.py,leap.yaml
-alwaysApply: false
 ---
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.2.0 — generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 
 # Writing a Tensorleap integration
 
@@ -157,7 +155,7 @@ the end; you lose the ability to tell which change caused which failure.
 ## The run loop (do this after every meaningful edit)
 
 ```
-1. RUN     .tensorleap/scripts/run_integration.sh
+1. RUN     scripts/run_integration.sh
            (runs `leap_integration.py` at the repo root through the project env —
             `poetry run` by default, or set `TL_PY` — from the repo root;
             the exit-status table only prints when the entry file is named
@@ -183,7 +181,7 @@ GATE       Do NOT author the next interface until the current stage's row is
            exercised and no mandatory errors remain. One interface at a time.
 ```
 
-> The bundled scripts (`.tensorleap/scripts/run_integration.sh`, `.tensorleap/scripts/tl_check.py`) live
+> The bundled scripts (`scripts/run_integration.sh`, `scripts/tl_check.py`) live
 > in this skill's own directory and take the **integration repo root** (where
 > `leap_integration.py` / `leap.yaml` live) as their first argument (default:
 > current directory). Run them from the repo root, or pass its path explicitly.
@@ -213,7 +211,7 @@ Before writing anything, run the bundled check-only gate from the integration
 repo root:
 
 ```
-.tensorleap/scripts/preflight.sh        # CLI defaults to `leap`; set TL_CLI=leapdev to override
+scripts/preflight.sh        # CLI defaults to `leap`; set TL_CLI=leapdev to override
 ```
 
 It verifies the platform prerequisites that need **no Python environment** (so it
@@ -273,9 +271,9 @@ server, or configures anything. React to its exit status:
   non-`4589` port, which could be a local server on a custom port *or* a live
   remote server reached via port-forwarding. **Ask the user which it is**, then
   re-run the gate with the answer:
-    - **Local** → `TL_TOPOLOGY=local .tensorleap/scripts/preflight.sh` (runs the
+    - **Local** → `TL_TOPOLOGY=local scripts/preflight.sh` (runs the
       local server/volume checks).
-    - **Remote** → `TL_TOPOLOGY=remote .tensorleap/scripts/preflight.sh`, then follow
+    - **Remote** → `TL_TOPOLOGY=remote scripts/preflight.sh`, then follow
       the **remote flow** above.
 - **No local server (exit 6)** — the URL is local (`localhost`, **any port**),
   topology was **derived** (the user did *not* explicitly say local/remote), but
@@ -286,7 +284,7 @@ server, or configures anything. React to its exit status:
     - **Yes (remote)** → ensure the CLI points at a **reachable** remote endpoint
       (the remote URL, or a live port-forward on whatever port — re-point/re-auth
       if the current URL is dead), then re-run
-      `TL_TOPOLOGY=remote .tensorleap/scripts/preflight.sh` and follow the **remote
+      `TL_TOPOLOGY=remote scripts/preflight.sh` and follow the **remote
       flow** above.
     - **No** → the local server must be installed/started (`leap server run`).
       **Relay that guidance and STOP** — do not install or start it yourself.
@@ -393,7 +391,7 @@ Pick the row, then act:
 ## Authoring order
 
 Write the minimum next piece that unlocks a more informative run. Full detail and
-the `__main__` evolution snippets are in `.tensorleap/reference/authoring-order.md`. The
+the `__main__` evolution snippets are in `reference/authoring-order.md`. The
 order:
 
 0. Setup (after the Preflight gate passes):
@@ -438,7 +436,7 @@ order:
    model input, `channel_dim` explicit, returns a single unbatched
    `np.float32` array. Call each directly and run. Encoders must return
    `float32`; if the model needs integer inputs (e.g. `input_ids`), export it to
-   accept `float32` and cast internally (see `.tensorleap/reference/error-signals.md`,
+   accept `float32` and cast internally (see `reference/error-signals.md`,
    load_model).
 5. `@tensorleap_load_model` with explicit `prediction_types`. Call it directly
    and run.
@@ -483,14 +481,14 @@ return **batched** arrays (leading axis = 1) and the model is fed/returns batche
 data — so design loss/metrics for batched input, and strip the batch axis
 *inside* a visualizer (`if x.ndim == 3: x = x[0]`), never in the test body. When
 the mapping rerun fails, code_loader can mask the real exception (and
-mis-attribute "crashed at function 'X'") — see `.tensorleap/reference/error-signals.md`
+mis-attribute "crashed at function 'X'") — see `reference/error-signals.md`
 (Integration test) to surface it.
 
 ## Reading feedback -> fix
 
 The full catalog of known signals (preprocess, encoder, GT, load_model,
 integration-test, loss, metadata, visualizer, metric, legacy-binder) and the
-exact fix for each is in `.tensorleap/reference/error-signals.md`. Consult it when a signal
+exact fix for each is in `reference/error-signals.md`. Consult it when a signal
 isn't obvious. The highest-frequency ones:
 
 - `Integration test is only allowed to call Tensorleap decorators …` — plain
@@ -574,7 +572,7 @@ isn't obvious. The highest-frequency ones:
 Add these one at a time, running after each:
 
 - **Visualizers** — pick a `LeapDataType` and return its matching `Leap*` class.
-  See `.tensorleap/reference/visualizer-types.md` for the catalog (type -> return class +
+  See `reference/visualizer-types.md` for the catalog (type -> return class +
   shape rules) and how to read the original sample (tokens, paths, ids) via a
   `SamplePreprocessResponse` argument.
 - **Metadata** — `@tensorleap_metadata("name", DatasetMetadataType.<string|float|int|boolean>)`,
@@ -615,7 +613,7 @@ For the Core/Real decision, account for **both** signals — they cover differen
 scopes (see above):
 
 ```
-poetry run python .tensorleap/scripts/tl_check.py "$(pwd)"   # project env (poetry by default); pass the ABSOLUTE repo-root path
+poetry run python scripts/tl_check.py "$(pwd)"   # project env (poetry by default); pass the ABSOLUTE repo-root path
 ```
 
 It prints JSON from `LeapLoader.check_dataset()`, which validates the **dataset

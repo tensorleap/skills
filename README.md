@@ -66,8 +66,8 @@ preflight gate runs. A global install (`~/.copilot/skills`) updates itself
 automatically; a **project-local install is never changed without your
 approval** — Copilot will ask you first (or you'll get a `y/N` prompt when
 running preflight yourself in a terminal). Offline runs skip the check
-silently. This applies to Copilot installs only — Claude installs are not
-touched (Claude updates come through its plugin marketplace).
+silently. This applies to Copilot and Cursor installs only — Claude installs
+are not touched (Claude updates come through its plugin marketplace).
 
 **Upgrading from an older install:** earlier installer versions pasted the skill
 into `.github/copilot-instructions.md`. If that file contains a
@@ -92,17 +92,75 @@ curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh |
 curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh -s -- --tool claude --global   # personal skills (~/.claude)
 ```
 
-## Cursor / AGENTS.md / everything at once
+## Cursor
+
+The skill installs as a native [Cursor Agent Skill](https://cursor.com/docs/skills)
+(requires Cursor 2.4+): Cursor discovers it automatically and applies it when
+your task matches its description — in the IDE's Agent and the Cursor CLI.
+
+### Install into one project
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh -s -- --tool cursor /path/to/your-project   # .cursor/rules/
+curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh -s -- --tool cursor /path/to/your-project
+```
+
+(Omit the path to install into the current directory.) This creates
+`.cursor/skills/tensorleap-integration-creation/` in the project — a
+self-contained folder (`SKILL.md` + helper scripts + reference docs).
+
+### Install globally (all projects)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh -s -- --tool cursor --global
+```
+
+This installs to `~/.cursor/skills/tensorleap-integration-creation/`, which
+Cursor reads regardless of the project you're in.
+
+### Verify it's discovered
+
+- **Cursor IDE** — open **Customize** in the sidebar and go to **Skills**: the
+  skill appears in the list. You can also type `/` in the Agent chat input and
+  search for it. Skills are discovered at startup — if Cursor was open during
+  the install, reload the window first.
+- **Cursor CLI** — run `agent` in the project and type `/` to search the skill
+  name.
+
+### Use it
+
+Open the project in Cursor (or run `agent` in the terminal — the Cursor CLI)
+and describe the task in Agent mode. The skill activates on
+Tensorleap-integration language; a good starting prompt:
+
+> Integrate this project with Tensorleap: write leap_integration.py and leap.yaml
+> in the decorator style for the model at `<path/to/model.onnx>` over the dataset
+> at `<path/to/data>`. Start with the skill's preflight gate, then follow its run
+> loop until check_dataset() passes and the integration-test exit table is green.
+
+**Staying up to date:** the skill checks for a newer version whenever its
+preflight gate runs. A global install (`~/.cursor/skills`) updates itself
+automatically; a **project-local install is never changed without your
+approval** — the agent will ask you first (or you'll get a `y/N` prompt when
+running preflight yourself in a terminal). Offline runs skip the check
+silently. If Cursor's sandbox blocks the global auto-update (it writes to your
+home directory), preflight prints the manual update command instead.
+
+**Upgrading from an older install:** earlier installer versions wrote a Cursor
+*rule* at `.cursor/rules/tensorleap-integration-creation.mdc` plus helper files
+under `.tensorleap/` (with `--global`: the same paths under your home dir).
+Delete that `.mdc` file so the content isn't loaded twice (and `.tensorleap/`,
+unless an `AGENTS.md` install still uses it).
+
+## AGENTS.md / everything at once
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh -s -- --tool agents /path/to/your-project   # AGENTS.md section
 curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh                                             # all tools, current dir
 ```
 
 `AGENTS.md` gets an **idempotent marked-section upsert** — existing content is
-preserved and re-running only updates our section. Cursor and AGENTS installs
-also place the shared helper files under `.tensorleap/`.
+preserved and re-running only updates our section. AGENTS installs also place
+the shared helper files under `.tensorleap/`.
 
 From a clone, `./install.sh --tool <tool> [--global] [TARGET_DIR]` does the same.
 
@@ -135,16 +193,16 @@ build/
 dist/                                # generated wrappers (committed; CI asserts fresh)
   claude/<plugin>/                   # a Claude plugin: plugin.json + skills/<skill>/{SKILL.md,scripts,reference}
   copilot/<skill>/                   # a Copilot Agent Skill: SKILL.md + scripts + reference (self-contained)
-  cursor/<skill>.mdc                 # flat, one per skill
+  cursor/<skill>/                    # a Cursor Agent Skill: same shape
   agents/<skill>.section.md          # flat marked-section fragment per skill
 .claude-plugin/marketplace.json      # generated; native `marketplace add` path
 install.sh                           # interim installer (clone-and-run or curl|sh)
 ```
 
 The two per-tool-variable paths in the body — the shared `scripts/` and `reference/`
-dirs — are written canonically as `{{scripts_dir}}` / `{{reference_dir}}`. Claude and
-Copilot resolve them skill-relative (self-contained folders); Cursor and AGENTS.md
-resolve them to `.tensorleap/scripts` and `.tensorleap/reference`, where the
+dirs — are written canonically as `{{scripts_dir}}` / `{{reference_dir}}`. Claude,
+Cursor and Copilot resolve them skill-relative (self-contained folders); AGENTS.md
+resolves them to `.tensorleap/scripts` and `.tensorleap/reference`, where the
 installer places them.
 
 ## Developing
@@ -168,8 +226,9 @@ a plugin's `skills` list in `plugins.json` (or a new plugin entry), then regener
 
 **Versioning.** Plugin version lives in `plugins.json` and is stamped into
 `plugin.json` + `marketplace.json` by the generator. Each `skill.md` also carries its
-own `version`, stamped as a comment into the flat cursor/agents outputs for
-traceability.
+own `version`, stamped as a comment into the flat AGENTS output for traceability
+(and shipped as the `VERSION` file in the Copilot and Cursor skills, where it
+drives the self-update check).
 
 ## License
 
