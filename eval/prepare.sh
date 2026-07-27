@@ -288,12 +288,6 @@ resolve_tensorleap_hub_git_credential_helper() {
     return 0
   fi
 
-  local devenv_helper="/home/ubuntu/.local/lib/devenv/github-app-git-credential"
-  if [[ -x "${devenv_helper}" ]]; then
-    printf '%s\n' "${devenv_helper}"
-    return 0
-  fi
-
   return 1
 }
 
