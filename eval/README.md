@@ -116,10 +116,10 @@ $BASH run.sh --fixture cifar10_resnet
 `cifar10_resnet` is the recommended first run: it is a **public** fixture (CIFAR
 downloads at runtime), so it needs no private creds and proves the loop.
 
-List every fixture id:
+See which fixtures you can choose from (ids + which need staged data/creds):
 
 ```bash
-python3 -c "import json;[print(f['id']) for f in json.load(open('manifest.json'))['fixtures']]"
+bash run_all.sh --list
 ```
 
 ---

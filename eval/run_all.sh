@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run_all.sh — the regression run: prepare -> verify -> run every selected
-# fixture, STRICTLY sequentially (rule 4: one push/evaluate at a time), then
-# print an aggregate summary. One failure never aborts the rest.
+# fixture, STRICTLY sequentially (the server handles only one push/evaluate at a
+# time), then print an aggregate summary. One failure never aborts the rest.
 #
 # Selection (default = the "no extra creds" set: fixtures with no REQUIRED
 # runtime_prerequisites, e.g. cifar10 — the ones any dev can run):
@@ -58,14 +58,30 @@ print("\n".join(ids))
 PY
 )
 
-[[ ${#SELECTED[@]} -gt 0 ]] || { echo "no fixtures selected" >&2; exit 1; }
+if [[ "${LIST_ONLY}" -eq 1 ]]; then
+  echo "Available fixtures (from manifest.json):"
+  python3 - "${MANIFEST}" <<'PY'
+import json, sys
+for f in json.load(open(sys.argv[1]))["fixtures"]:
+    needs = any(p.get("required") for p in (f.get("runtime_prerequisites") or []))
+    tag = "needs staged data (creds required)" if needs else "no data prereqs — in default set"
+    print(f"  {f['id']:<24} {tag}")
+PY
+  echo
+  echo "Run:  bash run_all.sh                    # the default set (above, 'in default set')"
+  echo "      bash run_all.sh --all              # every fixture"
+  echo "      bash run_all.sh --fixtures a,b,c   # a specific subset by id"
+  echo "      bash run.sh --fixture <id>         # a single fixture"
+  exit 0
+fi
+
+[[ ${#SELECTED[@]} -gt 0 ]] || { echo "no fixtures selected (see: run_all.sh --list)" >&2; exit 1; }
 log "Selected ${#SELECTED[@]} fixture(s): ${SELECTED[*]}"
 if [[ "${SELECT}" == "default" ]]; then
   log "(default = fixtures with no required DATA prerequisites; note some are still"
   log " private repos that need Tensorleap-hub access to clone — they PREP-FAIL"
   log " without it and the run continues. Use --all or --fixtures to override.)"
 fi
-[[ "${LIST_ONLY}" -eq 1 ]] && exit 0
 
 mkdir -p "${REPORTS}"
 declare -A RESULT   # id -> PASS/FAIL/STUCK/VERIFY-FAIL/PREP-FAIL/SKIPPED

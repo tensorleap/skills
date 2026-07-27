@@ -3,12 +3,13 @@
 # integration skill against ONE prepared blind fixture, then track the Evaluate
 # to a terminal state.
 #
-# The operational rules from README.md are enforced here, not just documented:
-#   1. CLAUDE_CONFIG_DIR is UNSET for the agent      (env -u below)
-#   2. `leap` -> `leapdev` shim first on PATH         (never hit prod)
-#   3. exactly one Tensorleap skill visible           (--plugin-dir + preflight)
-#   4. one fixture at a time                          (this script does one; gate the next on it)
-#   5. interactive (no -p) so the push is not reaped  (tmux REPL)
+# This enforces in code the setup that a blind eval needs (see README.md):
+#   - CLAUDE_CONFIG_DIR is UNSET for the agent (an empty string hides the plugin)
+#   - `leap` is shimmed to a dev CLI, first on PATH (so a bare `leap` never
+#     reaches a production server)
+#   - exactly one source of the integration skill is present (no local copy
+#     shadowing the plugin, which would silently test the wrong skill)
+#   - interactive session (no -p) so the push isn't reaped before its evaluate
 #
 # Prereqs: tmux, a reachable Tensorleap dev server + non-interactive auth, and a
 # prepared+verified fixture (run prepare.sh + verify.sh first).
@@ -60,17 +61,18 @@ command -v claude >/dev/null 2>&1 || fail "claude CLI not found on PATH"
 PRE_DIR="${FIXTURES_ROOT}/${FIXTURE}/pre"
 [[ -d "${PRE_DIR}/.git" ]] || fail "fixture '${FIXTURE}' not prepared: ${PRE_DIR} missing (run prepare.sh + verify.sh first)"
 
-# --- Rule 2: leap -> leapdev shim, first on PATH ---------------------------- #
+# --- leap -> dev-CLI shim, first on PATH (so a bare `leap` never hits prod) -- #
 SHIM_DIR="${EVAL_ROOT}/.shim"
 mkdir -p "${SHIM_DIR}"
 printf '#!/usr/bin/env bash\nexec %q "$@"\n' "${LEAP_CMD}" > "${SHIM_DIR}/leap"
 chmod +x "${SHIM_DIR}/leap"
 RUN_PATH="${SHIM_DIR}:${HOME}/.local/bin:${PATH}"
 
-# --- Rule 3: exactly one SOURCE of the integration skill -------------------- #
-# Checked on the filesystem (deterministic), not by parsing a skill listing:
-# rule 3 is about not having a local COPY shadow the plugin's copy of the SAME
-# skill. Other unrelated Tensorleap skills (e.g. tensorleap-migration) are fine.
+# --- Exactly one source of the integration skill ---------------------------- #
+# Checked on the filesystem (deterministic), not by parsing a skill listing.
+# The concern is a local COPY shadowing the plugin's copy of the SAME skill,
+# which would silently test the wrong one. Other unrelated Tensorleap skills
+# (e.g. tensorleap-migration) are fine.
 CLAUDE_LAUNCH="claude --dangerously-skip-permissions"
 SKILL_NAME="tensorleap-integration-creation"
 LOCAL_COPY="${HOME}/.claude/skills/${SKILL_NAME}"
@@ -86,7 +88,7 @@ grep -q '"integration@tensorleap"' "${INSTALLED_PLUGINS}" 2>/dev/null \
   && sources+=("installed plugin integration@tensorleap")
 log "Preflight: integration-skill source(s) = ${sources[*]:-NONE}"
 [[ ${#sources[@]} -ge 1 ]] || fail "the ${SKILL_NAME} skill is not available — install the plugin or pass --plugin-dir"
-[[ ${#sources[@]} -eq 1 ]] || fail "rule 3: ${#sources[@]} sources would shadow each other (${sources[*]}). Keep exactly one — remove ${LOCAL_COPY}, or drop --plugin-dir."
+[[ ${#sources[@]} -eq 1 ]] || fail "${#sources[@]} sources of the integration skill would shadow each other (${sources[*]}). Keep exactly one — remove ${LOCAL_COPY}, or drop --plugin-dir."
 log "  ok: single source"
 
 # --- Optional: apply the leakage deny-list if the generator is present ------ #
@@ -125,18 +127,18 @@ Rules:
 - Keep a NOTES.md logging what you did and the push/eval job ids. Don't commit.
 EOF
 
-# --- Rule 4 baseline: record existing Evaluate ids so we can spot THIS run's - #
+# --- Baseline existing Evaluate ids so we can spot the one THIS run creates -- #
 # Only real 24-hex job ids — never help/usage text (which the CLI dumps, with the
 # words FINISHED/FAILED in it, on a 503/504). stderr is dropped for the same reason.
 eval_ids() { env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t Evaluate 2>/dev/null \
   | awk '{print $NF}' | grep -E '^[0-9a-f]{24}$' || true; }
 BASE_EVALS="$(eval_ids | sort -u || true)"
 
-# --- Rule 5: interactive session over tmux (no -p, so the push is not reaped) #
+# --- Interactive session over tmux (no -p, so the push is not reaped) ------- #
 SESS="op-${FIXTURE}"
 tmux kill-session -t "${SESS}" 2>/dev/null || true
 tmux new-session -d -s "${SESS}" -x 220 -y 50 -c "${PRE_DIR}"
-# Rule 1: CLAUDE_CONFIG_DIR unset inside the pane; shim + local bin on PATH.
+# CLAUDE_CONFIG_DIR unset inside the pane (empty string hides the plugin); shim + local bin on PATH.
 tmux send-keys -t "${SESS}" 'unset CLAUDE_CONFIG_DIR; export PATH='"$(printf '%q' "${RUN_PATH}")" Enter
 tmux send-keys -t "${SESS}" "${CLAUDE_LAUNCH}" Enter
 
