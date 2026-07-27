@@ -14,3 +14,9 @@ venv/
 
 # Internal build brief / session handoff — never publish (contains internal refs)
 PLAN.md
+
+# skill-eval harness — regenerated / machine-local, never committed
+eval/.fixtures/
+eval/reports/
+eval/runtime_prerequisites.local.json
+eval/.shim/
