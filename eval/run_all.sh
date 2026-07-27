@@ -15,6 +15,15 @@
 #   --leap-cmd CMD        forwarded to run.sh (default leapdev)
 set -uo pipefail   # deliberately NOT -e: keep going past a failed fixture
 
+# macOS ships bash 3.2, but these scripts use bash-4 features (readarray, etc.).
+# Re-exec under a newer bash if we were launched with an old one.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  for _b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$_b" ] && exec "$_b" "$0" "$@"
+  done
+  echo "This script needs bash 4+ (macOS ships 3.2). Install: brew install bash" >&2; exit 1
+fi
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 EVAL_ROOT="${SCRIPT_DIR}"
 BASH_BIN="${BASH:-/opt/homebrew/bin/bash}"; [[ -x "${BASH_BIN}" ]] || BASH_BIN="$(command -v bash)"

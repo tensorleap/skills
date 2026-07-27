@@ -15,6 +15,14 @@
 # prepared+verified fixture (run prepare.sh + verify.sh first).
 set -euo pipefail
 
+# macOS ships bash 3.2; these scripts use bash-4 features. Re-exec under bash 4+.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  for _b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$_b" ] && exec "$_b" "$0" "$@"
+  done
+  echo "This script needs bash 4+ (macOS ships 3.2). Install: brew install bash" >&2; exit 1
+fi
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 EVAL_ROOT="${SCRIPT_DIR}"
 FIXTURES_ROOT="${EVAL_ROOT}/.fixtures"

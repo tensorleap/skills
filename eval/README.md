@@ -15,8 +15,8 @@ never packaged into `dist/`.
 
 ## Prerequisites
 
-- **bash 4+** (`brew install bash` — macOS ships 3.2, too old). Run scripts with
-  `/opt/homebrew/bin/bash`.
+- **bash 4+** (`brew install bash` — macOS ships 3.2). You can invoke the scripts
+  with plain `bash`; they auto re-exec under a bash 4+ if one is installed.
 - **ripgrep, jq, git** on PATH (`brew install ripgrep jq git`).
 - **poetry** + **git-lfs** (fixtures hydrate model files via LFS and build a
   poetry env).
@@ -99,19 +99,19 @@ the same premature-completion trap can bite any background wrapper around a push
 From this `eval/` directory:
 
 ```bash
-BASH=/opt/homebrew/bin/bash
-
 # 1. Build the blind copy (+ its poetry env). Slow the first time (installs deps).
-$BASH prepare.sh --fixture cifar10_resnet --bootstrap-poetry
+bash prepare.sh --fixture cifar10_resnet --bootstrap-poetry
 
 # 2. Prove it is actually blind (no solution left, git history scrubbed).
-$BASH verify.sh --fixture cifar10_resnet
+bash verify.sh --fixture cifar10_resnet
 
-# 3. Drive the agent to author + push + evaluate.   [runner — not built yet]
-$BASH run.sh --fixture cifar10_resnet
+# 3. Drive the agent to author + push + evaluate, then write the report.
+bash run.sh --fixture cifar10_resnet
 
-# → eval/reports/cifar10_resnet.md   (tokens, cost, pass/fail)   [report — not built yet]
+# → eval/reports/cifar10_resnet.md   (tokens, cost, pass/fail)
 ```
+
+Or run the whole corpus at once with `bash run_all.sh` (see below).
 
 `cifar10_resnet` is the recommended first run: it is a **public** fixture (CIFAR
 downloads at runtime), so it needs no private creds and proves the loop.
@@ -133,8 +133,9 @@ bash run_all.sh --list
 | `verify.sh` | Asserts the `pre` copy is genuinely blind: no root-level `leap*` files, no code importing `code_loader`, single rootless commit, no remote. **Do not run the agent unless this passes.** |
 | `bootstrap_poetry.sh` | Sets up a fixture's poetry env (invoked by `prepare.sh --bootstrap-poetry`). |
 | `lib/reset_lib.sh` | Shared helpers used by the above. |
-| `run.sh` | *(next)* Drives an interactive Claude session (tmux) to run the skill, then tracks the Evaluate to a terminal state. |
-| `report.py` | *(next)* Emits the per-run report — tokens, cost, where it got stuck, pass/fail. |
+| `run.sh` | Drives an interactive Claude session (tmux) to run the skill, then tracks the Evaluate to a terminal state and writes the report. |
+| `report.py` | Emits the per-run report — turns, tokens, est. cost, problems (from NOTES.md), pass/fail. |
+| `run_all.sh` | Runs prepare→verify→run over selected fixtures sequentially with an aggregate summary. `--list` shows the fixture menu. |
 
 Regenerated / machine-local (gitignored, never committed): `.fixtures/`,
 `reports/`, `runtime_prerequisites.local.json`.
@@ -168,7 +169,9 @@ open decision.
 
 ## Status
 
-- **Working:** `prepare.sh`, `verify.sh`, `bootstrap_poetry.sh` — validated on
-  `cifar10_resnet`.
-- **Next:** `run.sh` (interactive runner) and `report.py`, then a `run_all.sh`
-  wrapper over the full corpus.
+- **Working, validated end-to-end on `cifar10_resnet`** (blind author → push →
+  evaluate FINISHED): `prepare.sh`, `verify.sh`, `bootstrap_poetry.sh`,
+  `gen_deny.py`, `run.sh`, `report.py`, `run_all.sh`.
+- **Not yet exercised:** the 9 non-cifar fixtures (the 3 private ones need
+  Tensorleap-hub access + staged data); network-egress hardening for true
+  blindness on the public repos.
