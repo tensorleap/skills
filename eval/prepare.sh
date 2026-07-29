@@ -28,7 +28,25 @@ Prepare the pinned pre/post fixture repositories in .fixtures/.
 Options:
   --fixture ID         Limit preparation to one fixture ID from fixtures/manifest.json.
   --bootstrap-poetry   After preparing fixtures, bootstrap Poetry environments explicitly.
+  --skip-staging       Don't fetch S3 data prerequisites (assume already staged).
   --help               Show this help text.
+
+Environment:
+  EVAL_DATA_ROOT   Where S3 data prerequisites are staged. MUST live inside a
+                   mounted Tensorleap dataset volume (see `leap server info`),
+                   because encoders read it from inside the evaluate pod.
+                   Default: ${HOME}/tensorleap/data/eval
+  AWS_PROFILE      Profile used for private buckets (default: dev). Refresh with
+                   `aws sso login --profile <profile>`.
+
+Private Tensorleap Hub fixtures need github.com read access over https. Inherited
+credential helpers are deliberately cleared, so the harness must be told how to
+authenticate. Resolved in this order:
+  TENSORLEAP_HUB_FIXTURE_TOKEN / TENSORLEAP_HUB_READ_TOKEN (a PAT)
+  TENSORLEAP_HUB_GIT_CREDENTIAL_HELPER (path to an executable helper)
+  github-app-git-credential on PATH
+  an authenticated `gh` CLI  <- usually already true; just run `gh auth login`
+Set TENSORLEAP_HUB_DISABLE_GIT_CREDENTIAL_HELPER=1 to skip helper resolution.
 EOF
 }
 
@@ -51,6 +69,9 @@ require_cmd() {
 }
 
 bootstrap_poetry=0
+skip_staging=0
+eval_data_root="${EVAL_DATA_ROOT:-${HOME}/tensorleap/data/eval}"
+aws_profile="${AWS_PROFILE:-dev}"
 fixture_id=""
 fixture_auth_tmpdir=""
 checkout_github_extraheaders_file=""
@@ -64,6 +85,9 @@ while (($# > 0)); do
       ;;
     --bootstrap-poetry)
       bootstrap_poetry=1
+      ;;
+    --skip-staging)
+      skip_staging=1
       ;;
     --help|-h)
       usage
@@ -108,7 +132,10 @@ collect_relevant_model_files() {
 ensure_relevant_model_lfs_hydrated() {
   local repo_dir="$1"
   local label="$2"
-  local strict_lfs="${STRICT_FIXTURE_LFS:-0}"
+  # Fatal by default: a 134-byte pointer file where a model should be does not
+  # fail prep on its own, it fails later inside the agent's run as a baffling
+  # model-parse error. Set STRICT_FIXTURE_LFS=0 to downgrade to a warning.
+  local strict_lfs="${STRICT_FIXTURE_LFS:-1}"
 
   local relevant_model_files=()
   while IFS= read -r rel_path; do
@@ -136,6 +163,13 @@ ensure_relevant_model_lfs_hydrated() {
   include_csv="${include_csv%,}"
 
   log "  Hydrating ${#lfs_pointer_files[@]} LFS model file(s) in ${label}"
+  # filter.lfs.* normally lives in the user's GLOBAL gitconfig, which git_fixture
+  # replaces with its isolated credential-only file whenever auth is active. Without
+  # this, `lfs pull` reports "Git LFS is not installed for this repository", no-ops,
+  # and leaves pointer files behind. --local writes the filters into this repo's own
+  # .git/config, so hydration works regardless of ambient config.
+  git_fixture -C "${repo_dir}" lfs install --local >/dev/null \
+    || fail "${label}: git lfs install --local failed"
   if ! git_fixture -C "${repo_dir}" lfs pull --include "${include_csv}" --exclude ""; then
     if [[ "${strict_lfs}" == "1" ]]; then
       fail "${label}: git lfs pull failed for model file(s): ${lfs_pointer_files[*]}"
@@ -208,6 +242,123 @@ collect_tensorleap_text_files() {
   done < <(rg -n --ignore-case --files-with-matches "tensorleap" "${repo_dir}" || true)
 }
 
+aws_s3() {
+  # aws_s3 <no_sign_request:true|false> <region> <aws args...>
+  local unsigned="$1" region="$2"
+  shift 2
+  local -a auth=(--profile "${aws_profile}")
+  [[ "${unsigned}" == "true" ]] && auth=(--no-sign-request)
+  aws "${auth[@]}" --region "${region}" "$@"
+}
+
+assert_staged_data_blind() {
+  # Staged data is as much a leak channel as the repo: these buckets keep the
+  # reference integration next to the data (renault has tl_integration_v2.zip at
+  # its root). Without this check, blindness would rest on whoever wrote the
+  # manifest prefix being careful. Same detectors verify.sh runs on the repo.
+  local dir="$1" label="$2"
+  local hits=() rel_path
+
+  while IFS= read -r rel_path; do
+    [[ -n "${rel_path}" ]] && hits+=("opaque archive (nothing below can scan it): ${rel_path#"${dir}/"}")
+  done < <(find "${dir}" -type f \( -name '*.zip' -o -name '*.tar' -o -name '*.tar.gz' \
+    -o -name '*.tgz' -o -name '*.7z' -o -name '*.rar' \) | sort)
+
+  while IFS= read -r rel_path; do
+    [[ -n "${rel_path}" ]] && hits+=("leap-named file: ${rel_path#"${dir}/"}")
+  done < <(find "${dir}" -type f -name 'leap*' | sort)
+
+  while IFS= read -r rel_path; do
+    [[ -n "${rel_path}" ]] && hits+=("imports code_loader: ${rel_path}")
+  done < <(collect_python_code_loader_files "${dir}")
+
+  while IFS= read -r rel_path; do
+    [[ -n "${rel_path}" ]] && hits+=("mentions tensorleap: ${rel_path}")
+  done < <(collect_tensorleap_text_files "${dir}")
+
+  ((${#hits[@]} == 0)) && return 0
+  printf '      %s\n' "${hits[@]}" >&2
+  fail "${label}: staged data could leak the reference integration (listed above). Narrow this fixture's s3_prefixes/s3_files allowlist in the manifest."
+}
+
+stage_fixture_data() {
+  local id="$1" fixture_json="$2"
+  local entry_count dest_root path_file
+  entry_count="$(jq '[(.runtime_prerequisites // [])[] | ((.s3_files // []) + (.s3_prefixes // []))[]] | length' <<<"${fixture_json}")"
+  path_file="${FIXTURES_ROOT}/${id}/staged_data_path"
+  if ((entry_count == 0)); then
+    rm -f "${path_file}"
+    return 0
+  fi
+
+  dest_root="${eval_data_root}/${id}"
+  # run.sh reads this to resolve the manifest's ${...} data placeholders — record
+  # where the data actually landed rather than making run.sh re-derive it.
+  printf '%s\n' "${dest_root}" >"${path_file}"
+  if [[ "${skip_staging}" == "1" ]]; then
+    warn "fixture '${id}': --skip-staging, assuming ${entry_count} data prerequisite(s) already at ${dest_root}"
+    return 0
+  fi
+
+  require_cmd aws
+  require_cmd shasum
+  log "  Staging ${entry_count} data prerequisite(s) into ${dest_root}"
+  mkdir -p "${dest_root}"
+
+  local entry bucket prefix key dest region unsigned want_sum got_sum extract fmt xdest target
+  while IFS= read -r entry; do
+    bucket="$(jq -r '.bucket' <<<"${entry}")"
+    prefix="$(jq -r '.prefix' <<<"${entry}")"
+    dest="$(jq -r '.dest // "."' <<<"${entry}")"
+    region="$(jq -r '.region // "us-east-1"' <<<"${entry}")"
+    log "    sync  s3://${bucket}/${prefix} -> ${dest}/"
+    aws_s3 false "${region}" s3 sync "s3://${bucket}/${prefix}" "${dest_root}/${dest}" --only-show-errors \
+      || fail "fixture '${id}': failed to sync s3://${bucket}/${prefix} (expired SSO? run: aws sso login --profile ${aws_profile})"
+  done < <(jq -c '(.runtime_prerequisites // [])[] | (.s3_prefixes // [])[]' <<<"${fixture_json}")
+
+  while IFS= read -r entry; do
+    bucket="$(jq -r '.bucket' <<<"${entry}")"
+    key="$(jq -r '.key' <<<"${entry}")"
+    dest="$(jq -r '.dest // (.key | split("/") | last)' <<<"${entry}")"
+    region="$(jq -r '.region // "us-east-1"' <<<"${entry}")"
+    unsigned="$(jq -r '.no_sign_request // false' <<<"${entry}")"
+    want_sum="$(jq -r '.checksum_sha256 // ""' <<<"${entry}")"
+    extract="$(jq -r '.extract // false' <<<"${entry}")"
+    fmt="$(jq -r '.extract_format // ""' <<<"${entry}")"
+    xdest="$(jq -r '.extract_dest // "."' <<<"${entry}")"
+    target="${dest_root}/${dest}"
+
+    log "    fetch s3://${bucket}/${key} -> ${dest}"
+    mkdir -p "$(dirname "${target}")"
+    aws_s3 "${unsigned}" "${region}" s3 cp "s3://${bucket}/${key}" "${target}" --only-show-errors \
+      || fail "fixture '${id}': failed to fetch s3://${bucket}/${key} (expired SSO? run: aws sso login --profile ${aws_profile})"
+
+    if [[ -n "${want_sum}" ]]; then
+      got_sum="$(shasum -a 256 "${target}" | awk '{print $1}')"
+      [[ "${got_sum}" == "${want_sum}" ]] \
+        || fail "fixture '${id}': checksum mismatch for '${dest}' (want ${want_sum}, got ${got_sum})"
+      log "      checksum ok"
+    fi
+
+    if [[ "${extract}" == "true" ]]; then
+      case "${fmt}" in
+        tar_gz)
+          mkdir -p "${dest_root}/${xdest}"
+          tar -xzf "${target}" -C "${dest_root}/${xdest}" \
+            || fail "fixture '${id}': failed to extract '${dest}'"
+          # Must not survive: assert_staged_data_blind cannot see inside archives.
+          rm -f "${target}"
+          log "      extracted -> ${xdest}/"
+          ;;
+        *) fail "fixture '${id}': unsupported extract_format '${fmt}' for '${dest}'" ;;
+      esac
+    fi
+  done < <(jq -c '(.runtime_prerequisites // [])[] | (.s3_files // [])[]' <<<"${fixture_json}")
+
+  assert_staged_data_blind "${dest_root}" "fixture '${id}'"
+  log "  Staged data ready: ${dest_root}"
+}
+
 assert_clean_git_tree() {
   local dir="$1"
   local label="$2"
@@ -231,11 +382,7 @@ assert_guide_native_post_variant() {
 
 write_fixture_reset_script() {
   local repo_dir="$1"
-  local variant_kind="$2"
-  local post_ref="$3"
-  shift 3
-
-  local strip_files=("$@")
+  local post_ref="$2"
   local script_path="${repo_dir}/.fixture_reset.sh"
 
   {
@@ -250,18 +397,7 @@ write_fixture_reset_script() {
     printf 'POST_REF=%q\n' "${post_ref}"
     echo
 
-    if [[ "${variant_kind}" == "pre" ]]; then
-      echo 'STRIP_FILES=('
-      local rel_path
-      for rel_path in "${strip_files[@]}"; do
-        printf '  %q\n' "${rel_path}"
-      done
-      echo ')'
-      echo
-      echo 'fixture_reset_pre_variant "${SCRIPT_DIR}" "${POST_REF}" "${STRIP_FILES[@]}"'
-    else
-      echo 'fixture_reset_post_variant "${SCRIPT_DIR}" "${POST_REF}"'
-    fi
+    echo 'fixture_reset_post_variant "${SCRIPT_DIR}" "${POST_REF}"'
   } >"${script_path}"
 
   chmod +x "${script_path}"
@@ -293,6 +429,16 @@ resolve_tensorleap_hub_git_credential_helper() {
 
   if command -v github-app-git-credential >/dev/null 2>&1; then
     command -v github-app-git-credential
+    return 0
+  fi
+
+  # Fall back to an authenticated gh CLI. `gh auth login` does NOT teach git how
+  # to authenticate over https (with protocol=ssh it never touches git's config
+  # at all), and this harness deliberately clears inherited credential helpers —
+  # so being logged into gh is not enough on its own unless we ask gh directly.
+  # The leading '!' registers the value as a shell command, not a binary path.
+  if command -v gh >/dev/null 2>&1 && gh auth token >/dev/null 2>&1; then
+    printf '%s\n' '!gh auth git-credential'
     return 0
   fi
 
@@ -367,7 +513,7 @@ else
 
   if [[ -n "${tensorleap_hub_git_credential_helper}" ]]; then
     fixture_git_auth_mode="helper"
-    log "Using GitHub App git credential helper for private Tensorleap Hub fixture clones"
+    log "Using git credential helper '${tensorleap_hub_git_credential_helper}' for private Tensorleap Hub fixture clones"
   elif [[ -n "${tensorleap_hub_read_token}" ]]; then
     fixture_git_auth_mode="token"
     log "Using TENSORLEAP_HUB_READ_TOKEN for private Tensorleap Hub fixture clones"
@@ -447,7 +593,6 @@ while IFS= read -r fixture_json; do
   repo="$(jq -r '.repo // empty' <<<"${fixture_json}")"
   post_ref="$(jq -r '.post_ref // empty' <<<"${fixture_json}")"
   pre_ref="$(fixture_entry_pre_ref "${fixture_json}")"
-  blind="$(fixture_entry_blind "${fixture_json}")"
   blind_text_allowlist=()
   while IFS= read -r allow_path; do
     [[ -n "${allow_path}" ]] && blind_text_allowlist+=("${allow_path}")
@@ -490,15 +635,11 @@ while IFS= read -r fixture_json; do
   git_fixture -C "${post_dir}" checkout --quiet "${post_ref}"
   ensure_relevant_model_lfs_hydrated "${post_dir}" "post variant for fixture '${id}'"
   assert_guide_native_post_variant "${post_dir}" "post variant for fixture '${id}'"
-  post_pin_info="$(fixture_detect_code_loader_pin "${post_dir}")"
-  post_pin_version="${post_pin_info#*|}"
-  if [[ -z "${post_pin_info}" ]] || ! fixture_version_at_least "${post_pin_version}" "$(fixture_min_code_loader_version)"; then
-    log "  Refreshing local code-loader pin for post variant"
-    fixture_prepare_local_code_loader_pin "${post_dir}" "post variant for fixture '${id}'"
-  fi
-  fixture_assert_min_code_loader_pin "${post_dir}" "post variant for fixture '${id}'"
+  # The post variant is a static answer key — verify.sh only inspects it and
+  # nothing ever executes it — so its code-loader pin is left exactly as upstream
+  # committed it.
   prepared_post_ref="$(git -C "${post_dir}" rev-parse HEAD)"
-  write_fixture_reset_script "${post_dir}" post "${prepared_post_ref}"
+  write_fixture_reset_script "${post_dir}" "${prepared_post_ref}"
 
   # strip_for_pre is removed from post to derive pre, so it must exist in post.
   # With an explicit pre_ref, strip targets the pre tree (which may contain files
@@ -534,7 +675,7 @@ while IFS= read -r fixture_json; do
         # A strip-derived blind fixture may keep a file only when it is explicitly
         # allowlisted as incidental (e.g. a config bucket name); otherwise an
         # uncovered 'tensorleap' file is treated as incomplete stripping and fails.
-        if fixture_blind_text_exempt "${blind}" "${pre_ref}" "${rel_path}" ${blind_text_allowlist[@]+"${blind_text_allowlist[@]}"}; then
+        if fixture_blind_text_exempt "${pre_ref}" "${rel_path}" ${blind_text_allowlist[@]+"${blind_text_allowlist[@]}"}; then
           warn "fixture '${id}': blind pre keeps post file '${rel_path}' containing 'tensorleap' (allowlisted)"
         else
           fail "fixture '${id}': post file '${rel_path}' contains 'tensorleap' but is missing from strip_for_pre"
@@ -581,24 +722,14 @@ while IFS= read -r fixture_json; do
   git_fixture -C "${pre_dir}" checkout --quiet "${pre_source_checkout}"
   ensure_relevant_model_lfs_hydrated "${pre_dir}" "pre variant source for fixture '${id}'"
 
-  if [[ "${blind}" == "1" ]]; then
-    # Blind eval fixture: build the pre tree (optionally stripping integration
-    # files), then scrub history so the "after" cannot be recovered via git.
-    log "  Building blind pre variant (history scrubbed)"
-    if ((${#strip_files[@]} > 0)); then
-      fixture_strip_pre_variant_files "${pre_dir}" "${strip_files[@]}"
-    fi
-    fixture_make_blind_variant "${pre_dir}" "Create pre-integration fixture variant (blind)"
-  else
-    fixture_prepare_local_code_loader_pin "${pre_dir}" "pre variant source for fixture '${id}'"
-    pre_source_ref="$(git -C "${pre_dir}" rev-parse HEAD)"
-    [[ "${pre_source_ref}" == "${prepared_post_ref}" ]] \
-      || fail "fixture '${id}': prepared pre source ref '${pre_source_ref}' does not match prepared post ref '${prepared_post_ref}'"
-    write_fixture_reset_script "${pre_dir}" pre "${prepared_post_ref}" "${strip_files[@]}"
-
-    log "  Stripping pre-integration files from pre variant"
-    "${pre_dir}/.fixture_reset.sh"
+  # Build the pre tree (optionally stripping integration files) and the
+  # code-loader pin, then scrub history so the "after" cannot be recovered.
+  log "  Building blind pre variant (history scrubbed)"
+  if ((${#strip_files[@]} > 0)); then
+    fixture_strip_pre_variant_files "${pre_dir}" "${strip_files[@]}"
   fi
+  fixture_strip_code_loader_dependency "${pre_dir}" "pre variant for fixture '${id}'"
+  fixture_make_blind_variant "${pre_dir}" "Create pre-integration fixture variant (blind)"
 
   remaining_pre_root_leap_files=()
   while IFS= read -r rel_path; do
@@ -656,7 +787,7 @@ while IFS= read -r fixture_json; do
     pre_tensorleap_files+=("${rel_path}")
   done < <(collect_tensorleap_text_files "${pre_dir}")
   for rel_path in ${pre_tensorleap_files[@]+"${pre_tensorleap_files[@]}"}; do
-    if fixture_blind_text_exempt "${blind}" "${pre_ref}" "${rel_path}" ${blind_text_allowlist[@]+"${blind_text_allowlist[@]}"}; then
+    if fixture_blind_text_exempt "${pre_ref}" "${rel_path}" ${blind_text_allowlist[@]+"${blind_text_allowlist[@]}"}; then
       warn "fixture '${id}': blind pre variant keeps '${rel_path}' containing 'tensorleap' (exempt: pre_ref/allowlist)"
     else
       fail "fixture '${id}': pre variant still contains files with 'tensorleap': ${rel_path}"
@@ -664,16 +795,65 @@ while IFS= read -r fixture_json; do
   done
 
   assert_clean_git_tree "${pre_dir}" "pre variant for fixture '${id}'"
+  stage_fixture_data "${id}" "${fixture_json}"
   log "Prepared fixture '${id}' at ${fixture_root}"
 done < <(jq -c --arg id "${fixture_id}" "${manifest_filter}" "${MANIFEST_PATH}")
 
 if [[ "${bootstrap_poetry}" == "1" ]]; then
   log "Bootstrapping Poetry environments for prepared fixtures"
-  bootstrap_args=(--variant all)
+  # pre only: the agent works in pre, and nothing ever executes post.
+  bootstrap_args=(--variant pre)
   if [[ -n "${fixture_id}" ]]; then
     bootstrap_args+=(--fixture "${fixture_id}")
   fi
   bash "${BOOTSTRAP_SCRIPT_PATH}" "${bootstrap_args[@]}"
 fi
+
+# --- Prerequisite data a fixture can build itself --------------------------- #
+# Some data does not belong in S3 because the repo can regenerate it from a public
+# source (ner_roberta builds the MEDDOCAN splits with scripts/prepare_data.py).
+# Run those builders only when their outputs are absent, so the download is once
+# per machine and not once per run. Deliberately AFTER bootstrap: the builders run
+# inside the fixture's poetry env. Outputs go to the staged data dir, never into
+# the repo, so the blind pre tree stays clean.
+while IFS= read -r fixture_json; do
+  id="$(jq -r '.id' <<<"${fixture_json}")"
+  dest_root="${eval_data_root}/${id}"
+  pre_dir="${FIXTURES_ROOT}/${id}/pre"
+
+  while IFS= read -r build_json; do
+    [[ -n "${build_json}" ]] || continue
+    build_cmd="$(jq -r '.command // empty' <<<"${build_json}")"
+    [[ -n "${build_cmd}" ]] || continue
+
+    build_missing=0
+    while IFS= read -r rel_path; do
+      [[ -n "${rel_path}" ]] || continue
+      [[ -e "${dest_root}/${rel_path}" ]] || build_missing=1
+    done < <(jq -r '.when_missing[]?' <<<"${build_json}")
+    ((build_missing)) || continue
+
+    if [[ ! -d "${pre_dir}/.venv" ]]; then
+      # Not fatal: run.sh's preflight refuses the fixture with PREREQ-FAIL, which
+      # says the same thing at the point where it actually matters.
+      warn "fixture '${id}': prerequisite data is missing and must be built, but ${pre_dir}/.venv does not exist — re-run with --bootstrap-poetry"
+      continue
+    fi
+
+    build_env=()
+    while IFS= read -r kv; do
+      [[ -n "${kv}" ]] || continue
+      build_env+=("${kv//\$\{DEST\}/${dest_root}}")
+    done < <(jq -r '(.env // {}) | to_entries[] | "\(.key)=\(.value)"' <<<"${build_json}")
+
+    mkdir -p "${dest_root}"
+    log "  Building missing prerequisite data for '${id}': ${build_cmd}"
+    (
+      cd "${pre_dir}"
+      env POETRY_VIRTUALENVS_IN_PROJECT=true ${build_env[@]+"${build_env[@]}"} \
+        bash -c "${build_cmd}"
+    ) || fail "fixture '${id}': prerequisite build failed: ${build_cmd}"
+  done < <(jq -c '(.runtime_prerequisites // [])[] | select(.build) | .build' <<<"${fixture_json}")
+done < <(jq -c --arg id "${fixture_id}" "${manifest_filter}" "${MANIFEST_PATH}")
 
 log "Fixture preparation complete"

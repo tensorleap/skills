@@ -37,7 +37,7 @@ def build_deny(pre_dir):
     fixtures_root = os.path.dirname(fixture_dir)    # .fixtures
     deny = []
 
-    # This fixture's own solution + any non-`pre` sibling (post/, cases/, ...).
+    # This fixture's own solution + any non-`pre` sibling (post/, ...).
     for name in sorted(os.listdir(fixture_dir)):
         child = os.path.join(fixture_dir, name)
         if os.path.isdir(child) and os.path.abspath(child) != pre_dir:
