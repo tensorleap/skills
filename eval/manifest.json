@@ -7,7 +7,7 @@
       "operator_guidance": [
         {
           "label": "Ultralytics YOLO11s model prompt",
-          "text": "If Concierge asks which YOLO model or model source to use, answer that this fixture's intended model is YOLO11s and that QA has already staged the correct exported ONNX at /workspace/concierge-data/yolo11s-export_train_head-dynamic-v8.3.86.onnx. If Concierge proposes YOLO11n from Dockerfile or docs examples, reject that and tell it to use the staged YOLO11s ONNX. Concierge should copy/materialize that file to .concierge/materialized_models/model.onnx when it needs a stable local artifact; it should not export from yolo11s.pt or change Poetry/runtime dependencies during QA."
+          "text": "The intended model is YOLO11s, already exported to ONNX at ${ULTRALYTICS_YOLO11S_DATA}/yolo11s-export_train_head-dynamic-v8.3.86.onnx. Use that file. Do not use the YOLO11n examples from the Dockerfile or the docs, do not export a new model from yolo11s.pt, and do not change the Poetry or runtime dependencies. If you need the model at a stable path inside the repo, copy it there."
         }
       ],
       "strip_for_pre": [
@@ -26,15 +26,14 @@
           "id": "ultralytics_yolo11s_onnx",
           "kind": "repo_s3_files",
           "required": true,
-          "repo_path": "concierge-data",
-          "description": "Pre-exported YOLO11s ONNX artifact staged into the Ultralytics QA workspace so Concierge can select an existing model instead of exporting one during QA.",
-          "operator_guidance": "Use /workspace/concierge-data/yolo11s-export_train_head-dynamic-v8.3.86.onnx as the intended YOLO11s model artifact. If Concierge asks for a model path or source, provide this staged file and ask it to materialize/copy it to .concierge/materialized_models/model.onnx; do not use YOLO11n examples and do not export a new model during QA.",
+          "description": "Pre-exported YOLO11s ONNX artifact staged into the Ultralytics QA workspace so the agent can select an existing model instead of exporting one during QA.",
+          "operator_guidance": "The exported YOLO11s ONNX is staged at ${ULTRALYTICS_YOLO11S_DATA}/yolo11s-export_train_head-dynamic-v8.3.86.onnx.",
           "local_resolution": {
             "env_vars": [
-              "ULTRALYTICS_YOLO11S_CONCIERGE_DATA"
+              "ULTRALYTICS_YOLO11S_DATA"
             ],
             "config_keys": [
-              "ultralytics_yolo11s_concierge_data"
+              "ultralytics_yolo11s_data"
             ]
           },
           "s3_files": [
@@ -48,13 +47,29 @@
             }
           ]
         }
-      ],
-      "blind": true
+      ]
     },
     {
       "id": "webinar",
       "repo": "https://github.com/Tensorleap-hub/webinar.git",
       "post_ref": "6ad56fd1e1343e95c259bf55d0cbfe24b39f8b9e",
+      "runtime_prerequisites": [
+        {
+          "id": "webinar_data",
+          "kind": "operator_supplied_path",
+          "required": true,
+          "description": "Cognata frames + per-frame annotations. UNRESOLVED: the data lives only in the private GCS bucket gs://webinar-datasets (webinar/config.yml BUCKET_NAME), under s3_data/From-Algo/OD_partial2/. As of 2026-07-29 no available identity can read it — the benda-client-demo@splendid-flow-231921 service account, a freshly authenticated amit.cohen@tensorleap.ai, and anonymous access are all denied storage.objects.get/list, including with an explicit billing project. GCS returns 403 for both 'denied' and 'absent', so the bucket may no longer exist. Concierge never staged this fixture either (its webinar entry has no prerequisites; it classifies the failure as auth_secret_unavailable under ensure.secrets_context). Until someone with admin on the owning GCP project grants access, or a populated ~/Tensorleap_data_3/webinar-datasets cache is found, this fixture cannot produce a valid verdict: the agent burns a full session rediscovering the same wall. This entry exists to keep it out of the default no-creds set and to make run.sh fail fast with PREREQ-FAIL instead of a misleading STUCK.",
+          "operator_guidance": "Point ${WEBINAR_DATA} at a directory holding the Cognata tree rooted at s3_data/From-Algo/OD_partial2/ (frames, per-frame annotation files, and foresight_unlabeled_paths.txt, which leap_binder.py reads as the unlabeled index). Note webinar/utils/gcs_utils.py resolves $HOME/Tensorleap_data_3/<BUCKET_NAME>/<path> first and only calls GCS on a cache miss, so a populated cache from any machine that ran this integration is a complete copy of everything the fixture touches. Do not attempt to download from GCS during the run.",
+          "local_resolution": {
+            "env_vars": [
+              "WEBINAR_DATA"
+            ],
+            "config_keys": [
+              "webinar_data"
+            ]
+          }
+        }
+      ],
       "strip_for_pre": [
         "LICENSE",
         "README.md",
@@ -65,7 +80,6 @@
         "webinar/utils/gcs_utils.py",
         "webinar/utils/metrics.py"
       ],
-      "blind": true,
       "operator_guidance": [
         {
           "label": "webinar operator brief",
@@ -76,37 +90,35 @@
     {
       "id": "yolov5_visdrone",
       "repo": "https://github.com/Tensorleap-hub/yolov5_visdrone.git",
-      "post_ref": "207157e7d9e6f27c772b6a0403ce8fb2d881cf8b",
+      "post_ref": "6694c9de981a5abb84d688c95eb04aad8804f75a",
       "strip_for_pre": [
         "README.md",
         "leap.yaml",
         "leap_binder.py",
         "leap_config.py",
         "leap_config.yaml",
-        "leap_custom_test.py",
         "leap_integration.py",
         "leap_utils.py"
       ],
       "operator_guidance": [
         {
           "label": "YOLOv5 VisDrone dataset prompt",
-          "text": "This fixture uses the VisDrone2019-DET dataset described by data/VisDrone.yaml. The YAML contains public Ultralytics YOLOv5 release download URLs for VisDrone2019-DET train, val, test-dev, and test-challenge archives, but its path field is a developer-local absolute path. QA stages a deterministic converted subset from s3://concierge-qa-assets-3f8d47rhtc34u5y/tensorleap-hub/yolov5_visdrone/runtime-prerequisites/visdrone2019-det-local-qa-subset/even-spread-48/ under /workspace/concierge-data/VisDrone; if Concierge asks where the dataset should live, use that path and update data/VisDrone.yaml path accordingly. Do not use the developer-local absolute path, and do not download the full multi-GB public archives during routine QA unless explicitly asked."
+          "text": "This fixture uses the VisDrone2019-DET dataset described by data/VisDrone.yaml. A deterministic 48-image subset is already extracted to ${YOLOV5_VISDRONE_DATA}/VisDrone — set the `path` field in data/VisDrone.yaml to that directory. The checked-in `path` is a developer-local absolute path; ignore it. Do not download the public multi-GB VisDrone archives. ${YOLOV5_VISDRONE_DATA}/VisDrone/yolov5s-visdrone.pt is available for the legacy loss loader."
         }
       ],
       "runtime_prerequisites": [
         {
-          "id": "yolov5_visdrone_concierge_data",
+          "id": "yolov5_visdrone_data",
           "kind": "repo_s3_files",
           "required": true,
-          "repo_path": "concierge-data",
           "description": "Compressed deterministic VisDrone2019-DET QA subset staged from the Concierge QA assets bucket and extracted into the QA workspace. The full public archives are multi-GB, so routine QA uses this pre-converted subset instead of downloading VisDrone in every run.",
-          "operator_guidance": "Use /workspace/concierge-data/VisDrone as the VisDrone dataset root. Update data/VisDrone.yaml path to /workspace/concierge-data/VisDrone; do not use the checked-in developer-local absolute path. The staged tree comes from s3://concierge-qa-assets-3f8d47rhtc34u5y/tensorleap-hub/yolov5_visdrone/runtime-prerequisites/visdrone2019-det-local-qa-subset/even-spread-48/ and also includes /workspace/concierge-data/VisDrone/yolov5s-visdrone.pt for the legacy loss loader.",
+          "operator_guidance": "The VisDrone dataset root is ${YOLOV5_VISDRONE_DATA}/VisDrone; point data/VisDrone.yaml `path` at it rather than the checked-in developer-local path. It also contains yolov5s-visdrone.pt for the legacy loss loader.",
           "local_resolution": {
             "env_vars": [
-              "YOLOV5_VISDRONE_CONCIERGE_DATA"
+              "YOLOV5_VISDRONE_DATA"
             ],
             "config_keys": [
-              "yolov5_visdrone_concierge_data"
+              "yolov5_visdrone_data"
             ]
           },
           "s3_files": [
@@ -123,7 +135,9 @@
           ]
         }
       ],
-      "blind": true
+      "blind_text_allowlist": [
+        "data/VisDrone.yaml"
+      ]
     },
     {
       "id": "cifar10_resnet",
@@ -139,7 +153,6 @@
         "leap_integration.py",
         "leap_test.py"
       ],
-      "blind": true,
       "operator_guidance": [
         {
           "label": "cifar10_resnet operator brief",
@@ -163,7 +176,6 @@
         "leap_mapping_densenet.yaml",
         "leap_test.py"
       ],
-      "blind": true,
       "operator_guidance": [
         {
           "label": "imdb operator brief",
@@ -182,16 +194,43 @@
         "leap_binder.py",
         "leap_integration.py"
       ],
-      "blind": true,
       "operator_guidance": [
         {
           "label": "renault operator brief",
           "text": "InternImage image classifier (`assets/model_portble.onnx`, with `id2class.npy` for labels). The model was trained on RGB — the repo's `cls_process` feeds BGR, but use RGB (the model is the source of truth). Exclude the `Subsign` class (present in the data but has no model GT index)."
         }
+      ],
+      "runtime_prerequisites": [
+        {
+          "id": "renault_data",
+          "kind": "repo_s3_files",
+          "required": true,
+          "description": "Private Renault traffic-sign classification images. The model and label map ship in the repo, so only Dataset/ is staged. ALLOWLISTED ON PURPOSE: the bucket root also holds tl_initial_integration.zip and tl_integration_v2.zip, which are reference Tensorleap integrations — staging the whole bucket would hand the agent the solution and void the eval. Never widen this to a bare bucket sync.",
+          "operator_guidance": "The staged data directory ${RENAULT_DATA} holds Dataset/ — one subfolder per traffic-sign class. The model and its label map come from the repo itself.",
+          "local_resolution": {
+            "env_vars": [
+              "RENAULT_DATA"
+            ],
+            "config_keys": [
+              "renault_data"
+            ]
+          },
+          "s3_prefixes": [
+            {
+              "bucket": "renault-assets-bucket-fgkhjab",
+              "prefix": "Dataset/",
+              "region": "us-east-1",
+              "dest": "Dataset"
+            }
+          ]
+        }
       ]
     },
     {
       "id": "infineon_ts",
+      "blind_text_allowlist": [
+        "project_config.yaml"
+      ],
       "repo": "https://github.com/Tensorleap-hub/infineon-ts-v2.git",
       "post_ref": "1e9ea79ebfd28cf2ae9ad765e8ceffbd2f23f318",
       "strip_for_pre": [
@@ -213,15 +252,14 @@
           "id": "infineon_ts_data",
           "kind": "repo_s3_files",
           "required": true,
-          "repo_path": "concierge-data",
           "description": "Private Infineon TS parquet data and generated sidecar outputs staged into the QA repo.",
-          "operator_guidance": "Use /workspace/concierge-data/ts as the fixture data directory. Set project_config.yaml data.data_path to /workspace/concierge-data/ts/combined_training_data_sample_5pct.parquet and data.data_unlabeled.folder_name to /workspace/concierge-data/ts/unlabeled when repairing or recreating the integration. Keep model.model_path as model/enhanced_trial_19_full_model_complete.onnx. If latent/discriminator/reconstruction .npy sidecars are missing from the staged data, generate them in a writable workspace path and update project_config.yaml consistently before running the integration test.",
+          "operator_guidance": "Use ${INFINEON_TS_DATA}/ts as the data directory: set project_config.yaml data.data_path to ${INFINEON_TS_DATA}/ts/combined_training_data_sample_5pct.parquet and data.data_unlabeled.folder_name to ${INFINEON_TS_DATA}/ts/unlabeled. Keep model.model_path as model/enhanced_trial_19_full_model_complete.onnx. If the latent/discriminator/reconstruction .npy sidecars are missing from the staged data, generate them into a writable path and update project_config.yaml consistently before running the integration test.",
           "local_resolution": {
             "env_vars": [
-              "INFINEON_TS_CONCIERGE_DATA"
+              "INFINEON_TS_DATA"
             ],
             "config_keys": [
-              "infineon_ts_concierge_data"
+              "infineon_ts_data"
             ]
           },
           "s3_prefixes": [
@@ -234,7 +272,6 @@
           ]
         }
       ],
-      "blind": true,
       "operator_guidance": [
         {
           "label": "infineon_ts operator brief",
@@ -249,7 +286,7 @@
       "operator_guidance": [
         {
           "label": "Asensus toy lung-anatomy data paths",
-          "text": "QA stages the Asensus toy lung-anatomy dataset from s3://asensus-assets-bucket-fgkhjab/seg_project/ds_a75e3a0f697f4be6874b8ccb07346770/ under /workspace/concierge-data/asensus. If Concierge asks for dataset locations or needs to repair config paths, set asensus_code_space/config.json data_dir and lobe_data_dir to /workspace/concierge-data/asensus/toy_dataset/lung-anatomy; set data_train_list to /workspace/concierge-data/asensus/train_ids/lung-anatomy_train_ids.txt, data_val_list to /workspace/concierge-data/asensus/train_ids/lung-anatomy_val_ids.txt, and data_test_list to /workspace/concierge-data/asensus/train_ids/lung-anatomy_test_ids.txt. Do not use the checked-in /mnt/DLST81/... paths and do not copy ClearML or package-index credentials into Concierge fixture metadata."
+          "text": "Use ${ASENSUS_SEGMENTATION_DATA}/asensus/toy_dataset/lung-anatomy as both data_dir and lobe_data_dir. For the split lists in asensus_code_space/config.json use ${ASENSUS_SEGMENTATION_DATA}/asensus/train_ids/lung-anatomy_train_ids.txt, ${ASENSUS_SEGMENTATION_DATA}/asensus/train_ids/lung-anatomy_val_ids.txt and ${ASENSUS_SEGMENTATION_DATA}/asensus/train_ids/lung-anatomy_test_ids.txt. Do not use the checked-in /mnt/DLST81/... paths."
         }
       ],
       "strip_for_pre": [
@@ -264,15 +301,14 @@
           "id": "asensus_segmentation_data",
           "kind": "repo_s3_files",
           "required": true,
-          "repo_path": "concierge-data",
           "description": "Private Asensus toy lung-anatomy dataset and split lists staged into the QA repo.",
-          "operator_guidance": "Use /workspace/concierge-data/asensus/toy_dataset/lung-anatomy as data_dir and lobe_data_dir. Use /workspace/concierge-data/asensus/train_ids/lung-anatomy_train_ids.txt, /workspace/concierge-data/asensus/train_ids/lung-anatomy_val_ids.txt, and /workspace/concierge-data/asensus/train_ids/lung-anatomy_test_ids.txt for the split-list paths in asensus_code_space/config.json; do not use the checked-in /mnt/DLST81/... paths.",
+          "operator_guidance": "Use ${ASENSUS_SEGMENTATION_DATA}/asensus/toy_dataset/lung-anatomy as data_dir and lobe_data_dir, and the three lung-anatomy_{train,val,test}_ids.txt files under ${ASENSUS_SEGMENTATION_DATA}/asensus/train_ids/ for the split lists in asensus_code_space/config.json. Do not use the checked-in /mnt/DLST81/... paths.",
           "local_resolution": {
             "env_vars": [
-              "ASENSUS_SEGMENTATION_CONCIERGE_DATA"
+              "ASENSUS_SEGMENTATION_DATA"
             ],
             "config_keys": [
-              "asensus_segmentation_concierge_data"
+              "asensus_segmentation_data"
             ]
           },
           "s3_prefixes": [
@@ -284,30 +320,27 @@
             }
           ]
         }
-      ],
-      "blind": true
+      ]
     },
     {
       "id": "ner_roberta",
       "repo": "https://github.com/Tensorleap-hub/ner-roberta.git",
       "post_ref": "5f3390ed9065b0de8d3e57708fcc890bcef148d8",
       "pre_ref": "673fba0e6e44ce75ef719158c944450f3cdc32af",
-      "blind": true,
       "strip_for_pre": [],
       "runtime_prerequisites": [
         {
           "id": "ner_roberta_onnx",
           "kind": "repo_s3_files",
           "required": true,
-          "repo_path": "concierge-data",
-          "description": "Trained XLM-RoBERTa NER ONNX model (~1.03 GB). The source repo gitignores model artifacts (uploaded to Tensorleap separately), so the model is staged from public S3 into the fixture workspace rather than committed.",
-          "operator_guidance": "Use the staged ner_roberta.onnx as the model artifact and set the NER_MODEL_PATH environment variable to its path so @tensorleap_load_model in leap_integration.py loads it (ner_roberta/config.py reads NER_MODEL_PATH; its default points at the un-tracked model/ner_roberta.onnx). In QA the file is at /workspace/concierge-data/ner_roberta.onnx. Do not train or re-export the model during QA.",
+          "description": "Trained XLM-RoBERTa NER ONNX model (~1.03 GB) plus the processed MEDDOCAN splits. The source repo gitignores model artifacts (uploaded to Tensorleap separately), so the model is staged from public S3 rather than committed. The dataset is NOT in S3 — the repo builds it itself via scripts/prepare_data.py, which pulls the public (ungated) HuggingFace dataset bigbio/meddocan and writes one pickle per split. prepare.sh runs that builder only when the pickles are absent, so the download happens once per machine rather than once per run.",
+          "operator_guidance": "The model artifact is staged at ${NER_ROBERTA_DATA}/ner_roberta.onnx and the dataset pickles at ${NER_ROBERTA_DATA}/training.pkl and ${NER_ROBERTA_DATA}/validation.pkl. Set NER_MODEL_PATH to the ONNX path and NER_DATASET_DIR to ${NER_ROBERTA_DATA} (ner_roberta/config.py reads both; its in-repo defaults point at paths that do not exist here). Do not train or re-export the model, and do not re-run the data builder — the pickles are already there.",
           "local_resolution": {
             "env_vars": [
-              "NER_ROBERTA_CONCIERGE_DATA"
+              "NER_ROBERTA_DATA"
             ],
             "config_keys": [
-              "ner_roberta_concierge_data"
+              "ner_roberta_data"
             ]
           },
           "s3_files": [
@@ -318,13 +351,23 @@
               "dest": "ner_roberta.onnx",
               "no_sign_request": true
             }
-          ]
+          ],
+          "build": {
+            "when_missing": [
+              "training.pkl",
+              "validation.pkl"
+            ],
+            "command": "poetry run python scripts/prepare_data.py",
+            "env": {
+              "NER_DATASET_DIR": "${DEST}"
+            }
+          }
         }
       ],
       "operator_guidance": [
         {
           "label": "ner_roberta operator brief",
-          "text": "The model is NOT committed — it is a staged ~1 GB XLM-RoBERTa NER ONNX; point `config.py` at it via `NER_MODEL_PATH` (the in-repo default path is wrong). The dataset (`training.pkl`/`validation.pkl`) is staged separately — set `NER_DATASET_DIR`. `code-loader` is not pinned in the repo — add it. Task: 3-class BIO token classification (MEDDOCAN)."
+          "text": "The model is NOT committed — it is a staged ~1 GB XLM-RoBERTa NER ONNX; point `config.py` at it via `NER_MODEL_PATH` (the in-repo default path is wrong). The dataset (`training.pkl`/`validation.pkl`) is staged in the same directory — set `NER_DATASET_DIR` to it. `code-loader` is not pinned in the repo — add it. Task: 3-class BIO token classification (MEDDOCAN)."
         }
       ]
     },
@@ -332,7 +375,6 @@
       "id": "clinical_assertion",
       "repo": "https://github.com/Tensorleap-hub/sentence-classification.git",
       "post_ref": "36976303377bc8b928ac82d7a62c7be680d650b2",
-      "blind": true,
       "strip_for_pre": [
         "CLAUDE.md",
         "README.md",
