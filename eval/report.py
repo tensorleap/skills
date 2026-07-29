@@ -76,6 +76,10 @@ def render(args, m, transcript, notes):
         "",
         f"- **Result:** {emoji} {args.result}",
         f"- **Evaluate job:** {args.eval_id or '(none created)'}",
+    ]
+    if args.note:
+        lines.append(f"- **Harness note:** {args.note}")
+    lines += [
         "",
         "## Metrics",
         "",
@@ -131,6 +135,8 @@ def main():
     ap.add_argument("--eval-id", default="")
     ap.add_argument("--transcript-dir", default="")
     ap.add_argument("--notes", default="")
+    ap.add_argument("--note", default="",
+                    help="harness-side caveat about the run (e.g. agent released early)")
     ap.add_argument("--out", default="")
     args = ap.parse_args()
 
