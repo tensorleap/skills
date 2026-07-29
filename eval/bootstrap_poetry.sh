@@ -113,8 +113,25 @@ bootstrap_repo() {
   log "Bootstrapping ${repo_dir}"
   (
     cd "${repo_dir}"
-    POETRY_VIRTUALENVS_IN_PROJECT=true poetry env use "${python_executable}" >/dev/null
-    POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --no-root >/dev/null
+    export POETRY_VIRTUALENVS_IN_PROJECT=true
+    # Prefer the pinned interpreter so envs are reproducible across machines, but
+    # it is only a default: a fixture's own requires-python wins. asensus is
+    # ~3.12 and poetry rightly refuses 3.10.14. `poetry env use` validates the
+    # constraint for us, so use poetry as the authority rather than parsing
+    # version specifiers here. Falling back to poetry's own interpreter search is
+    # what prepare.sh's relock step already does, so this also stops the two
+    # steps disagreeing about which python a fixture gets.
+    if poetry env use "${python_executable}" >/dev/null 2>&1; then
+      log "  python ${python_version} (pinned)"
+    else
+      # ponytail: poetry picks from PATH, so the exact patch level can differ per
+      # machine. Pin per-fixture via FIXTURE_BOOTSTRAP_PYTHON if that ever matters.
+      POETRY_VIRTUALENVS_USE_POETRY_PYTHON=true poetry install --no-root >/dev/null \
+        || return 1
+      log "  python $(poetry run python -V 2>&1 | awk '{print $2}') (poetry chose; pinned ${python_version} is incompatible with this fixture's requires-python)"
+      return 0
+    fi
+    poetry install --no-root >/dev/null
   )
 }
 
