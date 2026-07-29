@@ -186,7 +186,7 @@
     {
       "id": "renault",
       "repo": "https://github.com/Tensorleap-hub/renault.git",
-      "post_ref": "7f77a828e802da62ac470add7a03b7a7a7d06a8f",
+      "post_ref": "22266b7c0e2024e55808b926b5da6f5363036c67",
       "strip_for_pre": [
         "README.md",
         "config.yaml",
