@@ -282,7 +282,7 @@
     {
       "id": "asensus_segmentation",
       "repo": "https://github.com/Tensorleap-hub/asensus-segmentation.git",
-      "post_ref": "5c4c39989117880e92c35b976d8ff213cf310a7c",
+      "post_ref": "cfd16e697890e0fcd658bcfe0d88bd8f38125f00",
       "operator_guidance": [
         {
           "label": "Asensus toy lung-anatomy data paths",
