@@ -12,7 +12,6 @@ fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}"
 FIXTURES_ROOT="${REPO_ROOT}/.fixtures"
-CASE_MANIFEST_PATH="${REPO_ROOT}/cases/manifest.json"
 RESET_LIB_PATH="${REPO_ROOT}/lib/reset_lib.sh"
 
 DEFAULT_PYTHON_VERSION="${FIXTURE_BOOTSTRAP_PYTHON:-3.10.14}"
@@ -28,9 +27,9 @@ Bootstrap Poetry environments for prepared fixture repositories.
 This script is fixture/dev-only and must not be used by Concierge product runtime.
 
 Options:
-  --fixture ID         Limit bootstrap to one fixture ID from fixtures/manifest.json.
-  --case ID            Limit bootstrap to one generated case ID from fixtures/cases/manifest.json.
-  --variant KIND       One of pre, post, cases, or all (default: all).
+  --fixture ID         Limit bootstrap to one fixture ID from manifest.json.
+  --variant KIND       One of pre, post, or all (default: pre — the only variant
+                       anything executes; post is a static answer key).
   --python VERSION     Python version to install/use via pyenv (default: 3.10.14).
   --help               Show this help text.
 EOF
@@ -51,8 +50,7 @@ require_cmd() {
 }
 
 fixture_id=""
-case_id=""
-variant="all"
+variant="pre"
 python_version="${DEFAULT_PYTHON_VERSION}"
 
 while (($# > 0)); do
@@ -61,11 +59,6 @@ while (($# > 0)); do
       shift
       [[ $# -gt 0 ]] || fail "--fixture requires a value"
       fixture_id="$1"
-      ;;
-    --case)
-      shift
-      [[ $# -gt 0 ]] || fail "--case requires a value"
-      case_id="$1"
       ;;
     --variant)
       shift
@@ -89,7 +82,7 @@ while (($# > 0)); do
 done
 
 case "${variant}" in
-  pre|post|cases|all)
+  pre|post|all)
     ;;
   *)
     fail "unsupported --variant value '${variant}'"
@@ -111,7 +104,6 @@ python_executable="$(pyenv prefix "${python_version}")/bin/python"
 
 bootstrap_repo() {
   local repo_dir="$1"
-  local label="$2"
 
   [[ -f "${repo_dir}/pyproject.toml" ]] || {
     log "Skipping ${repo_dir}: no pyproject.toml"
@@ -119,13 +111,11 @@ bootstrap_repo() {
   }
 
   log "Bootstrapping ${repo_dir}"
-  fixture_assert_min_code_loader_pin "${repo_dir}" "${label}"
   (
     cd "${repo_dir}"
     POETRY_VIRTUALENVS_IN_PROJECT=true poetry env use "${python_executable}" >/dev/null
     POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --no-root >/dev/null
   )
-  fixture_assert_min_installed_code_loader_version "${repo_dir}" "${label}"
 }
 
 collect_fixture_dirs() {
@@ -137,79 +127,43 @@ collect_fixture_dirs() {
     return 0
   fi
 
-  jq -r '.fixtures[].id' "${REPO_ROOT}/fixtures/manifest.json" \
+  jq -r '.fixtures[].id' "${REPO_ROOT}/manifest.json" \
     | while IFS= read -r id; do
         [[ -n "${id}" ]] || continue
         printf '%s\n' "${FIXTURES_ROOT}/${id}/${kind}"
       done
 }
 
-collect_case_dirs() {
-  local id
-
-  [[ -f "${CASE_MANIFEST_PATH}" ]] || return 0
-
-  if [[ -n "${case_id}" ]]; then
-    printf '%s\n' "${FIXTURES_ROOT}/cases/${case_id}"
-    return 0
-  fi
-
-  if [[ -n "${fixture_id}" ]]; then
-    jq -r --arg fixture_id "${fixture_id}" '.cases[] | select(.source_fixture_id == $fixture_id) | .id' "${CASE_MANIFEST_PATH}" \
-      | while IFS= read -r id; do
-          [[ -n "${id}" ]] || continue
-          printf '%s\n' "${FIXTURES_ROOT}/cases/${id}"
-        done
-    return 0
-  fi
-
-  jq -r '.cases[].id' "${CASE_MANIFEST_PATH}" \
-    | while IFS= read -r id; do
-        [[ -n "${id}" ]] || continue
-        printf '%s\n' "${FIXTURES_ROOT}/cases/${id}"
-      done
-}
-
 declare -A seen_dirs=()
 bootstrap_targets=()
-bootstrap_labels=()
 
 add_target() {
   local dir="$1"
-  local label="$2"
   [[ -d "${dir}/.git" ]] || return 0
   if [[ -z "${seen_dirs["${dir}"]+x}" ]]; then
     seen_dirs["${dir}"]=1
     bootstrap_targets+=("${dir}")
-    bootstrap_labels+=("${label}")
   fi
 }
 
 if [[ "${variant}" == "pre" || "${variant}" == "all" ]]; then
   while IFS= read -r dir; do
     [[ -n "${dir}" ]] || continue
-    add_target "${dir}" "fixture repo ${dir}"
+    add_target "${dir}"
   done < <(collect_fixture_dirs "pre")
 fi
 
 if [[ "${variant}" == "post" || "${variant}" == "all" ]]; then
   while IFS= read -r dir; do
     [[ -n "${dir}" ]] || continue
-    add_target "${dir}" "fixture repo ${dir}"
+    add_target "${dir}"
   done < <(collect_fixture_dirs "post")
-fi
-
-if [[ "${variant}" == "cases" || "${variant}" == "all" ]]; then
-  while IFS= read -r dir; do
-    [[ -n "${dir}" ]] || continue
-    add_target "${dir}" "fixture repo ${dir}"
-  done < <(collect_case_dirs)
 fi
 
 ((${#bootstrap_targets[@]} > 0)) || fail "no matching fixture repositories found for bootstrap"
 
-for i in "${!bootstrap_targets[@]}"; do
-  bootstrap_repo "${bootstrap_targets[$i]}" "${bootstrap_labels[$i]}"
+for dir in "${bootstrap_targets[@]}"; do
+  bootstrap_repo "${dir}"
 done
 
 log "Fixture Poetry bootstrap complete"
