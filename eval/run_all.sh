@@ -48,6 +48,22 @@ done
 
 log() { echo "[run_all] $*"; }
 
+# run.sh releases its own session, but only if it is still alive to do so: a
+# SIGKILL, a crash, or a terminal closing leaves `op-<id>` running with a live
+# agent spending tokens and nothing tracking it. Sweep on every exit path.
+# Scoped to `op-<manifest id>` names so this can never touch an unrelated session
+# of the user's, and covering ALL manifest ids (not just the selection) so strays
+# from an earlier aborted run get collected too.
+kill_agent_sessions() {
+  local id killed=0
+  for id in $(python3 -c 'import json,sys; print("\n".join(f["id"] for f in json.load(open(sys.argv[1]))["fixtures"]))' "${MANIFEST}"); do
+    tmux has-session -t "op-${id}" 2>/dev/null || continue
+    tmux kill-session -t "op-${id}" 2>/dev/null && killed=$((killed+1))
+  done
+  ((killed > 0)) && log "released ${killed} agent tmux session(s)"
+  return 0
+}
+
 # --- Which fixtures? -------------------------------------------------------- #
 readarray -t SELECTED < <(
   python3 - "${MANIFEST}" "${SELECT}" "${FIXTURES_CSV}" <<'PY'
@@ -93,7 +109,12 @@ if [[ "${SELECT}" == "default" ]]; then
 fi
 
 mkdir -p "${REPORTS}"
-declare -A RESULT   # id -> PASS/FAIL/STUCK/VERIFY-FAIL/PREP-FAIL/SKIPPED
+declare -A RESULT   # id -> PASS/FAIL/STUCK/PREREQ-FAIL/RUN-ERROR/VERIFY-FAIL/PREP-FAIL/SKIPPED
+
+# Armed only here, past --list/--help: those are read-only queries and must not
+# reap a session someone is attached to.
+trap kill_agent_sessions EXIT
+trap 'echo; log "interrupted — releasing agent sessions"; exit 130' INT TERM HUP
 
 for id in "${SELECTED[@]}"; do
   echo; log "======== ${id} ========"
@@ -112,28 +133,38 @@ for id in "${SELECTED[@]}"; do
     log "verify FAILED (fixture not blind/clean) — not running the agent"; RESULT[$id]="VERIFY-FAIL"; continue
   fi
 
-  # run.sh writes reports/<id>.md and exits 0 only on PASS.
+  # run.sh's exit code is the verdict; reports/<id>.md is for humans. Anything
+  # outside the three verdict codes is the harness failing (no tmux, no skill
+  # source, …) — surfaced as RUN-ERROR, never as a fixture verdict.
   "${BASH_BIN}" "${EVAL_ROOT}/run.sh" --fixture "${id}" "${PASS_ARGS[@]}"
-  rc=$?
-  if [[ -f "${report}" ]]; then
-    RESULT[$id]="$(grep -oE 'PASS|FAIL|STUCK' "${report}" | head -1 || echo UNKNOWN)"
-  else
-    RESULT[$id]="$([[ ${rc} -eq 0 ]] && echo PASS || echo FAIL)"
-  fi
+  case $? in
+    0)  RESULT[$id]="PASS" ;;
+    10) RESULT[$id]="FAIL" ;;
+    11) RESULT[$id]="STUCK" ;;
+    # A required data prerequisite was missing, so the agent never ran. An
+    # environment gap, never a skill verdict — kept out of the PASS/total ratio.
+    12) RESULT[$id]="PREREQ-FAIL" ;;
+    *)  RESULT[$id]="RUN-ERROR" ;;
+  esac
   log "${id}: ${RESULT[$id]}"
 done
 
 # --- Aggregate summary ------------------------------------------------------ #
 echo; echo "==================== SUMMARY ===================="
-pass=0; total=0
+pass=0; total=0; excluded=0
 printf '%-24s %s\n' "fixture" "result"
 printf '%-24s %s\n' "-------" "------"
 for id in "${SELECTED[@]}"; do
   r="${RESULT[$id]:-?}"
   printf '%-24s %s\n' "${id}" "${r}"
-  [[ "${r}" == "SKIPPED" ]] && continue
+  # Neither a skip nor an unmet prerequisite says anything about the skill, so
+  # neither belongs in the ratio — counting them as failures reads as a regression.
+  if [[ "${r}" == "SKIPPED" || "${r}" == "PREREQ-FAIL" ]]; then
+    excluded=$((excluded+1)); continue
+  fi
   total=$((total+1)); [[ "${r}" == "PASS" ]] && pass=$((pass+1))
 done
 echo "-------------------------------------------------"
 echo "${pass}/${total} PASS   (reports in ${REPORTS}/)"
+((excluded > 0)) && echo "${excluded} not evaluated (skipped or missing prerequisites)"
 [[ "${pass}" -eq "${total}" && "${total}" -gt 0 ]]

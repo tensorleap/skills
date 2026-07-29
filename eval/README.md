@@ -42,13 +42,20 @@ runs without the skill under test, and the whole eval is meaningless. It must be
 *unset*, not blanked. `run.sh` launches the agent with `env -u CLAUDE_CONFIG_DIR`;
 by hand, run `unset CLAUDE_CONFIG_DIR` in the shell first.
 
-### 2. Use `leapdev`, never bare `leap`
+### 2. The CLI must target a local server — checked, not assumed
 
-Bare `leap` may be pointed at a **production** Tensorleap server — a blind eval
-must never touch prod. Every Tensorleap command in a run must go through
-`leapdev` (local dev) or an explicitly-configured remote. `run.sh` puts a
-`leap` → `leapdev` shim first on `PATH` so even if the agent types `leap`, it
-hits the dev server. To set the shim up by hand:
+A blind eval must never push to a shared or production Tensorleap server. The
+command's *name* proves nothing: `leap auth select` can repoint any CLI at a
+remote environment at any time. So `run.sh` reads `auth.api_url` from the CLI
+config (`~/.config/tensorleap/config.yaml`, override with `TENSORLEAP_CONFIG`)
+and **refuses to start** unless it resolves to localhost/127.0.0.1. Override
+deliberately with `EVAL_ALLOW_REMOTE_LEAP=1`.
+
+`--leap-cmd` defaults to `leapdev` when installed (the convention on a
+Tensorleap dev box) and falls back to `leap`. Either way the api_url check
+applies. `run.sh` also puts a `leap` → chosen-CLI shim first on `PATH`, so a bare
+`leap` typed by the agent goes to the same verified server. To set the shim up by
+hand (substituting your CLI for `leapdev`):
 
 ```bash
 mkdir -p ~/tl-shim
@@ -129,9 +136,9 @@ bash run_all.sh --list
 | File | Role |
 |------|------|
 | `manifest.json` | The fixture corpus: repo URL, pinned commit, what to strip, data prerequisites. |
-| `prepare.sh` | Clones the repo at its pinned commit, strips the integration files, **scrubs git to a single rootless commit with no remote** (so the solution can't be recovered), and builds the poetry env. Output → `.fixtures/<id>/pre`. |
-| `verify.sh` | Asserts the `pre` copy is genuinely blind: no root-level `leap*` files, no code importing `code_loader`, single rootless commit, no remote. **Do not run the agent unless this passes.** |
-| `bootstrap_poetry.sh` | Sets up a fixture's poetry env (invoked by `prepare.sh --bootstrap-poetry`). |
+| `prepare.sh` | Clones the repo at its pinned commit, strips the integration files *and the code-loader dependency pin*, **scrubs git to a single rootless commit with no remote** (so the solution can't be recovered), and builds the poetry env. Output → `.fixtures/<id>/pre`. |
+| `verify.sh` | Asserts the `pre` copy is genuinely blind: no root-level `leap*` files, no code importing `code_loader`, no code-loader pin in `pyproject.toml`/`poetry.lock`/`requirements*.txt`, single rootless commit, no remote. **Do not run the agent unless this passes.** |
+| `bootstrap_poetry.sh` | Sets up the `pre` poetry env (invoked by `prepare.sh --bootstrap-poetry`). The `post` variant is a static answer key — nothing executes it, so it gets no env. The agent installs code-loader itself when it wants to validate locally. |
 | `lib/reset_lib.sh` | Shared helpers used by the above. |
 | `run.sh` | Drives an interactive Claude session (tmux) to run the skill, then tracks the Evaluate to a terminal state and writes the report. |
 | `report.py` | Emits the per-run report — turns, tokens, est. cost, problems (from NOTES.md), pass/fail. |
