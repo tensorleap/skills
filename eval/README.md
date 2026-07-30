@@ -115,10 +115,11 @@ bash verify.sh --fixture cifar10_resnet
 # 3. Drive the agent to author + push + evaluate, then write the report.
 bash run.sh --fixture cifar10_resnet
 
-# → eval/reports/cifar10_resnet.md   (tokens, cost, pass/fail)
+# → eval/reports/cifar10_resnet.md + .json   (push/eval, tokens, cost, pass/fail)
 ```
 
-Or run the whole corpus at once with `bash run_all.sh` (see below).
+Or run the whole corpus at once with `bash run_all.sh` (see below), which also
+writes the run roll-up `reports/REPORT_V<n>.md`.
 
 `cifar10_resnet` is the recommended first run: it is a **public** fixture (CIFAR
 downloads at runtime), so it needs no private creds and proves the loop.
@@ -140,12 +141,50 @@ bash run_all.sh --list
 | `verify.sh` | Asserts the `pre` copy is genuinely blind: no root-level `leap*` files, no code importing `code_loader`, no code-loader pin in `pyproject.toml`/`poetry.lock`/`requirements*.txt`, single rootless commit, no remote. **Do not run the agent unless this passes.** |
 | `bootstrap_poetry.sh` | Sets up the `pre` poetry env (invoked by `prepare.sh --bootstrap-poetry`). The `post` variant is a static answer key — nothing executes it, so it gets no env. The agent installs code-loader itself when it wants to validate locally. |
 | `lib/reset_lib.sh` | Shared helpers used by the above. |
-| `run.sh` | Drives an interactive Claude session (tmux) to run the skill, then tracks the Evaluate to a terminal state and writes the report. |
-| `report.py` | Emits the per-run report — turns, tokens, est. cost, problems (from NOTES.md), pass/fail. |
-| `run_all.sh` | Runs prepare→verify→run over selected fixtures sequentially with an aggregate summary. `--list` shows the fixture menu. |
+| `run.sh` | Drives an interactive Claude session (tmux) to run the skill, then tracks the Push and the Evaluate to terminal states and writes the report. |
+| `report.py` | Two modes: per fixture → `reports/<id>.md` + a `reports/<id>.json` sidecar (turns, tokens, est. cost, push/eval state, problems from NOTES.md); `--aggregate` → the run roll-up `reports/REPORT_V<n>.md`. |
+| `run_all.sh` | Runs prepare→verify→run over selected fixtures sequentially, then writes the roll-up. `--list` shows the fixture menu. |
 
 Regenerated / machine-local (gitignored, never committed): `.fixtures/`,
 `reports/`, `runtime_prerequisites.local.json`.
+
+---
+
+## Reports — every run leaves files, not just stdout
+
+A run writes, per fixture:
+
+- `reports/<id>.md` — result, **Push and Evaluate as separate lines** (a broken
+  integration can push FINISHED and still fail its evaluate), where it got stuck,
+  turns/tokens/est. cost, model, which copy of the skill was under test, and the
+  agent's own `NOTES.md` inlined.
+- `reports/<id>.json` — the same numbers, machine-readable, so the roll-up never
+  scrapes markdown.
+
+and then one roll-up for the whole run:
+
+- `reports/REPORT_V<n>.md` — header (corpus, dates, harness, skill source, model,
+  one-line outcome) → per-repo `pushed | eval | got stuck (where) | turns |
+  out_tok | total_tok | cost` table + aggregates (`N/M pushed, K/M completed
+  eval`, medians) → shared problems → what worked → **deltas vs `V<n-1>`**.
+  `<n>` auto-increments; `REPORT_V<n>.json` is kept beside it as the next run's
+  delta baseline.
+
+`REPORT_V<n>.md` fills in everything the harness can *observe*. Two things it
+cannot, and marks with `<!-- REVIEW -->` for you to write: grouping the failures
+into **themed** problems with causes, and self-corrected **friction** — a repo
+that thrashed for 40 turns and recovered looks identical to a clean pass from the
+outside. Read the per-fixture reports for those.
+
+Rebuild the roll-up any time without re-running fixtures:
+
+```bash
+python3 report.py --aggregate            # → reports/REPORT_V<next>.md
+python3 report.py --aggregate --version 3   # overwrite V3, diffed against V2
+```
+
+Success is only ever a **FINISHED evaluate**. `turns` and `out_tokens` are the
+metrics comparable between runs; `total_tokens` is prompt-cache-inflated.
 
 ---
 

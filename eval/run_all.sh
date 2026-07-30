@@ -167,4 +167,14 @@ done
 echo "-------------------------------------------------"
 echo "${pass}/${total} PASS   (reports in ${REPORTS}/)"
 ((excluded > 0)) && echo "${excluded} not evaluated (skipped or missing prerequisites)"
+
+# The run report is a FILE, not this stdout summary: stdout dies with the terminal
+# and cannot be diffed against the previous run. report.py --aggregate rolls the
+# per-fixture json sidecars into reports/REPORT_V<n>.md (CREATE_REPORT structure:
+# per-repo push/eval table, aggregates, shared problems, deltas vs V<n-1>).
+csv=""
+for id in "${SELECTED[@]}"; do csv+="${id}:${RESULT[$id]:-?},"; done
+python3 "${EVAL_ROOT}/report.py" --aggregate --reports-dir "${REPORTS}" \
+  --fixtures "${csv%,}" || log "WARNING: roll-up report failed (per-fixture reports are intact)"
+
 [[ "${pass}" -eq "${total}" && "${total}" -gt 0 ]]

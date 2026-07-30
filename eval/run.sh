@@ -320,6 +320,11 @@ EOF
 eval_ids() { env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t Evaluate 2>/dev/null \
   | awk '{print $NF}' | grep -E '^[0-9a-f]{24}$' || true; }
 BASE_EVALS="$(eval_ids | sort -u || true)"
+# Same baseline for Push: the report grades push and evaluate as SEPARATE columns,
+# because a broken integration can reach a FINISHED push and still fail its eval.
+push_lines() { env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t Push 2>/dev/null \
+  | grep -E '[0-9a-f]{24}$' || true; }
+BASE_PUSHES="$(push_lines | awk '{print $NF}' | sort -u || true)"
 
 # --- Interactive session over tmux (no -p, so the push is not reaped) ------- #
 SESS="op-${FIXTURE}"
@@ -450,19 +455,28 @@ while :; do
   sleep "${POLL_SECS}"
 done
 
+# --- The Push this run created (read once, at teardown) --------------------- #
+# No polling: `run list` keeps history, so whatever state the push is in when the
+# run ends is the state to report. Empty pattern guard: `grep -vF ""` would drop
+# every line, turning "no prior pushes" into "no push found".
+PUSH_LINE="$(push_lines | grep -vF "${BASE_PUSHES:-__nomatch__}" | head -1 || true)"
+PUSH_ID="$(awk '{print $NF}' <<<"${PUSH_LINE}")"
+PUSH_STATUS="$(awk '{print $(NF-1)}' <<<"${PUSH_LINE}")"
+
 # --- Capture the transcript path for the report, then tear down ------------- #
 # Claude encodes the project dir by replacing /, ., and _ with '-'.
 CWD_KEY="$(echo "${PRE_DIR}" | sed 's#[/._]#-#g')"
 TRANSCRIPT_DIR="${HOME}/.claude/projects/${CWD_KEY}"
 release_agent
 
-log "Fixture '${FIXTURE}': ${RESULT} (eval ${EVAL_ID:-none})"
+log "Fixture '${FIXTURE}': ${RESULT} (push ${PUSH_STATUS:-none}, eval ${EVAL_ID:-none})"
 if [[ -f "${EVAL_ROOT}/report.py" ]]; then
   mkdir -p "${EVAL_ROOT}/reports"
   python3 "${EVAL_ROOT}/report.py" \
     --fixture "${FIXTURE}" --result "${RESULT}" --eval-id "${EVAL_ID:-}" \
+    --push-id "${PUSH_ID}" --push-status "${PUSH_STATUS}" \
     --transcript-dir "${TRANSCRIPT_DIR}" --notes "${PRE_DIR}/NOTES.md" \
-    --note "${NOTE}" \
+    --note "${NOTE}" --skill-source "${sources[0]}" \
     --out "${EVAL_ROOT}/reports/${FIXTURE}.md" || true
 else
   log "report.py absent — skipping report (result above is authoritative)"
