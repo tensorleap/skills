@@ -8,9 +8,12 @@
 #   --all                 every fixture in the manifest (private ones need creds/data)
 #   --fixtures a,b,c      explicit subset
 #   --list                print the selection and exit (dry run)
+#   --check               run the read-only preflight (check.sh) for the selection
+#                         and exit — verifies tools/server/creds BEFORE anything runs
 # Behaviour:
 #   --force               re-run fixtures that already have a report (default: skip = resume)
 #   --no-bootstrap        skip `prepare --bootstrap-poetry` (assume envs already built)
+#   --no-check            skip the automatic preflight (escape hatch if check.sh is wrong)
 #   --plugin-dir DIR      forwarded to run.sh (test a local skill build)
 #   --leap-cmd CMD        forwarded to run.sh (default leapdev)
 set -uo pipefail   # deliberately NOT -e: keep going past a failed fixture
@@ -31,17 +34,22 @@ MANIFEST="${EVAL_ROOT}/manifest.json"
 REPORTS="${EVAL_ROOT}/reports"
 
 SELECT="default"; FIXTURES_CSV=""; LIST_ONLY=0; FORCE=0; BOOTSTRAP=1
+CHECK_ONLY=0; NO_CHECK=0
 PASS_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --all)          SELECT="all"; shift ;;
     --fixtures)     SELECT="csv"; FIXTURES_CSV="$2"; shift 2 ;;
     --list)         LIST_ONLY=1; shift ;;
+    --check)        CHECK_ONLY=1; shift ;;
+    --no-check)     NO_CHECK=1; shift ;;
     --force)        FORCE=1; shift ;;
     --no-bootstrap) BOOTSTRAP=0; shift ;;
     --plugin-dir)   PASS_ARGS+=(--plugin-dir "$2"); shift 2 ;;
     --leap-cmd)     PASS_ARGS+=(--leap-cmd "$2"); shift 2 ;;
-    -h|--help)      sed -n '2,20p' "$0"; exit 0 ;;
+    # The header comment IS the help text — print it up to the first code line
+    # rather than a hardcoded range that drifts every time the header changes.
+    -h|--help)      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -103,13 +111,38 @@ fi
 [[ ${#SELECTED[@]} -gt 0 ]] || { echo "no fixtures selected (see: run_all.sh --list)" >&2; exit 1; }
 log "Selected ${#SELECTED[@]} fixture(s): ${SELECTED[*]}"
 if [[ "${SELECT}" == "default" ]]; then
-  log "(default = fixtures with no required DATA prerequisites; note some are still"
-  log " private repos that need Tensorleap-hub access to clone — they PREP-FAIL"
-  log " without it and the run continues. Use --all or --fixtures to override.)"
+  log "(default = fixtures with no required DATA prerequisites. Use --all or"
+  log " --fixtures to override; the preflight below drops anything unreachable.)"
+fi
+
+CSV_SEL="$(IFS=,; echo "${SELECTED[*]}")"
+if [[ "${CHECK_ONLY}" -eq 1 ]]; then
+  exec "${BASH_BIN}" "${EVAL_ROOT}/check.sh" --fixtures "${CSV_SEL}" ${PASS_ARGS[@]+"${PASS_ARGS[@]}"}
 fi
 
 mkdir -p "${REPORTS}"
-declare -A RESULT   # id -> PASS/FAIL/STUCK/PREREQ-FAIL/RUN-ERROR/VERIFY-FAIL/PREP-FAIL/SKIPPED
+declare -A RESULT   # id -> PASS/FAIL/STUCK/SKILL-UNUSED/PREREQ-FAIL/RUN-ERROR/VERIFY-FAIL/PREP-FAIL/SKIPPED
+
+# --- Preflight: fail fast, and degrade to the runnable subset ---------------- #
+# Every prerequisite gap used to be discovered at the most expensive moment:
+# expired SSO after full clones (once per private fixture), a bad data root
+# inside the evaluate pod, a concurrent evaluate by corrupting both runs.
+# check.sh verifies everything up front; fixtures that only lack credentials
+# are dropped (PREREQ-FAIL) instead of failing the whole run.
+if [[ "${NO_CHECK}" -eq 0 ]]; then
+  runnable="$("${BASH_BIN}" "${EVAL_ROOT}/check.sh" --fixtures "${CSV_SEL}" \
+                --emit-runnable ${PASS_ARGS[@]+"${PASS_ARGS[@]}"})"
+  case $? in
+    0) log "preflight: all selected fixtures runnable" ;;
+    3) readarray -t RUNNABLE <<<"${runnable}"
+       for id in "${SELECTED[@]}"; do
+         printf '%s\n' ${RUNNABLE[@]+"${RUNNABLE[@]}"} | grep -qxF "${id}" \
+           || { RESULT[$id]="PREREQ-FAIL"; log "preflight: dropping ${id} (see check output above)"; }
+       done ;;
+    *) log "preflight BLOCKED — fix the [FAIL] items above (bash run_all.sh --check), or --no-check to override"
+       exit 2 ;;
+  esac
+fi
 
 # Armed only here, past --list/--help: those are read-only queries and must not
 # reap a session someone is attached to.
@@ -120,12 +153,19 @@ for id in "${SELECTED[@]}"; do
   echo; log "======== ${id} ========"
   report="${REPORTS}/${id}.md"
 
+  if [[ -n "${RESULT[$id]:-}" ]]; then
+    log "dropped by preflight (${RESULT[$id]}) — not running"; continue
+  fi
   if [[ -f "${report}" && "${FORCE}" -ne 1 ]]; then
     log "report exists — skipping (use --force to re-run)"
     RESULT[$id]="SKIPPED"; continue
   fi
 
-  prep_args=(--fixture "${id}"); [[ "${BOOTSTRAP}" -eq 1 ]] && prep_args+=(--bootstrap-poetry)
+  # --reset-only: restore an already-prepared fixture in seconds (env, LFS
+  # blobs and staged data kept). prepare.sh itself falls back to a full
+  # prepare when the fixture was never built here or its definition changed.
+  prep_args=(--fixture "${id}" --reset-only)
+  [[ "${BOOTSTRAP}" -eq 1 ]] && prep_args+=(--bootstrap-poetry)
   if ! "${BASH_BIN}" "${EVAL_ROOT}/prepare.sh" "${prep_args[@]}"; then
     log "prepare FAILED"; RESULT[$id]="PREP-FAIL"; continue
   fi
@@ -144,6 +184,10 @@ for id in "${SELECTED[@]}"; do
     # A required data prerequisite was missing, so the agent never ran. An
     # environment gap, never a skill verdict — kept out of the PASS/total ratio.
     12) RESULT[$id]="PREREQ-FAIL" ;;
+    # The platform reached a verdict but zero assistant turns ran under the
+    # skill (report.py checks the transcript's attribution stamps): the run
+    # graded raw Claude, not the skill. Void — also out of the ratio.
+    13) RESULT[$id]="SKILL-UNUSED" ;;
     *)  RESULT[$id]="RUN-ERROR" ;;
   esac
   log "${id}: ${RESULT[$id]}"
@@ -157,9 +201,10 @@ printf '%-24s %s\n' "-------" "------"
 for id in "${SELECTED[@]}"; do
   r="${RESULT[$id]:-?}"
   printf '%-24s %s\n' "${id}" "${r}"
-  # Neither a skip nor an unmet prerequisite says anything about the skill, so
-  # neither belongs in the ratio — counting them as failures reads as a regression.
-  if [[ "${r}" == "SKIPPED" || "${r}" == "PREREQ-FAIL" ]]; then
+  # A skip, an unmet prerequisite, or a run the skill never took part in says
+  # nothing about the skill — none belong in the ratio; counting them as
+  # failures reads as a regression.
+  if [[ "${r}" == "SKIPPED" || "${r}" == "PREREQ-FAIL" || "${r}" == "SKILL-UNUSED" ]]; then
     excluded=$((excluded+1)); continue
   fi
   total=$((total+1)); [[ "${r}" == "PASS" ]] && pass=$((pass+1))

@@ -42,6 +42,13 @@ import statistics
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# The skill under test. Detected by the agent's `Skill` tool call in the
+# transcript; a graded run whose transcript has zero such calls exercised raw
+# Claude instead of the skill, and its verdict is VOID.
+# NOT via an `attributionSkill` field — no CLI version we run writes one, so
+# that check voided every graded run (ner_roberta V9: skill demonstrably ran).
+SKILL_NAME = "tensorleap-integration-creation"
+
 RATES = {  # USD per 1M tokens; override with REPORT_*_RATE env vars
     "in":          float(os.environ.get("REPORT_IN_RATE", "15")),
     "out":         float(os.environ.get("REPORT_OUT_RATE", "75")),
@@ -52,24 +59,36 @@ RATES = {  # USD per 1M tokens; override with REPORT_*_RATE env vars
 # Verdicts run_all.sh can report for a fixture whose agent never ran, so there is
 # no sidecar and nothing to grade. Kept out of the pass ratio.
 UNGRADED = {
-    "PREP-FAIL":   "prepare.sh failed — fixture never built",
-    "VERIFY-FAIL": "verify.sh failed — fixture not blind, agent not run",
-    "PREREQ-FAIL": "required data prerequisite missing — agent not run",
-    "RUN-ERROR":   "harness error (not a skill verdict)",
+    "PREP-FAIL":    "prepare.sh failed — fixture never built",
+    "VERIFY-FAIL":  "verify.sh failed — fixture not blind, agent not run",
+    "PREREQ-FAIL":  "required data prerequisite missing — agent not run",
+    "SKILL-UNUSED": "agent ran but the skill under test was never used — verdict void",
+    "RUN-ERROR":    "harness error (not a skill verdict)",
 }
 
 
-def latest_transcript(transcript_dir):
+def latest_transcript(transcript_dir, since=0):
+    """Newest session jsonl modified at/after `since` (epoch seconds).
+
+    The bound matters: a fixture's project dir accumulates one transcript per
+    attempt, and "newest overall" silently attributes a PREVIOUS attempt's
+    session — turns, tokens, cost — to a run whose own session left none.
+    """
     if not transcript_dir or not os.path.isdir(transcript_dir):
         return None
-    files = glob.glob(os.path.join(transcript_dir, "*.jsonl"))
+    files = [p for p in glob.glob(os.path.join(transcript_dir, "*.jsonl"))
+             if os.path.getmtime(p) >= since]
     return max(files, key=os.path.getmtime) if files else None
+
+
+EMPTY_METRICS = {"turns": 0, "skill_turns": 0, "out": 0, "in": 0,
+                 "cache_read": 0, "cache_write": 0, "model": "",
+                 "cc_version": "", "effort": ""}
 
 
 def parse_transcript(path):
     """Sum turns + token classes from a session jsonl."""
-    m = {"turns": 0, "out": 0, "in": 0, "cache_read": 0, "cache_write": 0,
-         "model": ""}
+    m = dict(EMPTY_METRICS)
     for line in open(path, errors="ignore"):
         try:
             rec = json.loads(line)
@@ -78,6 +97,15 @@ def parse_transcript(path):
         msg = rec.get("message") or {}
         if rec.get("type") == "assistant" or msg.get("role") == "assistant":
             m["turns"] += 1
+            # Run conditions stamped on every assistant record — provenance for
+            # comparing runs (a CC upgrade or effort change explains a delta).
+            m["cc_version"] = rec.get("version") or m["cc_version"]
+            m["effort"] = rec.get("effort") or m["effort"]
+            for c in msg.get("content") or []:
+                if (isinstance(c, dict) and c.get("type") == "tool_use"
+                        and c.get("name") == "Skill"
+                        and SKILL_NAME in str((c.get("input") or {}).get("skill", ""))):
+                    m["skill_turns"] += 1
             u = msg.get("usage") or {}
             m["out"] += u.get("output_tokens", 0)
             m["in"] += u.get("input_tokens", 0)
@@ -119,7 +147,7 @@ def stuck_where(result, push_status, eval_id):
 # --------------------------------------------------------------------------- #
 # Per-fixture report
 # --------------------------------------------------------------------------- #
-def render(args, m, transcript, notes, where):
+def render(args, m, transcript, notes, where, void):
     total = m["in"] + m["out"] + m["cache_read"] + m["cache_write"]
     emoji = {"PASS": "✅", "FAIL": "❌", "STUCK": "⚠️"}.get(args.result, "❔")
     tick = "✅" if args.push_status == "FINISHED" else "❌"
@@ -127,15 +155,32 @@ def render(args, m, transcript, notes, where):
         f"# Skill-eval report — {args.fixture}",
         "",
         f"- **Result:** {emoji} {args.result}   (success = a FINISHED evaluate)",
+    ]
+    if void:
+        lines.append(f"- **⚠️ VERDICT VOID:** {void}")
+    lines += [
         f"- **Push:** {tick} {args.push_status or '(none created)'}"
         f"{' — ' + args.push_id if args.push_id else ''}",
         f"- **Evaluate job:** {args.eval_id or '(none created)'}",
         f"- **Got stuck (where):** {where}",
     ]
+    if m["turns"]:
+        lines.append(f"- **Skill invoked:** {m['skill_turns']} `Skill`-tool call(s) "
+                     f"to `{SKILL_NAME}` across {m['turns']} turns")
     if m["model"]:
         lines.append(f"- **Model:** {m['model']}")
     if args.skill_source:
         lines.append(f"- **Skill source:** {args.skill_source}")
+    prov = " · ".join(x for x in (
+        (f"skill `{args.skill_fingerprint}`"
+         + (f" (git {args.skill_git})" if args.skill_git else ""))
+        if args.skill_fingerprint else "",
+        f"fixture `{args.fixture_sha}`" if args.fixture_sha else "",
+        f"prompt `{args.prompt_sha}`" if args.prompt_sha else "",
+        f"CC {m['cc_version']}" if m["cc_version"] else "",
+        f"effort {m['effort']}" if m["effort"] else "") if x)
+    if prov:
+        lines.append(f"- **Provenance:** {prov}")
     if args.note:
         lines.append(f"- **Harness note:** {args.note}")
     lines += [
@@ -144,6 +189,10 @@ def render(args, m, transcript, notes, where):
         "",
         "| metric | value |",
         "|--------|------:|",
+    ]
+    if args.duration:
+        lines.append(f"| wall clock | {args.duration // 60}m{args.duration % 60:02d}s |")
+    lines += [
         f"| turns | {m['turns']} |",
         f"| output tokens | {human(m['out'])} |",
         f"| input tokens | {human(m['in'])} |",
@@ -171,7 +220,7 @@ def render(args, m, transcript, notes, where):
     return "\n".join(lines)
 
 
-def sidecar(args, m, transcript, where, out):
+def sidecar(args, m, transcript, where, out, void):
     total = m["in"] + m["out"] + m["cache_read"] + m["cache_write"]
     return {
         "fixture": args.fixture,
@@ -181,18 +230,29 @@ def sidecar(args, m, transcript, where, out):
         "push_status": args.push_status,
         "eval_id": args.eval_id,
         "stuck_where": where,
+        **({"void_reason": void} if void else {}),
         "turns": m["turns"],
+        "skill_turns": m["skill_turns"],
         "out_tokens": m["out"],
         "in_tokens": m["in"],
         "cache_read": m["cache_read"],
         "cache_write": m["cache_write"],
         "total_tokens": total,
         "cost_usd": round(cost_usd(m), 2),
+        "duration_s": args.duration,
         "model": m["model"],
+        "cc_version": m["cc_version"],
+        "effort": m["effort"],
+        "skill_fingerprint": args.skill_fingerprint,
+        "skill_git": args.skill_git,
+        "fixture_sha": args.fixture_sha,
+        "prompt_sha": args.prompt_sha,
         "skill_source": args.skill_source,
         "note": args.note,
         "transcript": transcript or "",
         "report": out,
+        "started_at": (datetime.datetime.fromtimestamp(args.started_at)
+                       .isoformat(timespec="minutes") if args.started_at else ""),
         "finished_at": datetime.datetime.now().isoformat(timespec="minutes"),
     }
 
@@ -209,71 +269,33 @@ def _versions(reports_dir):
     return sorted(out)
 
 
-def _unhuman(s):
-    return int(float(s.rstrip("kM")) * {"k": 1_000, "M": 1_000_000}.get(s[-1:], 1))
-
-
-def _legacy_md(path):
-    """Reconstruct a sidecar from a report written before report.py emitted json.
-
-    Reads back our own markdown, so numbers return at the md's displayed precision
-    (15.2k, not 15,234). `pushed` was not recorded then, so it is inferred: a
-    completed evaluate implies a finished push; anything else is unknown-as-false.
-    """
-    txt = open(path, errors="ignore").read()
-
-    def grab(pat, default=""):
-        mo = re.search(pat, txt)
-        return mo.group(1).strip() if mo else default
-
-    def row(label):
-        return _unhuman(grab(r"\|\s*%s\s*\|\s*([0-9.]+[kM]?)\s*\|" % label, "0"))
-
-    result = grab(r"\*\*Result:\*\*\s*\S*\s*([A-Z]+)", "UNKNOWN")
-    ev = grab(r"\*\*Evaluate job:\*\*\s*`?([0-9a-f]{24})")
-    pushed = result == "PASS"
-    where = stuck_where(result, "FINISHED" if pushed else "", ev)
-    if not pushed:      # the old harness never tracked the Push — don't claim it did
-        where = where.replace("(push: none created)", "(push status not recorded)")
-    return {
-        "fixture": grab(r"# Skill-eval report — (\S+)"),
-        "result": result, "pushed": pushed,
-        "push_id": "", "push_status": "FINISHED" if pushed else "",
-        "eval_id": ev, "stuck_where": where,
-        "turns": row("turns"), "out_tokens": row("output tokens"),
-        "in_tokens": row("input tokens"), "cache_read": row("cache read"),
-        "cache_write": row("cache write"), "total_tokens": row("total tokens"),
-        "cost_usd": float(grab(r"est\. cost \(USD\)\*\*\s*\|\s*\*\*\$([0-9.]+)", "0")),
-        "model": "", "skill_source": "", "note": "",
-        "transcript": grab(r"## Transcript\s*\n+`([^`]+)`"),
-        "report": path,
-        "finished_at": datetime.datetime.fromtimestamp(
-            os.path.getmtime(path)).isoformat(timespec="minutes"),
-        "legacy": True,
-    }
-
-
 def _rows(reports_dir, verdicts):
-    """One row per fixture: its sidecar (if the agent ran) + run_all's verdict."""
+    """One row per fixture: its sidecar (if the agent ran) + run_all's verdict.
+
+    The json sidecar is the only input — the roll-up never scrapes markdown. A
+    fixture with no sidecar is reported as ungraded rather than reconstructed.
+    """
     ids = list(verdicts) or sorted(
-        os.path.basename(p)[:-3]
-        for p in glob.glob(os.path.join(reports_dir, "*.md"))
+        os.path.basename(p)[:-5]
+        for p in glob.glob(os.path.join(reports_dir, "*.json"))
         if not os.path.basename(p).startswith("REPORT_V"))
     rows = []
     for fid in ids:
-        base = os.path.join(reports_dir, fid)
         try:
-            data = json.load(open(base + ".json"))
+            data = json.load(open(os.path.join(reports_dir, fid + ".json")))
         except (OSError, ValueError):
-            try:
-                data = _legacy_md(base + ".md")
-            except OSError:
-                data = None
+            data = None
+        harness = verdicts.get(fid, "")
         # The agent never ran this time, so any report present is from an earlier
         # run and says nothing about this one — grade it as not evaluated.
-        if verdicts.get(fid) in UNGRADED:
+        if harness in UNGRADED:
             data = None
-        rows.append({"fixture": fid, "harness": verdicts.get(fid, ""), "data": data})
+        # A voided sidecar (skill never used) is platform-true but says nothing
+        # about the skill — keep it out of the graded set even when this roll-up
+        # runs without run_all's verdicts (bare `report.py --aggregate`).
+        if data and data.get("void_reason"):
+            harness, data = "SKILL-UNUSED", None
+        rows.append({"fixture": fid, "harness": harness, "data": data})
     return rows
 
 
@@ -290,9 +312,10 @@ def aggregate(args):
     prev = json.load(open(earlier[-1])) if earlier else None
 
     graded = [r for r in rows if r["data"]]
+
+    def facet(key):
+        return ", ".join(sorted({(r["data"].get(key) or "") for r in graded} - {""}))
     dates = sorted(r["data"].get("finished_at", "") for r in graded if r["data"].get("finished_at"))
-    models = sorted({r["data"].get("model", "") for r in graded} - {""})
-    sources = sorted({r["data"].get("skill_source", "") for r in graded} - {""})
     passes = [r for r in graded if r["data"]["result"] == "PASS"]
     pushed = [r for r in graded if r["data"]["pushed"]]
 
@@ -302,8 +325,11 @@ def aggregate(args):
         f"{' (' + str(len(rows) - len(graded)) + ' never ran — see below)' if len(rows) != len(graded) else ''}",
         f"- **Dates:** {dates[0]} → {dates[-1]}" if dates else "- **Dates:** (unknown)",
         "- **Harness:** `eval/run_all.sh` → `prepare.sh` → `verify.sh` → `run.sh` → `report.py`",
-        f"- **Skill source:** {', '.join(sources) or '(not recorded)'}",
-        f"- **Model:** {', '.join(models) or '(not recorded)'}",
+        f"- **Skill source:** {facet('skill_source') or '(not recorded)'}",
+        f"- **Skill fingerprint:** {facet('skill_fingerprint') or '(not recorded)'}"
+        f"{'  (git ' + facet('skill_git') + ')' if facet('skill_git') else ''}",
+        f"- **Model / CC / effort:** {facet('model') or '?'} / "
+        f"{facet('cc_version') or '?'} / {facet('effort') or '?'}",
         f"- **Outcome:** {len(passes)}/{len(graded)} reached a completed evaluate"
         f" ({len(pushed)}/{len(graded)} reached a FINISHED push).",
         "",
@@ -342,11 +368,6 @@ def aggregate(args):
     if carried:
         L += ["", f"_Carried over from an earlier run (report already existed, not "
                   f"re-run): {', '.join(carried)}._"]
-    legacy = [r["fixture"] for r in graded if r["data"].get("legacy")]
-    if legacy:
-        L += ["", f"_Reconstructed from a pre-sidecar markdown report, so their token "
-                  f"counts carry the md's rounding and their `pushed` is inferred from "
-                  f"the eval result: {', '.join(legacy)}._"]
 
     # --- Shared problems ---------------------------------------------------- #
     # Grouped by the PHASE the harness observed, which is all it can know. The
@@ -395,25 +416,43 @@ def aggregate(args):
 
     # --- Deltas vs previous run --------------------------------------------- #
     if prev:
+        # `changed` names which run conditions differ from the previous run —
+        # the first thing to check before crediting/blaming the skill for a
+        # delta. `x?` = the previous run predates recording of x.
+        PROV_KEYS = (("skill_fingerprint", "skill"), ("fixture_sha", "fixture"),
+                     ("prompt_sha", "prompt"), ("model", "model"),
+                     ("effort", "effort"), ("cc_version", "cc"))
         L += ["", f"## Deltas vs V{prev.get('version', '?')}", "",
-              "| repo | prev | now | Δturns | Δout_tok |",
-              "|------|------|-----|-------:|---------:|"]
+              "| repo | prev | now | Δturns | Δout_tok | changed |",
+              "|------|------|-----|-------:|---------:|---------|"]
         old = {f["fixture"]: f for f in prev.get("fixtures", []) if f.get("data")}
         for r in graded:
             o = old.get(r["fixture"])
             if not o:
-                L.append(f"| {r['fixture']} | _new_ | {r['data']['result']} | – | – |")
+                L.append(f"| {r['fixture']} | _new_ | {r['data']['result']} | – | – | – |")
                 continue
             od, nd = o["data"], r["data"]
-            L.append("| {} | {} | {} | {:+d} | {:+d} |".format(
+            flags = []
+            for key, label in PROV_KEYS:
+                o_val, n_val = od.get(key) or "", nd.get(key) or ""
+                if not o_val and not n_val:
+                    continue
+                if not o_val:
+                    flags.append(label + "?")
+                elif o_val != n_val:
+                    flags.append(label)
+            L.append("| {} | {} | {} | {:+d} | {:+d} | {} |".format(
                 r["fixture"], od["result"], nd["result"],
-                nd["turns"] - od["turns"], nd["out_tokens"] - od["out_tokens"]))
+                nd["turns"] - od["turns"], nd["out_tokens"] - od["out_tokens"],
+                ", ".join(flags) or "—"))
         gone = [f for f in old if f not in {r["fixture"] for r in graded}]
         if gone:
             L.append(f"\n_Not in this run: {', '.join(gone)}._")
         L += ["",
-              "<!-- REVIEW: state WHY each result changed (skill change, fixture "
-              "change, flake) — the numbers alone do not say. -->"]
+              "<!-- REVIEW: state WHY each result changed. Start from the `changed` "
+              "column (skill/fixture/prompt/model/effort/cc differ from the previous "
+              "run); a delta with `—` and a changed result is a flake or a "
+              "non-determinism worth naming. -->"]
 
     out_md = args.out or os.path.join(reports_dir, f"REPORT_V{version}.md")
     text = "\n".join(L) + "\n"
@@ -429,17 +468,26 @@ def aggregate(args):
 # --------------------------------------------------------------------------- #
 def _selfcheck():
     import tempfile
-    rec = {"type": "assistant", "message": {"model": "claude-opus-5", "usage": {
-        "output_tokens": 100, "input_tokens": 50,
-        "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 10}}}
-    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
-        f.write(json.dumps(rec) + "\n" + json.dumps(rec) + "\n")
-        p = f.name
-    m = parse_transcript(p)
-    os.unlink(p)
-    assert m["turns"] == 2 and m["out"] == 200 and m["cache_read"] == 2000, m
-    assert m["model"] == "claude-opus-5", m
-    assert cost_usd(m) > 0
+    rec = {"type": "assistant", "version": "2.1.220", "effort": "xhigh",
+           "message": {"model": "claude-opus-5", "usage": {
+               "output_tokens": 100, "input_tokens": 50,
+               "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 10}}}
+    # Shaped like a real transcript record: the skill shows up as a Skill tool_use.
+    rec_skill = json.loads(json.dumps(rec))
+    rec_skill["message"]["content"] = [
+        {"type": "tool_use", "name": "Skill", "input": {"skill": SKILL_NAME}}]
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, "session.jsonl")
+        open(p, "w").write(json.dumps(rec) + "\n" + json.dumps(rec_skill) + "\n")
+        m = parse_transcript(p)
+        assert m["turns"] == 2 and m["out"] == 200 and m["cache_read"] == 2000, m
+        assert m["skill_turns"] == 1, m
+        assert m["model"] == "claude-opus-5", m
+        assert m["cc_version"] == "2.1.220" and m["effort"] == "xhigh", m
+        assert cost_usd(m) > 0
+        # started-at bound: a transcript older than the run must not be selected.
+        assert latest_transcript(td, since=os.path.getmtime(p) + 3600) is None
+        assert latest_transcript(td, since=0) == p
 
     assert stuck_where("PASS", "FINISHED", "e1") == "—"
     assert "FAILED" in stuck_where("FAIL", "FINISHED", "e1")
@@ -447,46 +495,39 @@ def _selfcheck():
     assert "none created" in stuck_where("STUCK", "", "")
 
     # Roll-up: two graded fixtures (one pass, one eval-fail) + one that never ran
-    # + one legacy md with no sidecar.
+    # + one whose PASS is void (skill never used) and must stay out of the ratio.
     with tempfile.TemporaryDirectory() as d:
-        legacy_md = os.path.join(d, "old.md")
-        open(legacy_md, "w").write(
-            "# Skill-eval report — old\n\n- **Result:** ⚠️ STUCK\n"
-            "- **Evaluate job:** (none created)\n\n| metric | value |\n|--|--:|\n"
-            "| turns | 61 |\n| output tokens | 30.2k |\n| input tokens | 110 |\n"
-            "| cache read | 5.0M |\n| cache write | 209.8k |\n| total tokens | 5.2M |\n"
-            "| **est. cost (USD)** | **$13.64** |\n\n## Transcript\n\n`/tmp/x.jsonl`\n")
-        g = _legacy_md(legacy_md)
-        assert g["fixture"] == "old" and g["result"] == "STUCK" and g["turns"] == 61, g
-        assert g["out_tokens"] == 30_200 and g["total_tokens"] == 5_200_000, g
-        assert g["cost_usd"] == 13.64 and g["pushed"] is False and g["eval_id"] == "", g
-        assert g["transcript"] == "/tmp/x.jsonl", g
-
-        def put(fid, result, pushed, turns, out, ev):
+        def put(fid, result, pushed, turns, out, ev, void="", **prov):
             json.dump({"fixture": fid, "result": result, "pushed": pushed,
                        "push_id": "p", "push_status": "FINISHED" if pushed else "",
                        "eval_id": ev, "stuck_where": stuck_where(result, "FINISHED" if pushed else "", ev),
+                       **({"void_reason": void} if void else {}), **prov,
                        "turns": turns, "out_tokens": out, "total_tokens": out * 100,
                        "cost_usd": 1.5, "model": "claude-opus-5",
                        "skill_source": "--plugin-dir dist", "finished_at": "2026-07-29T12:00"},
                       open(os.path.join(d, fid + ".json"), "w"))
         put("good", "PASS", True, 90, 50_000, "e1")
-        put("bad", "FAIL", True, 200, 90_000, "e2")
-        a = argparse.Namespace(reports_dir=d, fixtures="good:PASS,bad:FAIL,broken:PREP-FAIL",
+        put("bad", "FAIL", True, 200, 90_000, "e2", skill_fingerprint="aaa111")
+        put("ghost", "PASS", True, 20, 9_000, "e9", void="no turns under the skill")
+        a = argparse.Namespace(reports_dir=d, fixtures="good:PASS,bad:FAIL,broken:PREP-FAIL,ghost:PASS",
                                version=None, out="")
         path, err = aggregate(a)
         assert err is None and os.path.isfile(path) and path.endswith("REPORT_V1.md"), (path, err)
         txt = open(path).read()
-        assert "2/2 pushed, 1/2 completed eval" in txt, txt
+        assert "2/2 pushed, 1/2 completed eval" in txt, txt   # ghost excluded
         assert "median turns=145" in txt, txt
+        assert "SKILL-UNUSED" in txt, txt
         assert "PREP-FAIL" in txt and "## What worked" in txt and "## Shared problems" in txt
-        # V2 must pick up V1 as its baseline and diff it.
-        put("bad", "PASS", True, 150, 70_000, "e2")
+        # V2 must pick up V1 as its baseline and diff it — and the `changed`
+        # column must flag the differing skill fingerprint (and only that).
+        put("bad", "PASS", True, 150, 70_000, "e2", skill_fingerprint="bbb222")
         path2, err2 = aggregate(argparse.Namespace(
             reports_dir=d, fixtures="good:PASS,bad:PASS", version=None, out=""))
         assert err2 is None and path2.endswith("REPORT_V2.md"), path2
         txt2 = open(path2).read()
         assert "## Deltas vs V1" in txt2 and "-50" in txt2, txt2
+        assert "| skill |" in txt2, txt2          # bad: fingerprint aaa111 -> bbb222
+        assert "| good | PASS | PASS | +0 | +0 | — |" in txt2, txt2
     print("selfcheck ok")
 
 
@@ -508,7 +549,21 @@ def main():
     ap.add_argument("--push-status", default="",
                     help="terminal state of the Push this run created (FINISHED/FAILED/…)")
     ap.add_argument("--transcript-dir", default="")
+    ap.add_argument("--started-at", type=int, default=0,
+                    help="epoch seconds; only transcripts modified at/after this "
+                         "belong to this run (guards against inheriting a previous "
+                         "attempt's session)")
     ap.add_argument("--notes", default="")
+    ap.add_argument("--duration", type=int, default=0,
+                    help="wall-clock seconds for the whole fixture run")
+    ap.add_argument("--skill-fingerprint", default="",
+                    help="content hash of the skill files under test")
+    ap.add_argument("--skill-git", default="",
+                    help="git describe of this repo when testing a local build")
+    ap.add_argument("--fixture-sha", default="",
+                    help="hash of the fixture's manifest entry (definition provenance)")
+    ap.add_argument("--prompt-sha", default="",
+                    help="hash of the operator prompt handed to the agent")
     ap.add_argument("--skill-source", default="",
                     help="which copy of the skill was under test (plugin vs --plugin-dir)")
     ap.add_argument("--note", default="",
@@ -529,14 +584,21 @@ def main():
     if not args.fixture:
         ap.error("--fixture is required")
 
-    transcript = latest_transcript(args.transcript_dir)
-    m = parse_transcript(transcript) if transcript else {
-        "turns": 0, "out": 0, "in": 0, "cache_read": 0, "cache_write": 0, "model": ""}
+    transcript = latest_transcript(args.transcript_dir, args.started_at)
+    m = parse_transcript(transcript) if transcript else dict(EMPTY_METRICS)
+    # A graded verdict with zero skill-attributed turns exercised raw Claude,
+    # not the skill — the verdict is real platform state but grades nothing.
+    void = ""
+    if args.result in ("PASS", "FAIL") and m["skill_turns"] == 0:
+        void = (f"the {SKILL_NAME} skill was never invoked — "
+                + ("no transcript found for this run" if not transcript
+                   else f"{m['turns']} turns in {transcript}, none calling it")
+                + " — this verdict does not grade the skill.")
     where = stuck_where(args.result, args.push_status, args.eval_id)
     out = args.out or os.path.join(args.reports_dir, f"{args.fixture}.md")
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-    open(out, "w").write(render(args, m, transcript, args.notes, where))
-    json.dump(sidecar(args, m, transcript, where, out),
+    open(out, "w").write(render(args, m, transcript, args.notes, where, void))
+    json.dump(sidecar(args, m, transcript, where, out, void),
               open(os.path.splitext(out)[0] + ".json", "w"), indent=1)
     print(f"wrote {out}")
     return 0

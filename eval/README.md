@@ -88,16 +88,21 @@ running two fixtures at once corrupts both. Never parallelize. `run.sh` (and the
 `run_all.sh` wrapper) gate each fixture on the previous fixture's Evaluate
 reaching a terminal state before starting the next.
 
-### 5. (Historical) foreground-push — no longer needed
+### 5. The push must run in the foreground — enforced by the skill, not here
 
-Earlier headless (`claude -p`) drivers had to run the push in the *foreground*:
-in print mode the session exits the instant the agent yields, so a backgrounded
-`push --eval` was reaped **after the push but before the evaluate step** — you
-got a Push with no Evaluate. `run.sh` avoids this entirely by driving an
-**interactive** session over tmux (no `-p`): the REPL does not exit on the
-agent's final answer, background work survives, and completion wakes the agent.
-So the foreground rule is deliberately gone — but understand the reap, because
-the same premature-completion trap can bite any background wrapper around a push.
+`leap push --eval` does two things: push, then trigger the evaluate **after the
+push finishes**. Kill the command in between and you get a Push with no
+Evaluate — a silent, expensive dead end. It gets killed two ways: in headless
+`claude -p` the session exits the instant the agent yields, and in *any* session
+the harness periodically sweeps background tasks (we have seen a backgrounded
+push reaped 35 min in, mid-build).
+
+`run.sh` drives an **interactive** tmux session (no `-p`), which removes the
+first of those — but not the second. What removed the need for a harness-side
+override is that the rule now lives in the skill under test, which mandates a
+synchronous push (see `skill.md`, "Deploy"). So the operator prompt deliberately
+says nothing about foregrounding: if the skill regresses and backgrounds the
+push, the run reports STUCK, and that is the correct verdict.
 
 ---
 
@@ -106,7 +111,12 @@ the same premature-completion trap can bite any background wrapper around a push
 From this `eval/` directory:
 
 ```bash
+# 0. Preflight — verifies tools/server/creds BEFORE anything clones or runs.
+#    Missing creds don't block: it prints which fixtures are runnable without them.
+bash run_all.sh --check
+
 # 1. Build the blind copy (+ its poetry env). Slow the first time (installs deps).
+#    Add --reset-only to restore an already-built fixture in seconds instead.
 bash prepare.sh --fixture cifar10_resnet --bootstrap-poetry
 
 # 2. Prove it is actually blind (no solution left, git history scrubbed).
@@ -124,6 +134,15 @@ writes the run roll-up `reports/REPORT_V<n>.md`.
 `cifar10_resnet` is the recommended first run: it is a **public** fixture (CIFAR
 downloads at runtime), so it needs no private creds and proves the loop.
 
+To re-attempt a fixture, start from step 1: a used fixture contains the previous
+agent's finished integration, so `run.sh` refuses it (dirty/non-blind tree)
+rather than grade a run that starts from the answer. `prepare.sh --reset-only`
+makes that cheap — it git-resets the blind tree in seconds, keeping the poetry
+env, hydrated models, and staged data, and falls back to a full rebuild whenever
+the fixture's manifest entry changed. Already-staged S3 objects are also skipped
+when they provably match the remote (checksum, else size), so re-prepares no
+longer re-download gigabyte models.
+
 See which fixtures you can choose from (ids + which need staged data/creds):
 
 ```bash
@@ -137,10 +156,12 @@ bash run_all.sh --list
 | File | Role |
 |------|------|
 | `manifest.json` | The fixture corpus: repo URL, pinned commit, what to strip, data prerequisites. |
+| `check.sh` | Read-only preflight (`run_all.sh --check`, and run automatically before a real run): tools, local server + auth, no in-flight job, data-volume containment, single skill source, AWS/GitHub creds. Credential gaps drop only the fixtures that need them. |
 | `prepare.sh` | Clones the repo at its pinned commit, strips the integration files *and the code-loader dependency pin*, **scrubs git to a single rootless commit with no remote** (so the solution can't be recovered), and builds the poetry env. Output → `.fixtures/<id>/pre`. |
 | `verify.sh` | Asserts the `pre` copy is genuinely blind: no root-level `leap*` files, no code importing `code_loader`, no code-loader pin in `pyproject.toml`/`poetry.lock`/`requirements*.txt`, single rootless commit, no remote. **Do not run the agent unless this passes.** |
 | `bootstrap_poetry.sh` | Sets up the `pre` poetry env (invoked by `prepare.sh --bootstrap-poetry`). The `post` variant is a static answer key — nothing executes it, so it gets no env. The agent installs code-loader itself when it wants to validate locally. |
 | `lib/reset_lib.sh` | Shared helpers used by the above. |
+| `lib/leap_api_url.py`, `lib/skill_sources.py` | Single source of truth for "which server does the CLI target" and "which copies of the skill are visible" — shared by `run.sh` and `check.sh` so the gate and the preflight cannot drift apart. |
 | `run.sh` | Drives an interactive Claude session (tmux) to run the skill, then tracks the Push and the Evaluate to terminal states and writes the report. |
 | `report.py` | Two modes: per fixture → `reports/<id>.md` + a `reports/<id>.json` sidecar (turns, tokens, est. cost, push/eval state, problems from NOTES.md); `--aggregate` → the run roll-up `reports/REPORT_V<n>.md`. |
 | `run_all.sh` | Runs prepare→verify→run over selected fixtures sequentially, then writes the roll-up. `--list` shows the fixture menu. |
@@ -156,10 +177,21 @@ A run writes, per fixture:
 
 - `reports/<id>.md` — result, **Push and Evaluate as separate lines** (a broken
   integration can push FINISHED and still fail its evaluate), where it got stuck,
-  turns/tokens/est. cost, model, which copy of the skill was under test, and the
-  agent's own `NOTES.md` inlined.
+  turns/tokens/est. cost/wall-clock, model, and **provenance** — content hashes of
+  the skill under test, the fixture's manifest entry, and the operator prompt,
+  plus the Claude Code version and reasoning effort — so a delta between two runs
+  is attributable instead of a guess (the roll-up's deltas table has a `changed`
+  column computed from exactly these). The agent's own `NOTES.md` is inlined.
 - `reports/<id>.json` — the same numbers, machine-readable, so the roll-up never
   scrapes markdown.
+- `reports/<id>.run.log` — everything the harness printed during the attempt
+  (preflights, job detection, why it died), kept even when the run errors out
+  and no report is written.
+
+A report always describes the **latest attempt only**: run.sh deletes the
+fixture's old `reports/<id>.{md,json}` the moment a new attempt starts, so an
+attempt that dies leaves the log and *no* report — never a stale PASS that
+run_all's resume (skip-if-report-exists) would silently trust.
 
 and then one roll-up for the whole run:
 
@@ -215,9 +247,18 @@ open decision.
 
 ## Status
 
-- **Working, validated end-to-end on `cifar10_resnet`** (blind author → push →
-  evaluate FINISHED): `prepare.sh`, `verify.sh`, `bootstrap_poetry.sh`,
-  `gen_deny.py`, `run.sh`, `report.py`, `run_all.sh`.
-- **Not yet exercised:** the 9 non-cifar fixtures (the 3 private ones need
-  Tensorleap-hub access + staged data); network-egress hardening for true
-  blindness on the public repos.
+- **Exercised end-to-end across the corpus** (V5, 2026-07-29): 8 of 10 fixtures
+  ran the full blind author → push → evaluate loop. `webinar` stopped at
+  PREREQ-FAIL (its data is unreachable, see the manifest) and
+  `asensus_segmentation` at RUN-ERROR.
+- **Verdict attribution is creation-time-gated** (fixed 2026-07-30): a run only
+  claims Push/Evaluate jobs whose id (a Mongo ObjectId, creation epoch in its
+  first 8 hex chars) was minted after this run's prompt submission, metrics only
+  come from transcripts newer than this run's start, a PASS/FAIL with zero
+  skill-attributed turns is voided (SKILL-UNUSED), and run.sh refuses a fixture
+  that isn't clean and blind. The earlier baseline-diff version misgraded V5
+  `ner_roberta` as PASS on the previous fixture's two-hour-old Evaluate — V5's
+  published 7/8 is really 6/7 and needs reissuing.
+- **Not yet built:** network-egress hardening (7 of the 10 source repos are
+  public, so their reference integration is a web fetch away); a no-skill control
+  arm; repeat runs.

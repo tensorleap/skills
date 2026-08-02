@@ -15,12 +15,12 @@ MANIFEST_PATH="${REPO_ROOT}/manifest.json"
 FIXTURES_ROOT="${REPO_ROOT}/.fixtures"
 RESET_LIB_PATH="${REPO_ROOT}/lib/reset_lib.sh"
 
-# shellcheck source=./fixtures_reset_lib.sh
+# shellcheck source=./lib/reset_lib.sh
 source "${RESET_LIB_PATH}"
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/fixtures_verify.sh [--fixture <id>]
+Usage: bash verify.sh [--fixture <id>]
 
 Verify prepared pre/post fixtures.
 Run prepare.sh first.
@@ -37,11 +37,11 @@ fail() {
 }
 
 log() {
-  echo "[fixtures_verify] $*"
+  echo "[verify] $*"
 }
 
 warn() {
-  echo "[fixtures_verify] warning: $*" >&2
+  echo "[verify] warning: $*" >&2
 }
 
 require_cmd() {
@@ -286,7 +286,6 @@ exercise_fixture_reset_script() {
 require_cmd git
 require_cmd jq
 require_cmd rg
-require_cmd python3
 [[ -f "${MANIFEST_PATH}" ]] || fail "manifest not found: ${MANIFEST_PATH}"
 [[ -f "${RESET_LIB_PATH}" ]] || fail "fixture reset library not found: ${RESET_LIB_PATH}"
 

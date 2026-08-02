@@ -26,7 +26,6 @@ fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 EVAL_ROOT="${SCRIPT_DIR}"
 FIXTURES_ROOT="${EVAL_ROOT}/.fixtures"
-REPO_ROOT="$(cd -- "${EVAL_ROOT}/.." && pwd)"
 
 FIXTURE=""
 PLUGIN_DIR=""
@@ -72,6 +71,21 @@ done
 fail() { echo "error: $*" >&2; exit 1; }
 log()  { echo "[run] $*"; }
 
+# --- Every attempt leaves a log; only THIS attempt's report survives --------- #
+# The log: run_all's stdout dies with the terminal, which left V5's asensus
+# RUN-ERROR (2h of agent time) with zero retained diagnostics. Tee everything.
+# The invalidation: reports/<id>.{md,json} describe the LAST attempt only.
+# Deleted up front — not in an exit trap, which a SIGKILL never runs — so an
+# attempt that dies leaves a log and NO report, instead of a stale PASS from an
+# earlier run (which run_all's skip-if-report-exists resume would then trust).
+REPORTS_DIR="${EVAL_ROOT}/reports"
+RUN_LOG="${REPORTS_DIR}/${FIXTURE}.run.log"
+mkdir -p "${REPORTS_DIR}"
+rm -f "${REPORTS_DIR}/${FIXTURE}.md" "${REPORTS_DIR}/${FIXTURE}.json"
+: >"${RUN_LOG}"
+exec > >(tee -a "${RUN_LOG}") 2>&1
+log "run.sh --fixture ${FIXTURE} — $(date '+%Y-%m-%dT%H:%M:%S') (log: ${RUN_LOG})"
+
 require_cmd() { command -v "$1" >/dev/null 2>&1 || fail "required command '$1' not found"; }
 require_cmd tmux
 command -v claude >/dev/null 2>&1 || fail "claude CLI not found on PATH"
@@ -93,31 +107,8 @@ LEAP_CMD="$(command -v "${LEAP_CMD}")"
 # What matters is not the command's NAME but the server it talks to: `leap auth
 # select` can repoint a CLI at a shared/prod environment at any time, and a blind
 # eval pushing there would be both wrong and visible to others. Assert the target.
-# Deliberately parsed without PyYAML: it is absent from most python3 installs, and
-# a safety check that fails on a missing dependency just invites the override flag.
-LEAP_API_URL="$(python3 - <<'PY'
-import os, sys
-cfg = os.environ.get("TENSORLEAP_CONFIG") or os.path.expanduser(
-    "~/.config/tensorleap/config.yaml")
-try:
-    lines = open(cfg).read().splitlines()
-except Exception as exc:
-    sys.exit(f"cannot read {cfg}: {exc}")
-# The top-level `auth:` block mirrors whichever environment is selected.
-url, top = None, None
-for line in lines:
-    if line[:1] not in (" ", "\t", "", "#"):
-        top = line.split(":", 1)[0].strip()
-    elif top == "auth":
-        key, _, val = line.strip().partition(":")
-        if key == "api_url" and val.strip():
-            url = val.strip()
-            break
-if not url:
-    sys.exit(f"no auth.api_url in {cfg} — is the CLI logged in? (leap auth login)")
-print(url)
-PY
-)" || fail "could not determine which server '${LEAP_CMD}' targets (see above). Set EVAL_ALLOW_REMOTE_LEAP=1 to skip this check."
+LEAP_API_URL="$(python3 "${EVAL_ROOT}/lib/leap_api_url.py")" \
+  || fail "could not determine which server '${LEAP_CMD}' targets (see above). Set EVAL_ALLOW_REMOTE_LEAP=1 to skip this check."
 if [[ "${EVAL_ALLOW_REMOTE_LEAP:-0}" != "1" ]]; then
   case "${LEAP_API_URL}" in
     *//localhost[:/]*|*//127.0.0.1[:/]*|*//localhost|*//127.0.0.1)
@@ -131,6 +122,24 @@ fi
 PRE_DIR="${FIXTURES_ROOT}/${FIXTURE}/pre"
 [[ -d "${PRE_DIR}/.git" ]] || fail "fixture '${FIXTURE}' not prepared: ${PRE_DIR} missing (run prepare.sh + verify.sh first)"
 
+# --- The fixture must be the PREPARED, still-blind tree ---------------------- #
+# A used fixture contains the previous agent's finished integration, so a
+# second run on it starts from the answer and "passes" in minutes — a verdict
+# about nothing. Legit machinery (.venv from bootstrap, .claude from gen_deny)
+# is hidden from git first so a clean tree is a true invariant.
+for _pat in '/.venv/' '/.claude/'; do
+  grep -qxF "${_pat}" "${PRE_DIR}/.git/info/exclude" 2>/dev/null \
+    || echo "${_pat}" >>"${PRE_DIR}/.git/info/exclude"
+done
+git -C "${PRE_DIR}" rev-parse --verify --quiet HEAD^ >/dev/null 2>&1 \
+  && fail "fixture '${FIXTURE}' has git history — not a scrubbed blind tree. Re-run prepare.sh + verify.sh."
+[[ -z "$(git -C "${PRE_DIR}" status --porcelain)" ]] \
+  || fail "fixture '${FIXTURE}' is dirty — a previous run's leftovers (git -C ${PRE_DIR} status). Re-run prepare.sh + verify.sh to rebuild it blind."
+leftovers="$(find "${PRE_DIR}" -maxdepth 1 \( -name 'leap*' -o -name 'NOTES.md' \) 2>/dev/null | head -5)"
+[[ -z "${leftovers}" ]] \
+  || fail "fixture '${FIXTURE}' already contains integration artifacts: ${leftovers} — re-run prepare.sh + verify.sh."
+log "Preflight: fixture tree is clean and blind"
+
 # --- leap -> dev-CLI shim, first on PATH (so a bare `leap` never hits prod) -- #
 SHIM_DIR="${EVAL_ROOT}/.shim"
 mkdir -p "${SHIM_DIR}"
@@ -138,51 +147,26 @@ printf '#!/usr/bin/env bash\nexec %q "$@"\n' "${LEAP_CMD}" > "${SHIM_DIR}/leap"
 chmod +x "${SHIM_DIR}/leap"
 RUN_PATH="${SHIM_DIR}:${HOME}/.local/bin:${PATH}"
 
+# Job tracking is the verdict's backbone: prove `run list` works BEFORE spending
+# an agent session that could otherwise only ever end in a silent STUCK.
+env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t Evaluate >/dev/null 2>&1 \
+  || fail "'${LEAP_CMD} run list' failed — server unreachable or CLI not authenticated (try: ${LEAP_CMD} auth login). Not starting an agent whose run could not be graded."
+
 # --- Exactly one source of the integration skill ---------------------------- #
-# Checked on the filesystem (deterministic), not by parsing a skill listing.
-# The concern is a local COPY shadowing the plugin's copy of the SAME skill,
-# which would silently test the wrong one. Other unrelated Tensorleap skills
-# (e.g. tensorleap-migration) are fine.
+# Detection lives in lib/skill_sources.py (shared with check.sh): filesystem
+# facts, not a parsed skill listing. The concern is a local COPY shadowing the
+# plugin's copy of the SAME skill, which would silently test the wrong one.
+# Other unrelated Tensorleap skills (e.g. tensorleap-migration) are fine.
 CLAUDE_LAUNCH="claude --dangerously-skip-permissions"
 SKILL_NAME="tensorleap-integration-creation"
 PLUGIN_PKG="integration@tensorleap"
 LOCAL_COPY="${HOME}/.claude/skills/${SKILL_NAME}"
-INSTALLED_PLUGINS="${HOME}/.claude/plugins/installed_plugins.json"
-sources=()
 if [[ -n "${PLUGIN_DIR}" ]]; then
   [[ -d "${PLUGIN_DIR}" ]] || fail "--plugin-dir not found: ${PLUGIN_DIR}"
   CLAUDE_LAUNCH+=" --plugin-dir $(printf '%q' "${PLUGIN_DIR}")"
-  sources+=("--plugin-dir ${PLUGIN_DIR}")
 fi
-if [[ -e "${LOCAL_COPY}" ]]; then
-  target="$(readlink "${LOCAL_COPY}" 2>/dev/null || true)"
-  sources+=("local copy ${LOCAL_COPY}${target:+ -> ${target}}")
-fi
-# A plugin only shadows anything if it is installed AND enabled: `enabledPlugins`
-# in settings can switch it off, which is the non-destructive way to hand a run
-# over to --plugin-dir. Project settings win over user settings.
-if python3 - "${PLUGIN_PKG}" "${INSTALLED_PLUGINS}" \
-     "${HOME}/.claude/settings.json" "${PRE_DIR}/.claude/settings.json" <<'PY'
-import json, sys
-name, installed, settings = sys.argv[1], sys.argv[2], sys.argv[3:]
-def load(path):
-    try:
-        return json.load(open(path))
-    except (OSError, ValueError):
-        return {}
-if name not in (load(installed).get("plugins") or {}):
-    raise SystemExit(1)                       # not installed at all
-for path in reversed(settings):               # most specific first
-    val = (load(path).get("enabledPlugins") or {}).get(name)
-    if val is False:
-        raise SystemExit(1)                   # installed but switched off
-    if val is True:
-        break
-raise SystemExit(0)
-PY
-then
-  sources+=("installed plugin ${PLUGIN_PKG}")
-fi
+readarray -t sources < <(python3 "${EVAL_ROOT}/lib/skill_sources.py" \
+  ${PLUGIN_DIR:+--plugin-dir "${PLUGIN_DIR}"} "${PRE_DIR}/.claude/settings.json")
 log "Preflight: integration-skill source(s) = ${sources[*]:-NONE}"
 [[ ${#sources[@]} -ge 1 ]] || fail "the ${SKILL_NAME} skill is not available — install the plugin or pass --plugin-dir"
 if [[ ${#sources[@]} -ne 1 ]]; then
@@ -203,6 +187,39 @@ EOF
   exit 1
 fi
 log "  ok: single source"
+
+# --- Provenance: pin down WHAT was tested ------------------------------------ #
+# "Skill source: installed plugin" can point at different bytes in different
+# runs (plugin updates, rebuilt dist), and the fixture definition can change
+# under the same id (post_ref bump, edited guidance). Without recording these,
+# a delta between two run reports is uninterpretable — the roll-up's REVIEW
+# comment asks a human to reconstruct exactly this, after the fact, from
+# nothing. Fingerprints are content hashes, so "same/different" is decidable
+# without trusting names or versions.
+skill_dir="${PLUGIN_DIR:+${PLUGIN_DIR}/skills/${SKILL_NAME}}"
+if [[ -z "${skill_dir}" ]]; then
+  # Installed plugin: newest cached version of the marketplace package.
+  skill_dir="$(ls -d "${HOME}/.claude/plugins/cache/tensorleap/integration/"*"/skills/${SKILL_NAME}" 2>/dev/null | sort -V | tail -1 || true)"
+fi
+SKILL_FINGERPRINT=""
+if [[ -n "${skill_dir}" && -d "${skill_dir}" ]]; then
+  SKILL_FINGERPRINT="$(cd "${skill_dir}" && find . -type f -print0 \
+    | LC_ALL=C sort -z | xargs -0 shasum -a 256 | shasum -a 256 | cut -c1-12)"
+fi
+# When testing a local build, the repo state names the exact code under test.
+SKILL_GIT=""
+[[ -n "${PLUGIN_DIR}" ]] && SKILL_GIT="$(git -C "${EVAL_ROOT}/.." describe --always --dirty 2>/dev/null || true)"
+FIXTURE_SHA="$(python3 - "${EVAL_ROOT}/manifest.json" "${FIXTURE}" <<'PY'
+import hashlib, json, sys
+try:
+    f = next((x for x in json.load(open(sys.argv[1]))["fixtures"] if x["id"] == sys.argv[2]), None)
+    print("" if f is None else hashlib.sha256(
+        json.dumps(f, sort_keys=True).encode()).hexdigest()[:12])
+except Exception:
+    print("")
+PY
+)"
+log "Provenance: skill=${SKILL_FINGERPRINT:-?}${SKILL_GIT:+ (git ${SKILL_GIT})} fixture=${FIXTURE_SHA:-?}"
 
 # --- Optional: apply the leakage deny-list if the generator is present ------ #
 if [[ -f "${EVAL_ROOT}/gen_deny.py" ]]; then
@@ -313,18 +330,33 @@ Rules:
   track the Evaluate job to a terminal state as the skill describes.
 - Keep a NOTES.md logging what you did and the push/eval job ids. Don't commit.
 EOF
+# The prompt is part of what was tested: guidance edits change fixture
+# difficulty, so the hash lets a delta reader see "same prompt or not".
+PROMPT_SHA="$(printf '%s' "${MSG}" | shasum -a 256 | cut -c1-12)"
 
-# --- Baseline existing Evaluate ids so we can spot the one THIS run creates -- #
-# Only real 24-hex job ids — never help/usage text (which the CLI dumps, with the
-# words FINISHED/FAILED in it, on a 503/504). stderr is dropped for the same reason.
-eval_ids() { env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t Evaluate 2>/dev/null \
-  | awk '{print $NF}' | grep -E '^[0-9a-f]{24}$' || true; }
-BASE_EVALS="$(eval_ids | sort -u || true)"
-# Same baseline for Push: the report grades push and evaluate as SEPARATE columns,
-# because a broken integration can reach a FINISHED push and still fail its eval.
-push_lines() { env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t Push 2>/dev/null \
-  | grep -E '[0-9a-f]{24}$' || true; }
-BASE_PUSHES="$(push_lines | awk '{print $NF}' | sort -u || true)"
+# --- This run's jobs, identified by CREATION TIME --------------------------- #
+# A job id is a Mongo ObjectId; its first 8 hex chars are the creation epoch, so
+# "created at/after this run's prompt submission" is a stateless test of
+# ownership. The previous mechanism — diff against an id snapshot taken before
+# the run — turned one failed/empty `run list` at snapshot time into "every
+# existing job is new", and graded V5 ner_roberta PASS on the PREVIOUS fixture's
+# two-hour-old Evaluate. With creation-time gating a failed `run list` can only
+# delay detection, never claim an old job. (Local server = same clock as this
+# script; under EVAL_ALLOW_REMOTE_LEAP=1 a skewed remote clock can at worst miss
+# a job and report STUCK — the safe direction.)
+# Only real 24-hex ids are considered — never help/usage text (which the CLI
+# dumps, FINISHED/FAILED words included, on a 503/504); stderr dropped likewise.
+newest_job_since() {   # $1 = Push|Evaluate, $2 = min creation epoch -> id or empty
+  local id
+  while IFS= read -r id; do
+    if (( 16#${id:0:8} >= $2 )); then
+      printf '%s\n' "${id}"
+      return 0
+    fi
+  done < <(env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t "$1" 2>/dev/null \
+             | awk '{print $NF}' | grep -E '^[0-9a-f]{24}$' || true)
+  return 0
+}
 
 # --- Interactive session over tmux (no -p, so the push is not reaped) ------- #
 SESS="op-${FIXTURE}"
@@ -343,6 +375,7 @@ trap release_agent EXIT
 trap 'log "interrupted — releasing the agent session"; exit 130' INT TERM HUP
 
 tmux kill-session -t "${SESS}" 2>/dev/null || true
+START_EPOCH="$(date +%s)"   # transcripts modified at/after this belong to THIS run
 tmux new-session -d -s "${SESS}" -x 220 -y 50 -c "${PRE_DIR}"
 AGENT_ALIVE=1
 # CLAUDE_CONFIG_DIR unset inside the pane (empty string hides the plugin); shim + local bin on PATH.
@@ -377,6 +410,7 @@ rm -f "${PROMPT_FILE}"
 # this script happily polls for an Evaluate that will never be created. So: let the
 # paste settle, submit, then CONFIRM the agent actually started before moving on.
 log "Submitting the prompt…"
+SUBMIT_EPOCH="$(date +%s)"   # platform jobs created at/after this belong to THIS run
 submitted=0
 for _ in $(seq 1 10); do
   sleep 2
@@ -418,7 +452,7 @@ EVAL_ID=""; idle=0; last=""; RESULT="STUCK"; NOTE=""
 agent_start=${SECONDS}; eval_start=${SECONDS}
 while :; do
   if [[ -z "${EVAL_ID}" ]]; then
-    EVAL_ID="$(eval_ids | grep -vxF "${BASE_EVALS}" | head -1 || true)"
+    EVAL_ID="$(newest_job_since Evaluate "${SUBMIT_EPOCH}")"
     if [[ -n "${EVAL_ID}" ]]; then
       log "  detected Evaluate ${EVAL_ID} — verdict is now server-side; starting eval budget"
       eval_start=${SECONDS}
@@ -457,11 +491,15 @@ done
 
 # --- The Push this run created (read once, at teardown) --------------------- #
 # No polling: `run list` keeps history, so whatever state the push is in when the
-# run ends is the state to report. Empty pattern guard: `grep -vF ""` would drop
-# every line, turning "no prior pushes" into "no push found".
-PUSH_LINE="$(push_lines | grep -vF "${BASE_PUSHES:-__nomatch__}" | head -1 || true)"
-PUSH_ID="$(awk '{print $NF}' <<<"${PUSH_LINE}")"
-PUSH_STATUS="$(awk '{print $(NF-1)}' <<<"${PUSH_LINE}")"
+# run ends is the state to report. Same creation-time gate as the Evaluate —
+# push and evaluate are graded as SEPARATE columns because a broken integration
+# can reach a FINISHED push and still fail its eval.
+PUSH_ID="$(newest_job_since Push "${SUBMIT_EPOCH}")"
+PUSH_STATUS=""
+if [[ -n "${PUSH_ID}" ]]; then
+  PUSH_STATUS="$(env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t Push 2>/dev/null \
+    | awk -v id="${PUSH_ID}" '$NF == id {print $(NF-1); exit}' || true)"
+fi
 
 # --- Capture the transcript path for the report, then tear down ------------- #
 # Claude encodes the project dir by replacing /, ., and _ with '-'.
@@ -471,21 +509,39 @@ release_agent
 
 log "Fixture '${FIXTURE}': ${RESULT} (push ${PUSH_STATUS:-none}, eval ${EVAL_ID:-none})"
 if [[ -f "${EVAL_ROOT}/report.py" ]]; then
-  mkdir -p "${EVAL_ROOT}/reports"
   python3 "${EVAL_ROOT}/report.py" \
     --fixture "${FIXTURE}" --result "${RESULT}" --eval-id "${EVAL_ID:-}" \
     --push-id "${PUSH_ID}" --push-status "${PUSH_STATUS}" \
-    --transcript-dir "${TRANSCRIPT_DIR}" --notes "${PRE_DIR}/NOTES.md" \
+    --transcript-dir "${TRANSCRIPT_DIR}" --started-at "${START_EPOCH}" \
+    --duration "${SECONDS}" \
+    --skill-fingerprint "${SKILL_FINGERPRINT}" --skill-git "${SKILL_GIT}" \
+    --fixture-sha "${FIXTURE_SHA}" --prompt-sha "${PROMPT_SHA}" \
+    --notes "${PRE_DIR}/NOTES.md" \
     --note "${NOTE}" --skill-source "${sources[0]}" \
-    --out "${EVAL_ROOT}/reports/${FIXTURE}.md" || true
+    --out "${REPORTS_DIR}/${FIXTURE}.md" || true
 else
   log "report.py absent — skipping report (result above is authoritative)"
+fi
+
+# A graded verdict is only ABOUT THE SKILL if the skill actually ran: report.py
+# voids the sidecar when zero assistant turns in this run's transcript carry the
+# skill attribution (then the run graded raw Claude, not the skill — the same
+# "eval is meaningless" class as CLAUDE_CONFIG_DIR=""). Surfaced as exit 13 so
+# run_all reports SKILL-UNUSED and keeps it out of the pass ratio.
+if [[ ("${RESULT}" == "PASS" || "${RESULT}" == "FAIL") && -f "${REPORTS_DIR}/${FIXTURE}.json" ]]; then
+  void_reason="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("void_reason", ""))' \
+                   "${REPORTS_DIR}/${FIXTURE}.json" 2>/dev/null || true)"
+  if [[ -n "${void_reason}" ]]; then
+    log "${FIXTURE}: verdict VOID — ${void_reason}"
+    exit 13
+  fi
 fi
 
 # The exit code IS the verdict, so callers never have to parse the report (which
 # inlines the agent's own NOTES.md, where a stray "FAILED to load model" reads as
 # a verdict). Distinct codes also keep a preflight failure (fail() → exit 1) from
-# being laundered into a fixture FAIL.
+# being laundered into a fixture FAIL. 13 (above) = platform verdict reached but
+# the skill under test never ran a turn — void.
 case "${RESULT}" in
   PASS) exit 0 ;;
   FAIL) exit 10 ;;

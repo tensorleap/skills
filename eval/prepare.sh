@@ -16,12 +16,12 @@ FIXTURES_ROOT="${REPO_ROOT}/.fixtures"
 RESET_LIB_PATH="${REPO_ROOT}/lib/reset_lib.sh"
 BOOTSTRAP_SCRIPT_PATH="${REPO_ROOT}/bootstrap_poetry.sh"
 
-# shellcheck source=./fixtures_reset_lib.sh
+# shellcheck source=./lib/reset_lib.sh
 source "${RESET_LIB_PATH}"
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/fixtures_prepare.sh [--fixture <id>] [--bootstrap-poetry]
+Usage: bash prepare.sh [--fixture <id>] [--bootstrap-poetry]
 
 Prepare the pinned pre/post fixture repositories in .fixtures/.
 
@@ -29,6 +29,11 @@ Options:
   --fixture ID         Limit preparation to one fixture ID from fixtures/manifest.json.
   --bootstrap-poetry   After preparing fixtures, bootstrap Poetry environments explicitly.
   --skip-staging       Don't fetch S3 data prerequisites (assume already staged).
+  --reset-only         Fast path: restore an already-prepared fixture to its blind
+                       state in seconds (git reset+clean; poetry env, LFS blobs and
+                       staged data are kept). Falls back to a full prepare when the
+                       fixture was never fully prepared here or its manifest entry
+                       changed since (post_ref bump, new strip rule, edited guidance).
   --help               Show this help text.
 
 Environment:
@@ -56,11 +61,11 @@ fail() {
 }
 
 log() {
-  echo "[fixtures_prepare] $*"
+  echo "[prepare] $*"
 }
 
 warn() {
-  echo "[fixtures_prepare] warning: $*" >&2
+  echo "[prepare] warning: $*" >&2
 }
 
 require_cmd() {
@@ -70,6 +75,7 @@ require_cmd() {
 
 bootstrap_poetry=0
 skip_staging=0
+reset_only=0
 eval_data_root="${EVAL_DATA_ROOT:-${HOME}/tensorleap/data/eval}"
 aws_profile="${AWS_PROFILE:-dev}"
 fixture_id=""
@@ -88,6 +94,9 @@ while (($# > 0)); do
       ;;
     --skip-staging)
       skip_staging=1
+      ;;
+    --reset-only)
+      reset_only=1
       ;;
     --help|-h)
       usage
@@ -305,7 +314,7 @@ stage_fixture_data() {
   log "  Staging ${entry_count} data prerequisite(s) into ${dest_root}"
   mkdir -p "${dest_root}"
 
-  local entry bucket prefix key dest region unsigned want_sum got_sum extract fmt xdest target
+  local entry bucket prefix key dest region unsigned want_sum got_sum extract fmt xdest target remote_len local_len
   while IFS= read -r entry; do
     bucket="$(jq -r '.bucket' <<<"${entry}")"
     prefix="$(jq -r '.prefix' <<<"${entry}")"
@@ -327,6 +336,29 @@ stage_fixture_data() {
     fmt="$(jq -r '.extract_format // ""' <<<"${entry}")"
     xdest="$(jq -r '.extract_dest // "."' <<<"${entry}")"
     target="${dest_root}/${dest}"
+
+    # Cached-object fast path: `s3 cp` is unconditional, which re-downloaded a
+    # 1 GB model on every prepare. Skip when the local copy is provably the
+    # remote object — checksum when the manifest pins one, remote size match
+    # otherwise (guards against a partial file from a killed earlier prepare).
+    # Extracted archives never qualify: extraction deletes its archive, so the
+    # archive's absence says nothing about the extracted tree.
+    if [[ "${extract}" != "true" && -f "${target}" ]]; then
+      if [[ -n "${want_sum}" ]]; then
+        if [[ "$(shasum -a 256 "${target}" | awk '{print $1}')" == "${want_sum}" ]]; then
+          log "    cached ${dest} (checksum ok — skipping download)"
+          continue
+        fi
+      else
+        remote_len="$(aws_s3 "${unsigned}" "${region}" s3api head-object \
+          --bucket "${bucket}" --key "${key}" --query ContentLength --output text 2>/dev/null || true)"
+        local_len="$(stat -f%z "${target}" 2>/dev/null || stat -c%s "${target}" 2>/dev/null)"
+        if [[ -n "${remote_len}" && "${remote_len}" == "${local_len}" ]]; then
+          log "    cached ${dest} (size matches the s3 object — skipping download)"
+          continue
+        fi
+      fi
+    fi
 
     log "    fetch s3://${bucket}/${key} -> ${dest}"
     mkdir -p "$(dirname "${target}")"
@@ -622,6 +654,35 @@ while IFS= read -r fixture_json; do
   post_dir="${fixture_root}/post"
   pre_dir="${fixture_root}/pre"
 
+  # Fingerprint of this fixture's manifest entry (canonical JSON). Recorded at
+  # full-prepare time, checked by --reset-only: a fast reset may only stand in
+  # for a rebuild while the fixture's DEFINITION is unchanged.
+  entry_sha="$(python3 -c 'import hashlib,json,sys; print(hashlib.sha256(json.dumps(json.loads(sys.argv[1]), sort_keys=True).encode()).hexdigest()[:12])' "${fixture_json}")"
+  entry_sha_file="${fixture_root}/manifest_entry_sha"
+
+  # --- Fast path: reset a previously prepared fixture in place --------------- #
+  # A used pre tree differs from a fresh one only by the agent's uncommitted
+  # edits (the blind snapshot commit is deterministic), so reset+clean restores
+  # the byte-identical blind tree in seconds and keeps the expensive parts:
+  # the poetry env, hydrated LFS blobs, and staged data. Safe against LFS
+  # pointer corruption because fixture_make_blind_variant disables the filter
+  # repo-locally before the snapshot commit — which also means fixtures
+  # prepared BEFORE that fix have no sha file and take the full path here.
+  if ((reset_only)); then
+    if [[ -d "${pre_dir}/.git" && -f "${entry_sha_file}" \
+          && "$(<"${entry_sha_file}")" == "${entry_sha}" ]]; then
+      log "Fast-resetting fixture '${id}' (definition unchanged since full prepare)"
+      git -C "${pre_dir}" reset --hard --quiet
+      # .venv (poetry env) and .claude (deny-list) survive; everything else the
+      # agent left — NOTES.md, push.log, __pycache__, scratch files — goes.
+      git -C "${pre_dir}" clean -fdxq -e .venv -e .claude
+      assert_clean_git_tree "${pre_dir}" "pre variant for fixture '${id}' (after fast reset)"
+      log "Reset fixture '${id}' — poetry env and staged data kept (verify.sh still gates the run)"
+      continue
+    fi
+    log "fixture '${id}': cannot fast-reset (never fully prepared here, or its manifest entry changed) — doing a full prepare"
+  fi
+
   log "Preparing fixture '${id}'"
   log "  Source repository: ${repo}"
   log "  Pinned post_ref: ${post_ref}"
@@ -796,6 +857,9 @@ while IFS= read -r fixture_json; do
 
   assert_clean_git_tree "${pre_dir}" "pre variant for fixture '${id}'"
   stage_fixture_data "${id}" "${fixture_json}"
+  # Recorded last, so a prepare that died mid-way never qualifies for the
+  # --reset-only fast path.
+  printf '%s\n' "${entry_sha}" >"${entry_sha_file}"
   log "Prepared fixture '${id}' at ${fixture_root}"
 done < <(jq -c --arg id "${fixture_id}" "${manifest_filter}" "${MANIFEST_PATH}")
 

@@ -16,15 +16,15 @@ RESET_LIB_PATH="${REPO_ROOT}/lib/reset_lib.sh"
 
 DEFAULT_PYTHON_VERSION="${FIXTURE_BOOTSTRAP_PYTHON:-3.10.14}"
 
-# shellcheck source=./fixtures_reset_lib.sh
+# shellcheck source=./lib/reset_lib.sh
 source "${RESET_LIB_PATH}"
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/fixtures_bootstrap_poetry.sh [options]
+Usage: bash bootstrap_poetry.sh [options]
 
 Bootstrap Poetry environments for prepared fixture repositories.
-This script is fixture/dev-only and must not be used by Concierge product runtime.
+Normally invoked by `prepare.sh --bootstrap-poetry`, not directly.
 
 Options:
   --fixture ID         Limit bootstrap to one fixture ID from manifest.json.
@@ -41,7 +41,7 @@ fail() {
 }
 
 log() {
-  echo "[fixtures_bootstrap_poetry] $*"
+  echo "[bootstrap] $*"
 }
 
 require_cmd() {
@@ -95,7 +95,7 @@ require_cmd poetry
 require_cmd pyenv
 require_cmd python3
 [[ -f "${RESET_LIB_PATH}" ]] || fail "fixture reset library not found: ${RESET_LIB_PATH}"
-[[ -d "${FIXTURES_ROOT}" ]] || fail "fixture output root not found: ${FIXTURES_ROOT} (run fixtures_prepare.sh first)"
+[[ -d "${FIXTURES_ROOT}" ]] || fail "fixture output root not found: ${FIXTURES_ROOT} (run prepare.sh first)"
 
 log "Ensuring Python ${python_version} is available via pyenv"
 pyenv install -s "${python_version}" >/dev/null

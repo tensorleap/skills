@@ -137,6 +137,14 @@ fixture_make_blind_variant() {
   rm -rf "${repo_dir:?}/.git"
   rm -f "${repo_dir}/.fixture_reset.sh"
   git -C "${repo_dir}" init --quiet
+  # Neutralize LFS BEFORE the snapshot commit (info/attributes outranks any
+  # committed .gitattributes), so hydrated model files are stored as real
+  # content instead of being re-cleaned into LFS pointers. This repo has no
+  # remote: a later checkout/reset that invoked the LFS smudge filter would
+  # have nowhere to fetch from and would corrupt models into 134-byte pointers
+  # — prepare.sh's --reset-only fast path does exactly such a reset.
+  mkdir -p "${repo_dir}/.git/info"
+  echo '* -filter' >"${repo_dir}/.git/info/attributes"
   git -C "${repo_dir}" checkout --quiet -b main 2>/dev/null || true
   git -C "${repo_dir}" add -A
   fixture_commit_with_fixed_metadata "${repo_dir}" "${message}"
