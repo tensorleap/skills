@@ -665,14 +665,27 @@ yes/no question.
    dataset** (no `sample_limit_per_split`); apply a cap only if the **user
    explicitly asked** for a smaller initial evaluation, in which case that key in
    `project_config.yaml` holds it.
-5. **Run the push and get the Evaluate started.** Capture output to a file:
+5. **Run the push and get the Evaluate started.** A push (model upload + build)
+   can take well over 10 minutes — longer than the harness allows a foreground
+   command — so run it as a **background shell**, capturing output to a file:
    ```
+   # background shell
    leap push -m <model> -n <version> -b <batch> --eval < /dev/null > push.log 2>&1
    ```
    `--eval` starts an Evaluate job **after the push completes**; the command
    returns once that job has *started* (not finished). `< /dev/null` and the
    `push.log` redirect keep the push non-interactive and keep the loader's output
    out of your context.
+   **The server, not your shell, is the source of truth.** The harness may kill a
+   background job at any time (compaction, session restart) while the push keeps
+   running server-side. A dead or missing local process does **not** mean the push
+   failed, and re-pushing blind creates duplicate versions. So **before any push or
+   re-push, reconcile**: run `leap run list -t Push` — if a Push run for this
+   project is still in flight (`PENDING`/`INITIALIZING`/`STARTED`), do **not** push
+   again; wait for it (poll the run list, not the dead process). If it finished,
+   continue from step 6 as if your push returned. Kill any stale local `leap push`
+   process before starting a new one. Only re-push after the server shows no
+   in-flight Push, using `-o/--overwrite`.
    **Failure behavior you must handle (`leap` ≤ 0.0.155):** on a **build failure**
    these versions do **not** exit — on a non-interactive shell they stall at the
    prompt `View errors in interactive mode? (Y/n):`, waiting for input that never
@@ -704,6 +717,9 @@ yes/no question.
      sleep 300                                            # empty/failed list => keep waiting, not terminal
    done
    ```
+   If the watcher shell itself dies or goes missing (the harness may kill
+   background jobs), the eval is unaffected — check `leap run list -t Evaluate`
+   and relaunch the watcher; **never re-push** because a watcher died.
    When it exits: **`FINISHED`** → the integration is done. **`FAILED` / `STOPPED` /
    `TERMINATED`** → pull `leap run logs <run-id>`, read the earliest real error, fix
    it in the integration, re-push, and track the new eval the same way. (Errors that
