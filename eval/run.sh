@@ -25,6 +25,7 @@ fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 EVAL_ROOT="${SCRIPT_DIR}"
+"${EVAL_ROOT}/fetch_manifest.sh"
 FIXTURES_ROOT="${EVAL_ROOT}/.fixtures"
 
 FIXTURE=""

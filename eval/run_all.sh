@@ -31,6 +31,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 EVAL_ROOT="${SCRIPT_DIR}"
 BASH_BIN="${BASH:-/opt/homebrew/bin/bash}"; [[ -x "${BASH_BIN}" ]] || BASH_BIN="$(command -v bash)"
 MANIFEST="${EVAL_ROOT}/manifest.json"
+"${EVAL_ROOT}/fetch_manifest.sh" || exit 1
 REPORTS="${EVAL_ROOT}/reports"
 
 SELECT="default"; FIXTURES_CSV=""; LIST_ONLY=0; FORCE=0; BOOTSTRAP=1

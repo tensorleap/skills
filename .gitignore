@@ -21,3 +21,4 @@ eval/.fixtures/
 eval/reports/
 eval/runtime_prerequisites.local.json
 eval/.shim/
+eval/manifest.json

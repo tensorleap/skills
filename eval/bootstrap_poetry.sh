@@ -13,6 +13,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}"
 FIXTURES_ROOT="${REPO_ROOT}/.fixtures"
 RESET_LIB_PATH="${REPO_ROOT}/lib/reset_lib.sh"
+"${REPO_ROOT}/fetch_manifest.sh"
 
 DEFAULT_PYTHON_VERSION="${FIXTURE_BOOTSTRAP_PYTHON:-3.10.14}"
 

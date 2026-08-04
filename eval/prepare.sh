@@ -12,6 +12,7 @@ fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}"
 MANIFEST_PATH="${REPO_ROOT}/manifest.json"
+"${REPO_ROOT}/fetch_manifest.sh"
 FIXTURES_ROOT="${REPO_ROOT}/.fixtures"
 RESET_LIB_PATH="${REPO_ROOT}/lib/reset_lib.sh"
 BOOTSTRAP_SCRIPT_PATH="${REPO_ROOT}/bootstrap_poetry.sh"

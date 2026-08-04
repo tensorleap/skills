@@ -155,7 +155,7 @@ bash run_all.sh --list
 
 | File | Role |
 |------|------|
-| `manifest.json` | The fixture corpus: repo URL, pinned commit, what to strip, data prerequisites. |
+| `manifest.json` | The fixture corpus: repo URL, pinned commit, what to strip, data prerequisites. Not committed (names customer repos) — auto-fetched from `s3://integration-skill-bucket/manifest.json` on first run (needs dev AWS credentials). Delete the local copy to re-fetch; after editing, upload with `aws s3 cp manifest.json s3://integration-skill-bucket/manifest.json`. |
 | `check.sh` | Read-only preflight (`run_all.sh --check`, and run automatically before a real run): tools, local server + auth, no in-flight job, data-volume containment, single skill source, AWS/GitHub creds. Credential gaps drop only the fixtures that need them. |
 | `prepare.sh` | Clones the repo at its pinned commit, strips the integration files *and the code-loader dependency pin*, **scrubs git to a single rootless commit with no remote** (so the solution can't be recovered), and builds the poetry env. Output → `.fixtures/<id>/pre`. |
 | `verify.sh` | Asserts the `pre` copy is genuinely blind: no root-level `leap*` files, no code importing `code_loader`, no code-loader pin in `pyproject.toml`/`poetry.lock`/`requirements*.txt`, single rootless commit, no remote. **Do not run the agent unless this passes.** |

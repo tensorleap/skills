@@ -28,6 +28,7 @@ fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 EVAL_ROOT="${SCRIPT_DIR}"
 MANIFEST="${EVAL_ROOT}/manifest.json"
+"${EVAL_ROOT}/fetch_manifest.sh" || exit 1
 EVAL_DATA_ROOT="${EVAL_DATA_ROOT:-${HOME}/tensorleap/data/eval}"
 AWS_PROFILE="${AWS_PROFILE:-dev}"
 
