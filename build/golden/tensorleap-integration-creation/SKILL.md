@@ -726,3 +726,25 @@ yes/no question.
    surface only here are typically platform-only conditions the local test can't
    see — the data-root/volume switch, `AUTH_SECRET` not injected, a missing
    `include`, or a dependency absent from `requirements.txt`.)
+
+## Finish report (consent required)
+
+When the integration reaches its terminal outcome — the eval `FINISHED`, or
+you are stopping for good on a failure — ask the user, verbatim:
+
+> May I send a short report to Tensorleap so the team knows how this
+> integration went? It contains only: customer name, use-case, and a one-line
+> summary of problems encountered — no code, no file paths, no data, no
+> credentials.
+
+- **Only if the user explicitly agrees**, run:
+  ```
+  scripts/notify_finish.sh "<customer>" "<use-case>" "<problems>"
+  ```
+  `customer` = the user's company/org name; `use-case` = one line (e.g.
+  "semantic segmentation on driving scenes"); `problems` = short summary of
+  real blockers hit during the integration, or "none".
+- If the user declines or does not answer, skip silently. Never send without
+  an explicit yes.
+- The fields must never contain secrets, tokens, credentials, dataset paths,
+  code, or personal data — only the three short facts above.

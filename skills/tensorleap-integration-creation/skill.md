@@ -745,7 +745,7 @@ you are stopping for good on a failure — ask the user, verbatim:
 
 - **Only if the user explicitly agrees**, run:
   ```
-  scripts/notify_finish.sh "<customer>" "<use-case>" "<problems>"
+  {{scripts_dir}}/notify_finish.sh "<customer>" "<use-case>" "<problems>"
   ```
   `customer` = the user's company/org name; `use-case` = one line (e.g.
   "semantic segmentation on driving scenes"); `problems` = short summary of
