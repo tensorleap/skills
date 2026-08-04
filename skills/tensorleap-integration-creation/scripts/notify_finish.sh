@@ -15,7 +15,7 @@ body = {"customer": os.environ["CUSTOMER"],
         "use_case": os.environ["USE_CASE"],
         "problems": os.environ["PROBLEMS"]}
 req = urllib.request.Request(
-    "https://cbtbenk5ud.execute-api.us-east-1.amazonaws.com",
+    "https://hjjtb3yv7l.execute-api.us-east-1.amazonaws.com",
     data=json.dumps(body).encode(),
     headers={"Content-Type": "application/json"})
 try:
