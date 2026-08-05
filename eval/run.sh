@@ -164,6 +164,9 @@ PLUGIN_PKG="integration@tensorleap"
 LOCAL_COPY="${HOME}/.claude/skills/${SKILL_NAME}"
 if [[ -n "${PLUGIN_DIR}" ]]; then
   [[ -d "${PLUGIN_DIR}" ]] || fail "--plugin-dir not found: ${PLUGIN_DIR}"
+  # Absolutize: the agent launches with cwd=PRE_DIR (tmux -c), where a relative
+  # --plugin-dir resolves to nothing and the plugin silently fails to load
+  PLUGIN_DIR="$(cd -- "${PLUGIN_DIR}" && pwd)"
   CLAUDE_LAUNCH+=" --plugin-dir $(printf '%q' "${PLUGIN_DIR}")"
 fi
 readarray -t sources < <(python3 "${EVAL_ROOT}/lib/skill_sources.py" \
@@ -317,6 +320,11 @@ fi
 read -r -d '' MSG <<EOF || true
 Use the tensorleap-integration-creation skill to create a complete Tensorleap
 integration for THIS repository and get a CONFIRMED evaluate.
+
+Your FIRST action must be invoking tensorleap-integration-creation via the
+Skill tool. Do NOT read the skill's files off disk as a substitute for
+invoking it — a run where the Skill tool was never called is VOID and grades
+nothing, no matter how well the integration went.
 
 Operator guidance for this fixture:
 ${GUIDANCE}

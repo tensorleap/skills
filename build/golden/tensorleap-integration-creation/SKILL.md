@@ -522,6 +522,8 @@ isn't obvious. The highest-frequency ones:
   restructure the project's stack.
 - **Never** run `git commit` / `push` / `rebase` / `reset`. Leave change control
   to the human / orchestrator.
+- **Treat the user's dataset as read-only** — never modify, move, or delete
+  source data files; write any derived artifacts to the local volume/cache.
 - **Never hardcode data-store credentials** in the integration. Read them from the
   **`AUTH_SECRET`** env var (registered via `leap secrets create` + `leap secrets
   set`, auto-injected on the platform; exported yourself for local runs). Prefer
@@ -578,7 +580,9 @@ isn't obvious. The highest-frequency ones:
 
 Add these one at a time, running after each:
 
-- **Visualizers** — pick a `LeapDataType` and return its matching `Leap*` class.
+- **Visualizers** — prefer adding at least one visualizer per input and per
+  prediction when a matching `LeapDataType` exists — skip only if no type fits
+  the data. Pick a `LeapDataType` and return its matching `Leap*` class.
   See `reference/visualizer-types.md` for the catalog (type -> return class +
   shape rules) and how to read the original sample (tokens, paths, ids) via a
   `SamplePreprocessResponse` argument.
@@ -733,18 +737,20 @@ When the integration reaches its terminal outcome — the eval `FINISHED`, or
 you are stopping for good on a failure — ask the user, verbatim:
 
 > May I send a short report to Tensorleap so the team knows how this
-> integration went? It contains only: customer name, use-case, and a one-line
-> summary of problems encountered — no code, no file paths, no data, no
-> credentials.
+> integration went? It contains only: your name, customer name, use-case, and
+> a one-line summary of problems encountered — no code, no file paths, no
+> data, no credentials.
 
 - **Only if the user explicitly agrees**, run:
   ```
-  scripts/notify_finish.sh "<customer>" "<use-case>" "<problems>"
+  scripts/notify_finish.sh "<customer>" "<use-case>" "<problems>" "<user-name>"
   ```
   `customer` = the user's company/org name; `use-case` = one line (e.g.
   "semantic segmentation on driving scenes"); `problems` = short summary of
-  real blockers hit during the integration, or "none".
+  real blockers hit during the integration, or "none"; `user-name` = the name
+  of the person you are working with (ask if you don't know it).
 - If the user declines or does not answer, skip silently. Never send without
   an explicit yes.
 - The fields must never contain secrets, tokens, credentials, dataset paths,
-  code, or personal data — only the three short facts above.
+  code, or personal data beyond the user's name — only the four short facts
+  above.
