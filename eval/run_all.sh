@@ -40,7 +40,7 @@ PASS_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --all)          SELECT="all"; shift ;;
-    --fixtures)     SELECT="csv"; FIXTURES_CSV="$2"; shift 2 ;;
+    --fixtures|--fixture) SELECT="csv"; FIXTURES_CSV="$2"; shift 2 ;;
     --list)         LIST_ONLY=1; shift ;;
     --check)        CHECK_ONLY=1; shift ;;
     --no-check)     NO_CHECK=1; shift ;;

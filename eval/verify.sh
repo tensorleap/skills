@@ -434,7 +434,7 @@ while IFS= read -r fixture_json; do
   while IFS= read -r abs_path; do
     [[ -n "${abs_path}" ]] || continue
     pre_leap_pyc_files+=("${abs_path#"${pre_dir}/"}")
-  done < <(find "${pre_dir}" -type f -path '*/__pycache__/leap*.pyc' | sort)
+  done < <(find "${pre_dir}" -name .venv -prune -o -type f -path '*/__pycache__/leap*.pyc' -print | sort)
   ((${#pre_leap_pyc_files[@]} == 0)) \
     || fail "fixture '${id}': pre variant has compiled leap artifacts: ${pre_leap_pyc_files[*]}"
 
@@ -444,7 +444,10 @@ while IFS= read -r fixture_json; do
     while IFS= read -r abs_path; do
       [[ -n "${abs_path}" ]] || continue
       pre_compiled_matches+=("${abs_path#"${pre_dir}/"}")
-    done < <(find "${pre_dir}" -type f -path "*/__pycache__/${base_name}*.pyc" | sort)
+    # .venv is excluded: bootstrap runs `poetry sync`, so the venv matches the
+    # lock (itself checked for code-loader) and third-party pyc like numpy's
+    # utils.pyc must not trip the stripped-basename check.
+    done < <(find "${pre_dir}" -name .venv -prune -o -type f -path "*/__pycache__/${base_name}*.pyc" -print | sort)
     ((${#pre_compiled_matches[@]} == 0)) \
       || fail "fixture '${id}': pre variant has compiled artifacts for stripped '${base_name}.py': ${pre_compiled_matches[*]}"
   done

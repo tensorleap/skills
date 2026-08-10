@@ -127,12 +127,15 @@ bootstrap_repo() {
     else
       # ponytail: poetry picks from PATH, so the exact patch level can differ per
       # machine. Pin per-fixture via FIXTURE_BOOTSTRAP_PYTHON if that ever matters.
-      POETRY_VIRTUALENVS_USE_POETRY_PYTHON=true poetry install --no-root >/dev/null \
+      POETRY_VIRTUALENVS_USE_POETRY_PYTHON=true poetry sync --no-root >/dev/null \
         || return 1
       log "  python $(poetry run python -V 2>&1 | awk '{print $2}') (poetry chose; pinned ${python_version} is incompatible with this fixture's requires-python)"
       return 0
     fi
-    poetry install --no-root >/dev/null
+    # sync, not install: fast reset keeps the venv, and a previous agent run may
+    # have installed code-loader into it — sync removes packages not in the lock
+    # so the pre variant stays blind.
+    poetry sync --no-root >/dev/null
   )
 }
 

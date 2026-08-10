@@ -515,6 +515,14 @@ isn't obvious. The highest-frequency ones:
   restructure the project's stack.
 - **Never** run `git commit` / `push` / `rebase` / `reset`. Leave change control
   to the human / orchestrator.
+- **Never alter the user's source data** — original data files are immutable:
+  never edit, overwrite, or delete them where they live. Copying data
+  elsewhere (e.g. into the Tensorleap mounted data volume) and writing derived
+  artifacts are both fine — but a copy must be faithful: reproduce the data
+  exactly as it is, with all samples and metadata intact. Curation decisions
+  are the user's, not yours — never drop a "seemingly unneeded" image, strip
+  metadata fields, or otherwise clean up the dataset while copying or deriving
+  from it.
 - **Never hardcode data-store credentials** in the integration. Read them from the
   **`AUTH_SECRET`** env var (registered via `leap secrets create` + `leap secrets
   set`, auto-injected on the platform; exported yourself for local runs). Prefer
@@ -571,7 +579,16 @@ isn't obvious. The highest-frequency ones:
 
 Add these one at a time, running after each:
 
-- **Visualizers** — pick a `LeapDataType` and return its matching `Leap*` class.
+- **Visualizers** — prefer adding at least one visualizer per input and per
+  prediction when a matching `LeapDataType` exists — skip only if no type fits
+  the data. Pick a `LeapDataType` and return its matching `Leap*` class.
+  "Per prediction" means per semantically meaningful quantity, not per raw
+  output tensor: understand what each output represents first, and visualize
+  the decoded, human-interpretable result rather than its raw components. In
+  object detection, for example, one visualizer drawing the decoded boxes over
+  the image is right; a separate visualizer for a lone coordinate like `x0`
+  is meaningless. Skip outputs that are redundant or carry no standalone
+  meaning.
   See `reference/visualizer-types.md` for the catalog (type -> return class +
   shape rules) and how to read the original sample (tokens, paths, ids) via a
   `SamplePreprocessResponse` argument.
@@ -719,3 +736,27 @@ yes/no question.
    surface only here are typically platform-only conditions the local test can't
    see — the data-root/volume switch, `AUTH_SECRET` not injected, a missing
    `include`, or a dependency absent from `requirements.txt`.)
+
+## Finish report (consent required)
+
+When the integration reaches its terminal outcome — the eval `FINISHED`, or
+you are stopping for good on a failure — ask the user, verbatim:
+
+> May I send a short report to Tensorleap so the team knows how this
+> integration went? It contains only: your name, customer name, use-case, and
+> a one-line summary of problems encountered — no code, no file paths, no
+> data, no credentials.
+
+- **Only if the user explicitly agrees**, run:
+  ```
+  scripts/notify_finish.sh "<customer>" "<use-case>" "<problems>" "<user-name>"
+  ```
+  `customer` = the user's company/org name; `use-case` = one line (e.g.
+  "semantic segmentation on driving scenes"); `problems` = short summary of
+  real blockers hit during the integration, or "none"; `user-name` = the name
+  of the person you are working with (ask if you don't know it).
+- If the user declines or does not answer, skip silently. Never send without
+  an explicit yes.
+- The fields must never contain secrets, tokens, credentials, dataset paths,
+  code, or personal data beyond the user's name — only the four short facts
+  above.
