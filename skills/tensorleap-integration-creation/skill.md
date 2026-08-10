@@ -528,8 +528,14 @@ isn't obvious. The highest-frequency ones:
   restructure the project's stack.
 - **Never** run `git commit` / `push` / `rebase` / `reset`. Leave change control
   to the human / orchestrator.
-- **Treat the user's dataset as read-only** — never modify, move, or delete
-  source data files; write any derived artifacts to the local volume/cache.
+- **Never alter the user's source data** — original data files are immutable:
+  never edit, overwrite, or delete them where they live. Copying data
+  elsewhere (e.g. into the Tensorleap mounted data volume) and writing derived
+  artifacts are both fine — but a copy must be faithful: reproduce the data
+  exactly as it is, with all samples and metadata intact. Curation decisions
+  are the user's, not yours — never drop a "seemingly unneeded" image, strip
+  metadata fields, or otherwise clean up the dataset while copying or deriving
+  from it.
 - **Never hardcode data-store credentials** in the integration. Read them from the
   **`AUTH_SECRET`** env var (registered via `leap secrets create` + `leap secrets
   set`, auto-injected on the platform; exported yourself for local runs). Prefer
@@ -589,6 +595,13 @@ Add these one at a time, running after each:
 - **Visualizers** — prefer adding at least one visualizer per input and per
   prediction when a matching `LeapDataType` exists — skip only if no type fits
   the data. Pick a `LeapDataType` and return its matching `Leap*` class.
+  "Per prediction" means per semantically meaningful quantity, not per raw
+  output tensor: understand what each output represents first, and visualize
+  the decoded, human-interpretable result rather than its raw components. In
+  object detection, for example, one visualizer drawing the decoded boxes over
+  the image is right; a separate visualizer for a lone coordinate like `x0`
+  is meaningless. Skip outputs that are redundant or carry no standalone
+  meaning.
   See `{{reference_dir}}/visualizer-types.md` for the catalog (type -> return class +
   shape rules) and how to read the original sample (tokens, paths, ids) via a
   `SamplePreprocessResponse` argument.
