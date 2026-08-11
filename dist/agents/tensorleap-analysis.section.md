@@ -60,10 +60,12 @@ version, and stop. On success the out dir contains:
   `top_panel.json`, and `samples/<sample_id>/<dataType>/<visualizer>/…` with
   `payload.json` and any image assets.
 
-Default sample ranking is the platform's CSV order. If, when writing the
-report, you find the insight's dominant metric as a CSV column (see
-`csv_columns` in the digest) and want worst-first ordering, re-run fetch with
-`--rank-by <column>` (add `--asc` for higher-is-better metrics).
+Samples are ranked worst-first automatically by the first `metrics.*` CSV
+column containing `loss`/`entropy`; among equally-ranked candidates, samples
+that have rendered visualizations are preferred. If the project's real
+quality metric is a different column (see `csv_columns` in the digest),
+re-run fetch with `--rank-by <column>` (add `--asc` for higher-is-better
+metrics).
 
 Then render charts for non-image modalities:
 

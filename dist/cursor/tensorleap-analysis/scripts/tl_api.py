@@ -175,6 +175,10 @@ def sample_ids_from_csv(csv_bytes, rank_by, ascending, k):
     rows = list(csv.DictReader(io.StringIO(csv_bytes.decode(errors="replace"))))
     if not rows or "sample_id" not in rows[0]:
         return None, rows[0].keys() if rows else []
+    if not rank_by:
+        rank_by = next((c for c in rows[0]
+                        if c.startswith("metrics.")
+                        and ("loss" in c.lower() or "entropy" in c.lower())), None)
     if rank_by and rank_by in rows[0]:
         def keyf(r):
             try:
