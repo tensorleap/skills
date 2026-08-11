@@ -84,3 +84,10 @@ metadata slice / count ("label the 240 platform-selected night-time samples",
 ("improve the data"). One insight → 1–3 action items, most-impactful first.
 When the platform already computed the remediation (aggressor_fixing counts,
 automatic_tests), cite its numbers instead of inventing new ones.
+
+The evidence-field table above is for YOUR reading, not for quoting: the
+report never shows raw payload fields, blob paths, or filter JSON. Lead every
+finding with the **failure mode** — what fails, how the model gets it wrong,
+the likely root cause — and translate the platform's numbers into sentences
+an outsider follows ("78% of the failing samples are night-time images vs
+12% elsewhere").

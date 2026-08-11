@@ -4,6 +4,21 @@ Write the report to `<out-dir>/report.md` so every embedded file path is a
 simple relative link. Follow this skeleton; drop sections that have no
 content rather than leaving them empty.
 
+**Write for an ML engineer who has never opened Tensorleap's internals.**
+The report is about their MODEL's failure modes, not about the platform:
+
+- Each finding's heading names a **failure mode** in plain ML terms
+  ("Confident misclassification of non-cats in the cat region", "Positive
+  labels on negative-toned reviews") — never "insight_1_low_performance".
+- Never paste internal identifiers into the prose: no blob paths, filter
+  JSON, artifact ids, or raw payload field names. Those live in
+  `insights.json` for whoever wants them; the report speaks English.
+- Any platform term you do use gets a one-line translation the first time
+  (e.g. "severity 3 — the platform's highest").
+- To point the reader back to the platform, reference what they can see:
+  "open this version in Tensorleap → Insights panel → finding #1", not a
+  filter object.
+
 ```markdown
 # Tensorleap analysis — <project name> / <version name>
 
@@ -20,13 +35,17 @@ know what to do next.
 |---|---------|------|----------|---------|-----------|
 | 1 | <title> | low_performance | 3 | 4,772 | Label 240 selected samples |
 
-## 1. <title — top_panel summary sentence, or constructed from type + dominant metadata>
+## 1. <failure mode — what fails and how, in ML terms>
 
-**Severity <s> · <n_samples> samples · <subset/state makeup>**
+**Severity <s> of 3 · <n_samples> samples · <subset/state makeup>**
 
-What the platform found, in plain language, and why it matters for this
-model. Cite the evidence: dominant metadata (`mutual_info_elements`), metric
-contrast (`severity_metrics` / `metrics_info`).
+The failure mode first: what kind of samples fail, how the model gets them
+wrong, and the most likely root cause (mislabels? confusion frontier?
+under-representation? split imbalance?). Then the evidence in plain
+language: which metadata characterizes the failing samples ("78% night-time
+images vs 12% elsewhere"), how much worse the metrics are. Use the platform's
+ready-made summary sentence as the lede when present (top_panel), otherwise
+construct one from the dominant metadata.
 
 ### Representative samples
 
@@ -50,10 +69,11 @@ repeat the parent's pattern.
 - [ ] Concrete, quantified, playbook-derived actions (1–3, most impactful
       first). Reference the decision-tree branch that produced each.
 
-### Reproduce in the UI
+### See it in Tensorleap
 
-`display_filters` verbatim (fenced JSON), so the user can pull up the same
-cluster.
+One plain sentence: "Open <project> → version <name> → Insights panel →
+finding #<index> ('<its name there>') to explore this cluster
+interactively." No filter JSON, no blob paths.
 
 ## Appendix
 

@@ -125,8 +125,12 @@ sample `payload.json` (`data.type`):
 | `graph`, `hbar` | `chart.png` next to the payload (or md table fallback) |
 | `video`, `audio` | link the downloaded file, note it can't be inlined |
 
-Order insights by `severity` descending. Keep the executive summary honest —
-if the insights are low-severity or repetitive, say so. Close with the
-appendix of missing visualizations and fetch errors from the digest.
+Order insights by `severity` descending. **Lead every finding with its
+failure mode** — what fails and why, named in plain ML terms — and write for
+an ML engineer with zero knowledge of Tensorleap internals: no blob paths,
+filter JSON, or raw payload field names in the prose (the template's language
+rules are binding). Keep the executive summary honest — if the insights are
+low-severity or repetitive, say so. Close with the appendix of missing
+visualizations and fetch errors from the digest.
 
 Finish by telling the user the report path and the one action you'd do first.
