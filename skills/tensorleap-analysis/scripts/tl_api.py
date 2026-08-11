@@ -33,9 +33,11 @@ import sys
 import urllib.error
 import urllib.request
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 API = {"url": None, "key": None}
 SUB_TOP_K = 3
+CANDIDATE_FACTOR = 4
 
 
 def read_config():
@@ -294,10 +296,15 @@ def cmd_fetch(args):
         else:
             parents.append(d)
 
-    for d in digests.values():
+    def fetch_files(d):
         k = args.top_k if not d["parent_id"] else min(SUB_TOP_K, args.top_k)
+        d["top_k"] = k
         fetch_insight_files({"insightType": d["insightType"]}, args.project,
-                            args.out, k, args.rank_by, args.asc, d)
+                            args.out, k * CANDIDATE_FACTOR, args.rank_by,
+                            args.asc, d)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(fetch_files, digests.values()))
 
     id_map = {}
     for d in digests.values():
@@ -314,7 +321,12 @@ def cmd_fetch(args):
             available = set(resp.get("samplesIds", []))
             prefix = resp.get("scatterSampleVisualizationsPrefix")
 
+    jobs = []
     for d in digests.values():
+        k = d.pop("top_k")
+        rendered = [r for r in d["top_samples"] if id_map[r] in available]
+        unrendered = [r for r in d["top_samples"] if id_map[r] not in available]
+        d["top_samples"] = (rendered + unrendered)[:k] if rendered else unrendered[:k]
         d["samples"] = {}
         for raw in d["top_samples"]:
             hashed = id_map[raw]
@@ -323,16 +335,41 @@ def cmd_fetch(args):
             if hashed not in available or not prefix:
                 entry["missing_visualization"] = True
                 continue
-            for path in list_sample_paths(prefix, hashed):
-                rel = path.split(f"{hashed}/", 1)[-1]
-                local = os.path.join(args.out, d["dir"], "samples", raw, rel)
-                os.makedirs(os.path.dirname(local), exist_ok=True)
-                blob = download_blob(path, soft=True)
-                if blob is None:
-                    d["errors"].append(f"download failed: {path}")
+            jobs.append((d, raw, hashed, entry))
+
+    def choose_paths(paths, hashed):
+        keep = []
+        has_plain_image = any(
+            f"{hashed}/image/" in p and "/assets/" in p for p in paths)
+        for p in paths:
+            data_type = p.split(f"{hashed}/", 1)[-1].split("/", 1)[0]
+            if "/assets/" in p or p.endswith((".mp4", ".wav")):
+                if data_type == "image_heatmap" and has_plain_image:
                     continue
-                open(local, "wb").write(blob)
-                entry["files"].append(local)
+                keep.append(p)
+            elif p.endswith("payload.json") and data_type not in (
+                    "image", "image_heatmap", "video", "video_heatmap"):
+                keep.append(p)
+        return keep
+
+    def fetch_sample(job):
+        d, raw, hashed, entry = job
+        for path in choose_paths(list_sample_paths(prefix, hashed), hashed):
+            rel = path.split(f"{hashed}/", 1)[-1]
+            local = os.path.join(args.out, d["dir"], "samples", raw, rel)
+            os.makedirs(os.path.dirname(local), exist_ok=True)
+            blob = download_blob(path, soft=True)
+            if blob is None:
+                entry.setdefault("errors", []).append(f"download failed: {path}")
+                continue
+            open(local, "wb").write(blob)
+            entry["files"].append(local)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(fetch_sample, jobs))
+    for d in digests.values():
+        for entry in d["samples"].values():
+            d["errors"].extend(entry.pop("errors", []))
 
     for d in digests.values():
         d.pop("top_samples", None)
