@@ -1,0 +1,11 @@
+{
+  "name": "analysis",
+  "description": "Tensorleap's AI-assistant skills for analyzing platform results — insights reports with evidence, sample visualizations, and action items.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Tensorleap",
+    "email": "support@tensorleap.ai"
+  },
+  "homepage": "https://github.com/tensorleap/skills",
+  "license": "Apache-2.0"
+}
