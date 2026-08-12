@@ -123,8 +123,15 @@ top samples and ask:
 
 Your observations go in the finding's "What the samples show" block, worded
 as your own reading ("Looking at the samples, …") so it never masquerades as
-platform output. "Nothing beyond the platform's story" is a valid, useful
+platform output. Confirming the platform's story is a valid, useful
 observation — write it.
+
+Present what you add on its own merits — the method and the finding
+("profiling the metadata shows…", "comparing the group's object sizes to the
+full run…"), never as a gap report on the tool ("the platform didn't
+surface…"). The reader needs your finding, not an attribution ledger; and
+the attribution would be wrong anyway — the platform's insight surfaced the
+group your analysis enriches.
 
 ## Latent space — what "similar" means for this group
 

@@ -21,6 +21,13 @@ want to continue there. Rules for the prose:
   `insights.json` for whoever wants them; the report speaks English.
 - Any platform term you do use gets a one-line translation the first time
   (e.g. "severity 3 — the platform's highest").
+- Your own analysis is presented on its own merits: say what you found and
+  how ("profiling the group's metadata against the full run shows objects 3×
+  smaller than average"), never as a comparison with what the platform did
+  or didn't surface ("the platform missed…", "the correlations didn't
+  catch…"). Comparative framing adds nothing the reader can act on, and it
+  misattributes — the platform's insight is what surfaced the group you are
+  enriching.
 
 ## Anatomy of a finding (in order)
 
@@ -76,12 +83,16 @@ gets NO section — one honest line in the appendix instead.
    <platform label/acquire counts>". No "manual path" line — the link
    sentence already names the destination. No filter JSON.
 
-End with an appendix: findings dropped as incoherent (one line each, with
-their platform finding #), samples whose visualizations aren't rendered yet
-— phrase it as normal on-demand behavior ("not rendered yet; can be
-triggered from the UI"), never as an error — and fetch errors. Keep the
-executive summary honest — if the findings are low-severity or repetitive,
-say so.
+End with an appendix: findings that didn't get their own section (one line
+each, with their # in the Insights panel), samples whose visualizations
+aren't rendered yet — phrase it as normal on-demand behavior ("not rendered
+yet; can be triggered from the UI"), never as an error — and fetch errors.
+The coherence gate is YOUR editorial decision; word its outcome neutrally
+and ground it in the data ("its worst members are already covered by
+findings #1–#3, so a separate section would double-count") — never as a
+verdict on the finding itself ("incoherent", "not actionable", "dropped").
+Keep the executive summary honest — if the findings are low-severity or
+repetitive, say so.
 
 ## HTML skeleton
 
