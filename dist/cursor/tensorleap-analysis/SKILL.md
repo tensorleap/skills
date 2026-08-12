@@ -186,4 +186,12 @@ clumsiness hides ("this insight is insight #2", repeated phrases, stale
 numbers). Fix anything you would not have written in a single pass. Ship
 only what reads clean end-to-end.
 
-Finish by telling the user the report path and the one action you'd do first.
+**Your closing message names the deliverables and stops.** Two sentences at
+most: the report is ready at `<path>/report.html`, with the ticket companion
+at `<path>/report.md`. No findings, no summaries, no severity counts, no
+recommended first action, no observations — everything you have to say lives
+IN the report; the session message just hands it over. Anything discovered
+along the way that isn't part of the analysis (e.g. a suspected data or
+server irregularity) goes in the report's appendix, not the closing message.
+Then answer follow-up questions from the analysis you already did — the
+conversational depth is for when the user asks, never volunteered up front.
