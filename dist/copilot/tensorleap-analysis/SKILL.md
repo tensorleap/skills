@@ -94,13 +94,21 @@ train-aggressor split, overfitting evidence, labeling/collection paths, and
 training adjustments like loss terms and sample boosting). Cite payload
 fields, not vibes.
 
+**Count before you characterize.** Compute the finding's full composition
+from its `samples.csv` (metadata values, split states) BEFORE naming it. The
+worst samples are the tail — never present the tail's traits as the group's
+identity, and treat the platform's mutual-information features as
+*over-represented*, not *defining* (playbook: "Characterize by composition,
+not by the tail").
+
 **Look at the samples yourself — mandatory for every finding you write up.**
 Open the downloaded images (Read them) and text payloads for the finding's
 top samples. You are looking for what the platform cannot see:
 
-- **Label errors visible by eye**: does the sample's content contradict its
-  label? (a dark-haired face labeled blond, a scathing review labeled
-  positive).
+- **Content contradicting a label/metadata value** — but ONLY when the value
+  is human-interpretable (a word, not an opaque id) AND the contradiction is
+  visible in the sample. Report per sample, generalize only as far as you
+  checked; opaque class ids get no judgment (a human couldn't either).
 - **Patterns with no metadata**: do the failing samples share something the
   metadata doesn't capture — lighting, pose, occlusion, background, image
   quality, phrasing style? If yes, name it AND suggest adding it as a

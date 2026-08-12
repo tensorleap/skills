@@ -76,25 +76,50 @@ also recommend rebalancing the splits.
 | `domain_gap` | Performance differs across two values of a metadata field. | `metadata_name`, `domain_gap_score`, `domain_a`, `domain_b` | Balance training data across the domains; domain-specific augmentation; per-domain eval tracking; boost the weak domain via loss weighting. |
 | `mislabeled_samples` | Candidate labeling errors in `subset`. | `subset` | Manually review the top samples (embed them in the report); relabel confirmed ones; re-evaluate. |
 
+## Characterize by composition, not by the tail
+
+Before naming any group, COUNT its composition over the full `samples.csv`
+(distribution of the candidate metadata values, split states, classes). The
+top-loss samples you look at are the TAIL — describe them as the tail
+("the worst 50 over-represent X"), never as the group ("this is the X
+slice") unless the full composition actually shows dominance. A group whose
+tail is 40% X can still be 75% not-X overall.
+
+Same discipline for the platform's correlation signals: an elevated
+mutual-information feature means *over-represented*, not *defining*. Write
+"X-tagged samples are over-represented (16% of the group vs 5% elsewhere)
+and dominate the failure tail" — never "this is the X group" off a
+correlation alone.
+
 ## Look for yourself (mandatory per finding)
 
 The platform clusters by metrics, metadata and embeddings — it cannot read
 an image or a sentence. You can. For every finding you write up, open its
 top samples and ask:
 
-1. **Does the content contradict the label?** A visibly dark-haired face
-   labeled blond, a hostile review labeled positive → say so plainly; this
-   turns a "low performance" finding into a mislabeling finding, and the
-   action item changes from training work to label fixing.
+1. **Does the content contradict a label or metadata value?** Two
+   preconditions before claiming a mislabel / wrong metadata:
+   - the value is **human-interpretable** (a word: "blond", "positive", a
+     readable class name). Opaque ids (class 3, an encoded value) are
+     uninterpretable — a human couldn't judge them from the sample either,
+     so make NO claim and say the labels aren't judgeable from outside;
+   - the sample **visibly contradicts** it (a dark-haired face where the
+     value says blond; a hostile review where it says positive).
+   When both hold, report it per sample ("sample X's tag says blond, the
+   image shows dark hair") and only generalize as far as you actually
+   checked. A metadata tag disagreeing with the image is a metadata
+   problem; call it a *label* problem only when it's the label itself.
 2. **What do these samples share that the metadata can't express?**
    Lighting, pose, occlusion, background clutter, image quality, phrasing
    style, topic. If you spot one, name it AND recommend adding it as a
    metadata field — that makes the pattern trackable in the platform from
    the next run on.
-3. **Do the members actually belong together?** If the worst samples have
-   nothing visible in common and the metadata story is weak, the finding
-   fails the coherence gate: drop it to the appendix rather than forcing a
-   narrative or merging it into another finding.
+3. **Do the members actually belong together?** If the composition is
+   diffuse, the worst samples have nothing visible in common, and the
+   metadata story is weak, the finding fails the coherence gate: drop it to
+   the appendix rather than forcing a narrative or merging it into another
+   finding. A real signal buried in a dropped finding (e.g. its tail
+   over-represents a tagged subgroup) still gets its one appendix line.
 
 Your observations go in the finding's "What the samples show" block, worded
 as your own reading ("Looking at the samples, …") so it never masquerades as
