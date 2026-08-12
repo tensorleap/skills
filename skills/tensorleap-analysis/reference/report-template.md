@@ -56,7 +56,10 @@ gets NO section — one honest line in the appendix instead.
 5. **Samples**: 6 visible `<figure>`s (or `<blockquote>`s for text), each
    captioned with sample id + worst metric; the rest (≤18) inside
    `<details class="more">` — they're embedded too, so the file works
-   offline; no JavaScript.
+   offline; no JavaScript. Watch the total file size (`inline-html` prints
+   it): aim under ~10 MB — it downscales/recompresses automatically, but
+   for large-resolution datasets also cap the hidden samples (e.g. 6
+   instead of 18) rather than shipping a bloated file.
 6. **"What the samples show"** (`<div class="observe">`): the analyst's own
    observations from actually viewing the samples — label errors visible by
    eye, shared attributes the metadata doesn't capture (+ the suggestion to

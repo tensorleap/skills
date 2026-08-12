@@ -162,10 +162,15 @@ Modality handling per sample `payload.json` (`data.type`):
 
 | `data.type` | Embed as |
 |---|---|
-| `image`, `image_heatmap`, `bbox_image`, `mask_image` | `<figure>` with the downloaded `.jpg`/`.png` from `assets/` |
+| `image`, `image_heatmap`, `mask_image` | `<figure>` with the downloaded `.jpg`/`.png` from `assets/` |
+| `bbox_image` | `boxes.jpg` rendered by render-charts next to the payload (GT and prediction decoders are separate visualizers — caption which one you show); the raw asset has no boxes |
 | `text`, `mask_text` | `<blockquote>` of the joined `data.body` tokens |
 | `graph`, `hbar` | `chart.png` next to the payload (or an HTML table fallback) |
 | `video`, `audio` | note it exists; don't inline media files |
+
+Careful: `insights.json` lists files as of FETCH time — `chart.png` /
+`boxes.jpg` appear on disk only after render-charts, so resolve them from the
+payload's directory, not from the digest's file list.
 
 Order insights by `severity` descending. **Lead every finding with its
 failure mode** — what fails and why, named in plain ML terms — and write for

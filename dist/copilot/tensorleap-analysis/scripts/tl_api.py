@@ -514,16 +514,37 @@ def render_hbar(data, dest, plt):
     return True
 
 
+def render_bboxes(data, root, Image, ImageDraw):
+    img_path = os.path.join(root, "assets", "data.jpg")
+    if not os.path.isfile(img_path):
+        img_path = os.path.join(root, "assets", "data.png")
+    boxes = data.get("bounding_box") or []
+    if not boxes or not os.path.isfile(img_path):
+        return False
+    img = Image.open(img_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    w, h = img.size
+    for b in boxes:
+        bw, bh = b["width"] * w, b["height"] * h
+        cx, cy = b["x"] * w, b["y"] * h
+        draw.rectangle([cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2],
+                       outline="#2a78d6", width=2)
+    img.save(os.path.join(root, "boxes.jpg"), quality=88)
+    return True
+
+
 def cmd_render_charts(args):
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
-        print("matplotlib not importable — render graph/hbar payloads as md tables instead",
-              file=sys.stderr)
-        raise SystemExit(6)
-    rendered = 0
+        plt = None
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        Image = ImageDraw = None
+    rendered, lib_skipped = 0, 0
     for root, _dirs, files in os.walk(args.dir):
         if "payload.json" not in files:
             continue
@@ -532,17 +553,28 @@ def cmd_render_charts(args):
         except Exception:
             continue
         data = payload.get("data") or {}
-        dest = os.path.join(root, "chart.png")
-        if os.path.exists(dest):
-            continue
+        kind = data.get("type")
         try:
-            if data.get("type") == "graph" and render_graph(data, dest, plt):
-                rendered += 1
-            elif data.get("type") == "hbar" and render_hbar(data, dest, plt):
-                rendered += 1
+            if kind in ("graph", "hbar"):
+                dest = os.path.join(root, "chart.png")
+                if os.path.exists(dest):
+                    continue
+                if not plt:
+                    lib_skipped += 1
+                elif (render_graph if kind == "graph" else render_hbar)(data, dest, plt):
+                    rendered += 1
+            elif kind == "bbox_image":
+                if os.path.exists(os.path.join(root, "boxes.jpg")):
+                    continue
+                if not Image:
+                    lib_skipped += 1
+                elif render_bboxes(data, root, Image, ImageDraw):
+                    rendered += 1
         except Exception as e:
-            print(f"chart failed for {root}: {e}", file=sys.stderr)
-    print(f"rendered {rendered} charts")
+            print(f"render failed for {root}: {e}", file=sys.stderr)
+    print(f"rendered {rendered} (skipped {lib_skipped} for missing matplotlib/PIL)")
+    if lib_skipped and not rendered:
+        raise SystemExit(6)
 
 
 def cmd_inline_html(args):
@@ -558,13 +590,17 @@ def cmd_inline_html(args):
 
     def encode(path, mime):
         data = open(path, "rb").read()
-        if Image and mime == "image/png" and len(data) > 50_000:
-            img = Image.open(io.BytesIO(data))
-            if img.mode not in ("RGBA", "LA", "P"):
-                buf = io.BytesIO()
-                img.save(buf, "JPEG", quality=85)
-                if buf.tell() < len(data):
-                    return "image/jpeg", buf.getvalue()
+        if not Image or not mime.startswith("image/") or len(data) <= 50_000:
+            return mime, data
+        img = Image.open(io.BytesIO(data))
+        if img.mode in ("RGBA", "LA", "P"):
+            return mime, data
+        if max(img.size) > 900:
+            img.thumbnail((900, 900))
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=85)
+        if buf.tell() < len(data):
+            return "image/jpeg", buf.getvalue()
         return mime, data
 
     def repl(m):
