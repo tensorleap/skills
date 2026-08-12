@@ -91,6 +91,25 @@ mutual-information feature means *over-represented*, not *defining*. Write
 and dominate the failure tail" — never "this is the X group" off a
 correlation alone.
 
+## One failing population per finding
+
+Every finding the report elaborates must be about ONE failing population.
+Mixed cause TYPES about that population are fine (label quality and model
+behavior can both be true of the same group); different populations under
+the same cause type ("bad on roads and also bad on oceans") are different
+findings — check the parent's subinsights first, they often isolate the
+single-population cores.
+
+When two findings look alike, MEASURE before writing: member overlap between
+their CSVs, composition, metric signatures. Then:
+
+- A real difference exists → each section stands on its difference, named in
+  its heading (e.g. one group's misses concentrate in held-out data).
+- You cannot name a difference → elaborate only the finding with the clearer
+  single-population story (severity as tiebreak); the other gets an appendix
+  line saying what it shares with the kept one and its # in the Insights
+  panel.
+
 ## Look for yourself (mandatory per finding)
 
 The platform clusters by metrics, metadata and embeddings — it cannot read

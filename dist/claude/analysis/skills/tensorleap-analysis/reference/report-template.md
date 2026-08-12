@@ -31,10 +31,12 @@ want to continue there. Rules for the prose:
 
 ## Anatomy of a finding (in order)
 
-**One finding = one section.** Never merge findings into a combined section;
-if two findings share a pattern, each gets its own full section and a
-cross-reference. If a finding fails the coherence gate (skill Step 4), it
-gets NO section — one honest line in the appendix instead.
+**One finding = one section = one failing population.** Never merge findings
+into a combined section. When two findings resemble each other, apply the
+playbook's "One failing population per finding" rule: differentiate (each
+section stands on its measured difference) or keep only the clearer one. A
+finding that fails the coherence gate (skill Step 4) gets NO section — one
+honest line in the appendix instead.
 
 1. **Heading**: what the finding IS. Prefix `Failure mode:` only when the
    model is failing on a group of samples (low_performance,
