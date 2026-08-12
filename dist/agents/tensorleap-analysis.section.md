@@ -172,5 +172,11 @@ rules are binding). Keep the executive summary honest — if the insights are
 low-severity or repetitive, say so. Close with the appendix of missing
 visualizations and fetch errors from the digest.
 
+**Before finishing, read the rendered report as its reader would** — every
+sentence, chips, captions, link texts, the appendix. Assembled text is where
+clumsiness hides ("this finding is finding #2", repeated phrases, stale
+numbers). Fix anything you would not have written in a single pass. Ship
+only what reads clean end-to-end.
+
 Finish by telling the user the report path and the one action you'd do first.
 <!-- END TENSORLEAP SKILL: tensorleap-analysis -->

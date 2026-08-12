@@ -65,13 +65,13 @@ gets NO section — one honest line in the appendix instead.
    evidence. If your look revealed nothing beyond the platform's story, say
    that in one line — it's a real result.
 7. **Action items**: 1–3 checklist items, concrete and quantified.
-8. **`<details class="explore">` "Explore in Tensorleap"**: the deep link
-   from the digest (`deep_link` — opens the version's Insights panel with
-   this version selected; it does NOT apply any filter, the reader picks
-   the finding from the list by its # and name, which you state), the
-   manual navigation path, the finding's # and platform name, latent
-   space, split counts, and platform-selected label/acquire counts. No
-   filter JSON.
+8. **`<details class="explore">` "Explore in Tensorleap"** — exactly two
+   sentences, no repetition: (1) the link, phrased "Open version X's
+   Insights panel and look for finding #N — '<platform name>', severity S"
+   (the link selects the version and opens the panel; it applies no
+   filters); (2) a muted detail line: "Latent space: … · <split counts> ·
+   <platform label/acquire counts>". No "manual path" line — the link
+   sentence already names the destination. No filter JSON.
 
 End with an appendix: findings dropped as incoherent (one line each, with
 their platform finding #), samples whose visualizations aren't rendered yet
@@ -231,13 +231,10 @@ details.explore summary { color: var(--acc); }
   <ul class="actions"><li>…</li></ul>
 
   <details class="explore"><summary>Explore in Tensorleap</summary>
-    <p><a href="DEEP_LINK">Open this version's Insights panel</a> — this
-       finding is #1 there ("low performance", severity 3); nothing is
-       filtered for you.</p>
-    <p class="muted">Manual path: PROJECT → version VERSION → Insights panel →
-       finding #1. Latent space: balanced. Group: 221 test + 93 unlabeled
-       samples. The platform pre-selected 88 unlabeled samples for
-       labeling.</p>
+    <p><a href="DEEP_LINK">Open version VERSION's Insights panel</a> and look
+       for finding #1 — "low performance", severity 3.</p>
+    <p class="muted">Latent space: balanced · 221 test + 93 unlabeled samples
+       · 88 unlabeled samples pre-selected for labeling.</p>
   </details>
 
   <h2>Appendix</h2>
