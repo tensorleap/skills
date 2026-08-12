@@ -91,35 +91,35 @@ mutual-information feature means *over-represented*, not *defining*. Write
 and dominate the failure tail" — never "this is the X group" off a
 correlation alone.
 
-## One failing population per finding
+## One failing population per insight
 
-Every finding the report elaborates must be about ONE failing population.
+Every insight the report elaborates must be about ONE failing population.
 Mixed cause TYPES about that population are fine (label quality and model
 behavior can both be true of the same group); different populations under
 the same cause type ("bad on roads and also bad on oceans") are different
-findings — check the parent's subinsights first, they often isolate the
+insights — check the parent's subinsights first, they often isolate the
 single-population cores.
 
-When two findings look alike, MEASURE before writing: composition and metric
+When two insights look alike, MEASURE before writing: composition and metric
 signatures over their CSVs. Then:
 
 - A real difference exists → each section stands on its difference, named in
   its heading (e.g. one group's misses concentrate in held-out data).
-- You cannot name a difference → elaborate only the finding with the clearer
+- You cannot name a difference → elaborate only the insight with the clearer
   single-population story (severity as tiebreak); the other gets an appendix
   line saying what it shares with the kept one and its # in the Insights
   panel.
 
-Write the difference as the finding's own content, never as commentary on
-the report's structure ("what makes this group its own finding…", "unlike
-finding #2…") — state the facts and let the distinction be self-evident.
-Top-level findings are disjoint groups by definition, so never present
+Write the difference as the insight's own content, never as commentary on
+the report's structure ("what makes this group its own insight…", "unlike
+insight #2…") — state the facts and let the distinction be self-evident.
+Top-level insights are disjoint groups by definition, so never present
 non-overlap as a discovery or a differentiator.
 
-## Look for yourself (mandatory per finding)
+## Look for yourself (mandatory per insight)
 
 The platform clusters by metrics, metadata and embeddings — it cannot read
-an image or a sentence. You can. For every finding you write up, open its
+an image or a sentence. You can. For every insight you write up, open its
 top samples and ask:
 
 1. **Does the content contradict a label or metadata value?** Two
@@ -141,27 +141,27 @@ top samples and ask:
    the next run on.
 3. **Do the members actually belong together?** If the composition is
    diffuse, the worst samples have nothing visible in common, and the
-   metadata story is weak, the finding fails the coherence gate: drop it to
+   metadata story is weak, the insight fails the coherence gate: drop it to
    the appendix rather than forcing a narrative or merging it into another
-   finding. A real signal buried in a dropped finding (e.g. its tail
+   insight. A real signal buried in a dropped insight (e.g. its tail
    over-represents a tagged subgroup) still gets its one appendix line.
 
-Your observations go in the finding's "What the samples show" block, worded
+Your observations go in the insight's "What the samples show" block, worded
 as your own reading ("Looking at the samples, …") so it never masquerades as
 platform output. Confirming the platform's story is a valid, useful
 observation — write it.
 
-Present what you add on its own merits — the method and the finding
+Present what you add on its own merits — the method and the insight
 ("profiling the metadata shows…", "comparing the group's object sizes to the
 full run…"), never as a gap report on the tool ("the platform didn't
-surface…"). The reader needs your finding, not an attribution ledger; and
+surface…"). The reader needs your insight, not an attribution ledger; and
 the attribution would be wrong anyway — the platform's insight surfaced the
 group your analysis enriches.
 
 ## Latent space — what "similar" means for this group
 
 Every insight carries `latent_space`: the representation in which its
-samples clustered together. Always name it in the finding and translate it
+samples clustered together. Always name it in the insight and translate it
 in one line, because it tells the reader in what SENSE the group is a group:
 
 | Name (typical) | Translation |
@@ -188,7 +188,7 @@ automatic_tests), cite its numbers instead of inventing new ones.
 
 The evidence-field table above is for YOUR reading, not for quoting: the
 report never shows raw payload fields, blob paths, or filter JSON. Lead every
-finding with the **failure mode** — what fails, how the model gets it wrong,
+insight with the **failure mode** — what fails, how the model gets it wrong,
 the likely root cause — and translate the platform's numbers into sentences
 an outsider follows ("78% of the failing samples are night-time images vs
 12% elsewhere").

@@ -10,10 +10,10 @@ paths resolve.
 
 **The report serves two audiences at once.** The prose and diagrams are for
 an ML engineer who has never opened Tensorleap; the collapsed "Explore in
-Tensorleap" box under each finding is for users who know the platform and
+Tensorleap" box under each insight is for users who know the platform and
 want to continue there. Rules for the prose:
 
-- Each finding's heading names a **failure mode** in plain ML terms
+- Each insight's heading names a **failure mode** in plain ML terms
   ("Confident misclassification of non-cats in the cat region", "Positive
   labels on negative-toned reviews") — never "insight_1_low_performance".
 - Never paste internal identifiers into the prose: no blob paths, filter
@@ -29,27 +29,31 @@ want to continue there. Rules for the prose:
   misattributes — the platform's insight is what surfaced the group you are
   enriching.
 
-## Anatomy of a finding (in order)
+## Anatomy of an insight section (in order)
 
-**One finding = one section = one failing population.** Never merge findings
-into a combined section. When two findings resemble each other, apply the
-playbook's "One failing population per finding" rule: differentiate (each
+**One insight = one section = one failing population.** Never merge insights
+into a combined section. When two insights resemble each other, apply the
+playbook's "One failing population per insight" rule: differentiate (each
 section stands on its measured difference) or keep only the clearer one. A
-finding that fails the coherence gate (skill Step 4) gets NO section — one
+insight that fails the coherence gate (skill Step 4) gets NO section — one
 honest line in the appendix instead.
 
-1. **Heading**: what the finding IS. Prefix `Failure mode:` only when the
-   model is failing on a group of samples (low_performance,
-   out_of_distribution, domain_gap). Dataset-integrity findings —
+1. **Heading**: what the insight IS, unnumbered. Prefix `Failure mode:` only
+   when the model is failing on a group of samples (low_performance,
+   out_of_distribution, domain_gap). Dataset-integrity insights —
    duplication, data_leakage, mislabeled_samples — are prefixed
    `Data issue:`; never call something a failure mode when the model isn't
-   the thing failing. Chips: severity (text label always — color never
-   alone), sample count, key metric, **latent space** (e.g.
-   "classification-semantic space").
+   the thing failing. The section's identity is its **platform insight #**
+   (the Insights-panel number): show it as a chip and in the summary table's
+   first column, and never invent a parallel report numbering — prose
+   cross-references between sections go by the failure mode's NAME ("the
+   tiny-objects fix above"), never by number. Other chips: severity (text
+   label always — color never alone), sample count, key metric, **latent
+   space** (e.g. "classification-semantic space").
 2. **Taxonomy strip** — the interpretive scheme. Four fixed families:
    `Data gap · Label quality · Split problem · Model behavior`; highlight the
    diagnosed one (from the playbook walk) and caption WHY in one line. The
-   strip is identical on every finding, so readers learn the grammar once.
+   strip is identical on every insight, so readers learn the grammar once.
    Multiple families may be active when the diagnosis is genuinely mixed.
 3. **Prose**: what kind of samples fail, how the model gets them wrong,
    likely root cause, evidence in plain sentences. Include one sentence
@@ -79,21 +83,21 @@ honest line in the appendix instead.
 7. **Action items**: 1–3 checklist items, concrete and quantified.
 8. **`<details class="explore">` "Explore in Tensorleap"** — exactly two
    sentences, no repetition: (1) the link, phrased "Open version X's
-   Insights panel and look for finding #N — '<platform name>', severity S"
+   Insights panel and look for insight #N — '<platform name>', severity S"
    (the link selects the version and opens the panel; it applies no
    filters); (2) a muted detail line: "Latent space: … · <split counts> ·
    <platform label/acquire counts>". No "manual path" line — the link
    sentence already names the destination. No filter JSON.
 
-End with an appendix: findings that didn't get their own section (one line
+End with an appendix: insights that didn't get their own section (one line
 each, with their # in the Insights panel), samples whose visualizations
 aren't rendered yet — phrase it as normal on-demand behavior ("not rendered
 yet; can be triggered from the UI"), never as an error — and fetch errors.
 The coherence gate is YOUR editorial decision; word its outcome neutrally
 and ground it in the data ("its worst members are already covered by
-findings #1–#3, so a separate section would double-count") — never as a
-verdict on the finding itself ("incoherent", "not actionable", "dropped").
-Keep the executive summary honest — if the findings are low-severity or
+insights #1–#3, so a separate section would double-count") — never as a
+verdict on the insight itself ("incoherent", "not actionable", "dropped").
+Keep the executive summary honest — if the insights are low-severity or
 repetitive, say so.
 
 ## HTML skeleton
@@ -190,18 +194,19 @@ details.explore summary { color: var(--acc); }
 <body>
 <article>
   <h1>Tensorleap analysis — PROJECT / VERSION</h1>
-  <p class="meta">Generated DATE from N insights (P findings, S sub-clusters) on SERVER.
+  <p class="meta">Generated DATE from N insights (P top-level, S sub-insights) on SERVER.
      <a href="LINKS.insights_panel">Open this version's insights in Tensorleap</a>.</p>
 
   <h2>Executive summary</h2>
   <p>…3–6 sentences…</p>
   <div class="tablewrap"><table>
-    <tr><th>#</th><th>Finding</th><th>Severity</th><th>Samples</th><th>Top action</th></tr>
+    <tr><th>Insight</th><th>Failure mode</th><th>Severity</th><th>Samples</th><th>Top action</th></tr>
   </table></div>
 
-  <h2>1. Failure mode: …</h2>
+  <h2>Failure mode: …</h2>
   <div class="chips">
     <span class="chip sev sev3">Severity 3 of 3</span>
+    <span class="chip">insight #1</span>
     <span class="chip">314 samples</span>
     <span class="chip">accuracy 0.42</span>
   </div>
@@ -248,7 +253,7 @@ details.explore summary { color: var(--acc); }
 
   <details class="explore"><summary>Explore in Tensorleap</summary>
     <p><a href="DEEP_LINK">Open version VERSION's Insights panel</a> and look
-       for finding #1 — "low performance", severity 3.</p>
+       for insight #1 — "low performance", severity 3.</p>
     <p class="muted">Latent space: balanced · 221 test + 93 unlabeled samples
        · 88 unlabeled samples pre-selected for labeling.</p>
   </details>
@@ -263,6 +268,6 @@ details.explore summary { color: var(--acc); }
 ## report.md (the paste-into-a-ticket companion)
 
 Just: title line, the executive-summary paragraph, the summary table, and
-each finding's action-item checklist under its failure-mode heading, plus the
-finding's deep link as a plain URL. No images, no evidence sections — link to
+each insight's action-item checklist under its failure-mode heading, plus the
+insight's deep link as a plain URL. No images, no evidence sections — link to
 `report.html` for those.

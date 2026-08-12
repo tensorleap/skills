@@ -104,15 +104,15 @@ train-aggressor split, overfitting evidence, labeling/collection paths, and
 training adjustments like loss terms and sample boosting). Cite payload
 fields, not vibes.
 
-**Count before you characterize.** Compute the finding's full composition
+**Count before you characterize.** Compute the insight's full composition
 from its `samples.csv` (metadata values, split states) BEFORE naming it. The
 worst samples are the tail — never present the tail's traits as the group's
 identity, and treat the platform's mutual-information features as
 *over-represented*, not *defining* (playbook: "Characterize by composition,
 not by the tail").
 
-**Look at the samples yourself — mandatory for every finding you write up.**
-Open the downloaded images (Read them) and text payloads for the finding's
+**Look at the samples yourself — mandatory for every insight you write up.**
+Open the downloaded images (Read them) and text payloads for the insight's
 top samples. You are looking for what the platform cannot see:
 
 - **Content contradicting a label/metadata value** — but ONLY when the value
@@ -123,19 +123,19 @@ top samples. You are looking for what the platform cannot see:
   metadata doesn't capture — lighting, pose, occlusion, background, image
   quality, phrasing style? If yes, name it AND suggest adding it as a
   metadata field so the platform can track it.
-- Report these in the finding's "What the samples show" block, clearly as
+- Report these in the insight's "What the samples show" block, clearly as
   your own observation (the reader must be able to tell platform evidence
   from analyst judgment).
 
 **Coherence gate**: if, after the evidence and your own look at the samples,
-a finding does not hold together as ONE failure mode (a grab-bag cluster,
+an insight does not hold together as ONE failure mode (a grab-bag cluster,
 unrelated worst members, no shared story) — do not force a narrative and do
 NOT fold it into another section. Leave it out and give it one honest line
-in the appendix. Never combine multiple findings into a merged section;
-when two findings share a pattern, give each its own section and
+in the appendix. Never combine multiple insights into a merged section;
+when two insights share a pattern, give each its own section and
 cross-reference.
 
-**Latent space**: every finding states which latent space it was found in,
+**Latent space**: every insight states which latent space it was found in,
 with a one-line translation of what "similar" means there (guide in the
 playbook).
 
@@ -145,8 +145,8 @@ one-line the rest.
 
 ## Step 5 — Write the report
 
-Follow **`reference/report-template.md`** (HTML skeleton, per-finding
-anatomy, language rules). Each finding gets: severity chips, the
+Follow **`reference/report-template.md`** (HTML skeleton, per-insight
+anatomy, language rules). Each insight gets: severity chips, the
 **failure-mode taxonomy strip** (Data gap / Label quality / Split problem /
 Model behavior — highlight the family your playbook walk diagnosed, caption
 why), the **split-composition bar** and **metric-contrast rows** (population
@@ -154,7 +154,7 @@ value from `population_metrics` in insights.json; omit the row if absent),
 6 visible samples + the rest behind `<details>` "Show more", action items,
 and the collapsed **"Explore in Tensorleap"** box using `deep_link` (a
 version-level link that opens the Insights panel with the version selected —
-it applies no filters; tell the reader the finding's # in the list).
+it applies no filters; tell the reader the insight's # in the list).
 Write `<out-dir>/report.html` with plain relative `src` paths, then make it
 self-contained:
 
@@ -165,7 +165,7 @@ python3 scripts/tl_api.py inline-html <out-dir>/report.html
 Exit 7 means some `src` paths didn't resolve — fix them (stderr lists which)
 and re-run; never ship a report with broken images. The result is ONE file
 the user can mail or Slack. Also write `<out-dir>/report.md` — just the
-executive summary, summary table, and per-finding action checklists (the
+executive summary, summary table, and per-insight action checklists (the
 paste-into-a-ticket companion; no images).
 
 Modality handling per sample `payload.json` (`data.type`):
@@ -182,7 +182,7 @@ Careful: `insights.json` lists files as of FETCH time — `chart.png` /
 `boxes.jpg` appear on disk only after render-charts, so resolve them from the
 payload's directory, not from the digest's file list.
 
-Order insights by `severity` descending. **Lead every finding with its
+Order insights by `severity` descending. **Lead every insight with its
 failure mode** — what fails and why, named in plain ML terms — and write for
 an ML engineer with zero knowledge of Tensorleap internals: no blob paths,
 filter JSON, or raw payload field names in the prose (the template's language
@@ -192,7 +192,7 @@ visualizations and fetch errors from the digest.
 
 **Before finishing, read the rendered report as its reader would** — every
 sentence, chips, captions, link texts, the appendix. Assembled text is where
-clumsiness hides ("this finding is finding #2", repeated phrases, stale
+clumsiness hides ("this insight is insight #2", repeated phrases, stale
 numbers). Fix anything you would not have written in a single pass. Ship
 only what reads clean end-to-end.
 
