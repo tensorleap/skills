@@ -263,6 +263,59 @@ def list_sample_paths(prefix, hashed_id):
     return paths
 
 
+def ui_base_url():
+    url = API["url"]
+    scheme, _, rest = url.partition("://")
+    host, slash, path = rest.partition("/")
+    if host.startswith("api.") and host.split(":")[0].endswith("tensorleap.ai"):
+        host = host[4:]
+    return f"{scheme}://{host}{slash}{path}".rstrip("/")
+
+
+def population_metrics(project_id, version_id):
+    resp = api("versions/getProjectSlimVersions", {"projectId": project_id}, soft=True)
+    versions = (resp or {}).get("versions") or []
+    version = next((v for v in versions if v.get("cid") == version_id), None)
+    csv_path = ((version or {}).get("resources") or {}).get("csv_blob_path")
+    if not csv_path:
+        return {}
+    blob = download_blob(f"projects/{project_id}/{csv_path}", soft=True)
+    if blob is None:
+        return {}
+    if csv_path.endswith(".zip"):
+        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+            inner = next((n for n in zf.namelist() if n.endswith(".csv")), None)
+            blob = zf.read(inner) if inner else b""
+    sums, counts = {}, {}
+    for row in csv.DictReader(io.StringIO(blob.decode(errors="replace"))):
+        for col, val in row.items():
+            if not col.startswith("metrics."):
+                continue
+            try:
+                sums[col] = sums.get(col, 0.0) + float(val)
+                counts[col] = counts.get(col, 0) + 1
+            except (TypeError, ValueError):
+                pass
+    return {col: sums[col] / counts[col] for col in sums if counts.get(col)}
+
+
+def mint_deep_link(project_id, version_id, dashboard_id, insight):
+    state = {"dashboards": {dashboard_id: {
+        "topPanel": {"kind": "insight",
+                     "insightCids": [insight["cid"]],
+                     "activeCid": insight["cid"]},
+        "globalFilters": insight["insightType"].get("display_filters") or [],
+        "selectedVersions": [{"id": version_id, "isVisibile": True}],
+        "topPanelStack": [],
+    }}}
+    resp = api("projectstate/upsertState",
+               {"projectId": project_id, "state": json.dumps(state)}, soft=True)
+    if not resp or not resp.get("digest"):
+        return None
+    return (f"{ui_base_url()}/project/{project_id}/dashboard/panel/insights"
+            f"?dashboard={dashboard_id}&state={resp['digest']}")
+
+
 def cmd_fetch(args):
     insights = api("insights/getInsights",
                    {"projectId": args.project, "versionId": args.version}).get("insights", [])
@@ -270,6 +323,13 @@ def cmd_fetch(args):
         print(f"version {args.version} has no insights", file=sys.stderr)
         raise SystemExit(5)
     os.makedirs(args.out, exist_ok=True)
+
+    panel_link = (f"{ui_base_url()}/project/{args.project}"
+                  "/dashboard/panel/insights")
+    dash_resp = api("dashboards/getProjectDashboards",
+                    {"projectId": args.project}, soft=True) or {}
+    dashboards = (dash_resp.get("dashboards") or dash_resp.get("data") or [])
+    dashboard_id = (dashboards[0] or {}).get("cid") if dashboards else None
 
     digests = {}
     for ins in insights:
@@ -380,9 +440,20 @@ def cmd_fetch(args):
     for d in digests.values():
         d.pop("top_samples", None)
 
+    if dashboard_id:
+        for d in parents:
+            link = mint_deep_link(args.project, args.version, dashboard_id,
+                                  {"cid": d["cid"], "insightType": d["insightType"]})
+            d["deep_link"] = link or panel_link
+    else:
+        for d in parents:
+            d["deep_link"] = panel_link
+
     result = {
         "projectId": args.project,
         "versionId": args.version,
+        "links": {"insights_panel": panel_link},
+        "population_metrics": population_metrics(args.project, args.version),
         "insights": parents + orphans,
         "counts": {
             "total": len(digests),
@@ -482,9 +553,24 @@ def cmd_render_charts(args):
 def cmd_inline_html(args):
     import mimetypes
     import re
+    try:
+        from PIL import Image
+    except ImportError:
+        Image = None
     base = os.path.dirname(os.path.abspath(args.file))
     html = open(args.file, encoding="utf-8").read()
     missing = []
+
+    def encode(path, mime):
+        data = open(path, "rb").read()
+        if Image and mime == "image/png" and len(data) > 50_000:
+            img = Image.open(io.BytesIO(data))
+            if img.mode not in ("RGBA", "LA", "P"):
+                buf = io.BytesIO()
+                img.save(buf, "JPEG", quality=85)
+                if buf.tell() < len(data):
+                    return "image/jpeg", buf.getvalue()
+        return mime, data
 
     def repl(m):
         src = m.group(2)
@@ -495,7 +581,8 @@ def cmd_inline_html(args):
             missing.append(src)
             return m.group(0)
         mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
-        b64 = base64.b64encode(open(path, "rb").read()).decode()
+        mime, data = encode(path, mime)
+        b64 = base64.b64encode(data).decode()
         return f"{m.group(1)}data:{mime};base64,{b64}{m.group(3)}"
 
     html = re.sub(r'(src=")([^"]+)(")', repl, html)
@@ -518,7 +605,7 @@ def main():
     fe.add_argument("--project", required=True)
     fe.add_argument("--version", required=True)
     fe.add_argument("--out", required=True)
-    fe.add_argument("--top-k", type=int, default=10)
+    fe.add_argument("--top-k", type=int, default=24)
     fe.add_argument("--rank-by")
     fe.add_argument("--asc", action="store_true")
     rc = sub.add_parser("render-charts")

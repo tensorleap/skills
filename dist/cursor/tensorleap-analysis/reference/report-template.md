@@ -2,13 +2,16 @@
 
 The deliverable is **one self-contained `report.html`** (images inlined as
 data URIs by `tl_api.py inline-html` — author it with plain relative `src`
-paths and let the script do the inlining), plus a short **`report.md`**
+paths and let the script do the inlining; large lossless PNGs are recompressed
+to JPEG automatically when PIL is importable), plus a short **`report.md`**
 holding only the executive summary and the action-item checklists (the part
 people paste into tickets and Slack). Write both into `<out-dir>` so relative
 paths resolve.
 
-**Write for an ML engineer who has never opened Tensorleap's internals.**
-The report is about their MODEL's failure modes, not about the platform:
+**The report serves two audiences at once.** The prose and diagrams are for
+an ML engineer who has never opened Tensorleap; the collapsed "Explore in
+Tensorleap" box under each finding is for users who know the platform and
+want to continue there. Rules for the prose:
 
 - Each finding's heading names a **failure mode** in plain ML terms
   ("Confident misclassification of non-cats in the cat region", "Positive
@@ -18,24 +21,35 @@ The report is about their MODEL's failure modes, not about the platform:
   `insights.json` for whoever wants them; the report speaks English.
 - Any platform term you do use gets a one-line translation the first time
   (e.g. "severity 3 — the platform's highest").
-- To point the reader back to the platform, reference what they can see:
-  "open this version in Tensorleap → Insights panel → finding #1", not a
-  filter object.
 
-## Content per finding (order by severity, descending)
+## Anatomy of a finding (in order)
 
-1. Heading: the failure mode. Severity chip (label text always, color never
-   alone) + sample count + subset makeup.
-2. The failure mode first: what kind of samples fail, how the model gets
-   them wrong, the likely root cause. Then the evidence in plain sentences.
-3. Representative samples: `<figure>` grid for images/charts, `<blockquote>`
-   for text samples, each captioned with sample id + its worst metric.
-4. Sub-clusters inside `<details>` — elaborate only the ones that add
-   information; one-line the rest, and say when they just repeat the parent.
-5. Action items: 1–3 checklist items, concrete and quantified, most
-   impactful first.
-6. "See it in Tensorleap": one plain sentence pointing at the version's
-   Insights panel finding number.
+1. **Heading**: the failure mode. Chips: severity (text label always — color
+   never alone), sample count, subset makeup, key metric.
+2. **Taxonomy strip** — the interpretive scheme. Four fixed families:
+   `Data gap · Label quality · Split problem · Model behavior`; highlight the
+   diagnosed one (from the playbook walk) and caption WHY in one line. The
+   strip is identical on every finding, so readers learn the grammar once.
+   Multiple families may be active when the diagnosis is genuinely mixed.
+3. **Prose**: what kind of samples fail, how the model gets them wrong,
+   likely root cause, evidence in plain sentences.
+4. **Mini-diagrams** (pure HTML/CSS, populated from the digest):
+   - *Split composition bar*: where the group's samples live
+     (training/validation/test/unlabeled), fixed colors, count labels below —
+     labels always, never color alone.
+   - *Metric contrast*: "this group" vs "rest of data" for the group's
+     dominant metric — population value from `population_metrics` in
+     insights.json; **omit the row if population_metrics lacks the column**.
+5. **Samples**: 6 visible `<figure>`s (or `<blockquote>`s for text), each
+   captioned with sample id + worst metric; the rest (≤18) inside
+   `<details class="more">` — they're embedded too, so the file works
+   offline; no JavaScript.
+6. **Action items**: 1–3 checklist items, concrete and quantified.
+7. **`<details class="explore">` "Explore in Tensorleap"**: the deep link
+   from the digest (`deep_link` per finding — opens the insight pinned with
+   its filters applied; falls back to the Insights-panel link), the manual
+   navigation path, the finding's # and platform name, latent space, split
+   counts, and platform-selected label/acquire counts. No filter JSON.
 
 End with an appendix: samples without renderings, findings not elaborated,
 fetch errors. Keep the executive summary honest — if the findings are
@@ -43,9 +57,9 @@ low-severity or repetitive, say so.
 
 ## HTML skeleton
 
-Copy this shape; fill the `<article>`. Keep the CSS block as-is (light/dark
-via `prefers-color-scheme`; severity colors pass contrast on both surfaces
-and always carry a text label).
+Copy this shape; fill the `<article>`. Keep the CSS block as-is — the state
+and severity colors are validated for both light and dark modes; the split
+bar's count labels are mandatory (two light-mode state colors rely on them).
 
 ```html
 <!doctype html>
@@ -59,10 +73,14 @@ and always carry a text label).
   color-scheme: light dark;
   --bg: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --line: #e4e2dc;
   --card: #f4f3f0; --sev3: #d03b3b; --sev2: #ec835a; --sev1: #fab219;
+  --st-train: #2a78d6; --st-val: #eb6834; --st-test: #1baf7a;
+  --st-unl: #eda100; --st-other: #52514e; --acc: #2a78d6;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --line: #3a3936;
-          --card: #242320; }
+          --card: #242320; --st-train: #3987e5; --st-val: #d95926;
+          --st-test: #199e70; --st-unl: #c98500; --st-other: #c3c2b7;
+          --acc: #3987e5; }
 }
 body { background: var(--bg); color: var(--ink); margin: 0;
        font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -71,6 +89,7 @@ h1 { font-size: 1.6rem; line-height: 1.25; }
 h2 { font-size: 1.2rem; margin-top: 2.5em; padding-top: 1em;
      border-top: 1px solid var(--line); }
 .meta, figcaption, .muted { color: var(--ink-2); font-size: .85rem; }
+a { color: var(--acc); }
 .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 1rem; }
 .chip { border: 1px solid var(--line); border-radius: 999px;
         padding: .1rem .6rem; font-size: .8rem; color: var(--ink-2); }
@@ -80,6 +99,29 @@ h2 { font-size: 1.2rem; margin-top: 2.5em; padding-top: 1em;
         background: var(--sev-color, var(--ink-2)); }
 .sev3 { --sev-color: var(--sev3); } .sev2 { --sev-color: var(--sev2); }
 .sev1 { --sev-color: var(--sev1); }
+.taxonomy { display: flex; flex-wrap: wrap; gap: .4rem; margin: .75rem 0 .25rem; }
+.tx { border: 1px solid var(--line); border-radius: 6px; padding: .15rem .6rem;
+      font-size: .8rem; color: var(--ink-2); }
+.tx.active { background: var(--ink); color: var(--bg); border-color: var(--ink);
+             font-weight: 600; }
+.splitbar { display: flex; gap: 2px; height: 14px; border-radius: 4px;
+            overflow: hidden; margin: .75rem 0 .3rem; }
+.splitbar span { min-width: 3px; }
+.st-train { background: var(--st-train); } .st-val { background: var(--st-val); }
+.st-test { background: var(--st-test); } .st-unl { background: var(--st-unl); }
+.st-other { background: var(--st-other); }
+.legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .8rem;
+          color: var(--ink-2); margin-bottom: 1rem; }
+.legend b::before { content: ""; display: inline-block; width: .6em; height: .6em;
+          border-radius: 2px; margin-right: .35em;
+          background: var(--dot, var(--st-other)); }
+.legend .train { --dot: var(--st-train); } .legend .val { --dot: var(--st-val); }
+.legend .test { --dot: var(--st-test); } .legend .unl { --dot: var(--st-unl); }
+.contrast { display: grid; grid-template-columns: 8.5rem 1fr 4.5rem;
+            gap: .4rem .6rem; align-items: center; font-size: .85rem;
+            margin: .75rem 0 1rem; }
+.contrast .track { background: var(--card); border-radius: 3px; height: 10px; }
+.contrast .fill { background: var(--acc); height: 100%; border-radius: 3px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
         gap: .75rem; margin: 1rem 0; }
 figure { margin: 0; }
@@ -97,37 +139,70 @@ ul.actions li::before { content: "☐"; position: absolute; left: .2rem; }
 details { background: var(--card); border-radius: 8px;
           padding: .6rem 1rem; margin: 1rem 0; }
 summary { cursor: pointer; font-weight: 600; }
+details.explore summary { color: var(--acc); }
 </style>
 </head>
 <body>
 <article>
   <h1>Tensorleap analysis — PROJECT / VERSION</h1>
-  <p class="meta">Generated DATE from N insights (P findings, S sub-clusters) on SERVER.</p>
+  <p class="meta">Generated DATE from N insights (P findings, S sub-clusters) on SERVER.
+     <a href="LINKS.insights_panel">Open this version's insights in Tensorleap</a>.</p>
 
   <h2>Executive summary</h2>
   <p>…3–6 sentences…</p>
   <div class="tablewrap"><table>
     <tr><th>#</th><th>Finding</th><th>Severity</th><th>Samples</th><th>Top action</th></tr>
-    <tr><td>1</td><td>…</td><td>3 of 3</td><td>4,772</td><td>…</td></tr>
   </table></div>
 
   <h2>1. Failure mode: …</h2>
   <div class="chips">
     <span class="chip sev sev3">Severity 3 of 3</span>
-    <span class="chip">4,772 samples</span>
-    <span class="chip">81% training</span>
+    <span class="chip">314 samples</span>
+    <span class="chip">accuracy 0.42</span>
   </div>
+  <div class="taxonomy">
+    <span class="tx active">Data gap</span><span class="tx">Label quality</span>
+    <span class="tx">Split problem</span><span class="tx">Model behavior</span>
+  </div>
+  <p class="muted">Diagnosis: the corruption never appears in training — a coverage gap, not a model defect.</p>
+
   <p>…failure mode, root cause, evidence…</p>
-  <div class="grid">
-    <figure><img src="insight_1_…/samples/…/data.jpg" alt="deer labeled cat">
-      <figcaption>validation_9158 — deer → "cat", loss 16.1</figcaption></figure>
+
+  <div class="splitbar">
+    <span class="st-test" style="width:70%"></span>
+    <span class="st-unl" style="width:30%"></span>
   </div>
-  <blockquote>"…text sample…"<span class="muted">training_816 — labeled pos, loss 7.4</span></blockquote>
-  <details><summary>Sub-clusters (5)</summary><ul><li>…</li></ul></details>
+  <div class="legend">
+    <span class="train"><b></b>training 0</span>
+    <span class="val"><b></b>validation 0</span>
+    <span class="test"><b></b>test 221</span>
+    <span class="unl"><b></b>unlabeled 93</span>
+  </div>
+
+  <div class="contrast">
+    <span>this group</span><span class="track"><span class="fill" style="width:48%"></span></span><span>0.42 acc</span>
+    <span>rest of data</span><span class="track"><span class="fill" style="width:100%"></span></span><span>0.87 acc</span>
+  </div>
+
+  <div class="grid">
+    <figure><img src="insight_1_…/data.png" alt="…"><figcaption>test_1855 — loss 5.8</figcaption></figure>
+    <!-- …6 visible… -->
+  </div>
+  <details class="more"><summary>Show 18 more samples</summary>
+    <div class="grid"><!-- …the rest, also relative src, inlined too… --></div>
+  </details>
+
   <h3>Action items</h3>
   <ul class="actions"><li>…</li></ul>
-  <p class="muted">See it in Tensorleap: open PROJECT → version VERSION →
-     Insights panel → finding #1.</p>
+
+  <details class="explore"><summary>Explore in Tensorleap</summary>
+    <p><a href="DEEP_LINK">Open this finding in Tensorleap</a> — lands on the
+       insight with its filters applied.</p>
+    <p class="muted">Manual path: PROJECT → version VERSION → Insights panel →
+       finding #1 ("low performance", severity 3). Latent space: balanced.
+       Group: 221 test + 93 unlabeled samples. The platform pre-selected 88
+       unlabeled samples for labeling.</p>
+  </details>
 
   <h2>Appendix</h2>
   <ul><li>…</li></ul>
@@ -139,5 +214,6 @@ summary { cursor: pointer; font-weight: 600; }
 ## report.md (the paste-into-a-ticket companion)
 
 Just: title line, the executive-summary paragraph, the summary table, and
-each finding's action-item checklist under its failure-mode heading. No
-images, no evidence sections — link to `report.html` for those.
+each finding's action-item checklist under its failure-mode heading, plus the
+finding's deep link as a plain URL. No images, no evidence sections — link to
+`report.html` for those.

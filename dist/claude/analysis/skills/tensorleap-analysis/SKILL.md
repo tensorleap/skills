@@ -109,9 +109,17 @@ one-line the rest.
 
 ## Step 5 — Write the report
 
-Follow **`reference/report-template.md`** (HTML skeleton + language
-rules). Write `<out-dir>/report.html` with plain relative `src` paths, then
-make it self-contained:
+Follow **`reference/report-template.md`** (HTML skeleton, per-finding
+anatomy, language rules). Each finding gets: severity chips, the
+**failure-mode taxonomy strip** (Data gap / Label quality / Split problem /
+Model behavior — highlight the family your playbook walk diagnosed, caption
+why), the **split-composition bar** and **metric-contrast rows** (population
+value from `population_metrics` in insights.json; omit the row if absent),
+6 visible samples + the rest behind `<details>` "Show more", action items,
+and the collapsed **"Explore in Tensorleap"** box using the finding's
+`deep_link` (falls back to `links.insights_panel`) plus the manual path.
+Write `<out-dir>/report.html` with plain relative `src` paths, then make it
+self-contained:
 
 ```
 python3 scripts/tl_api.py inline-html <out-dir>/report.html
