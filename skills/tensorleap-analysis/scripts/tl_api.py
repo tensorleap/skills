@@ -13,6 +13,7 @@ Usage:
   tl_api.py fetch --project ID --version ID --out DIR [--top-k 10]
                   [--rank-by COLUMN] [--asc]
   tl_api.py render-charts DIR
+  tl_api.py inline-html FILE.html   # embed <img src> files as data URIs, in place
 
 Exit codes:
   0  ok
@@ -20,7 +21,8 @@ Exit codes:
   3  not authenticated (missing config, or server rejected the key)
   4  server unreachable or returned an unexpected error
   5  version has no insights
-  6  matplotlib unavailable (render-charts only — fall back to md tables)
+  6  matplotlib unavailable (render-charts only — fall back to html tables)
+  7  inline-html: some src paths did not resolve (listed on stderr)
 """
 import argparse
 import base64
@@ -477,6 +479,35 @@ def cmd_render_charts(args):
     print(f"rendered {rendered} charts")
 
 
+def cmd_inline_html(args):
+    import mimetypes
+    import re
+    base = os.path.dirname(os.path.abspath(args.file))
+    html = open(args.file, encoding="utf-8").read()
+    missing = []
+
+    def repl(m):
+        src = m.group(2)
+        if src.startswith(("data:", "http://", "https://")):
+            return m.group(0)
+        path = os.path.join(base, urllib.request.url2pathname(src))
+        if not os.path.isfile(path):
+            missing.append(src)
+            return m.group(0)
+        mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        b64 = base64.b64encode(open(path, "rb").read()).decode()
+        return f"{m.group(1)}data:{mime};base64,{b64}{m.group(3)}"
+
+    html = re.sub(r'(src=")([^"]+)(")', repl, html)
+    open(args.file, "w", encoding="utf-8").write(html)
+    size_mb = os.path.getsize(args.file) / 1e6
+    print(f"{args.file}: {size_mb:.1f} MB, {len(missing)} unresolved src paths")
+    if missing:
+        for src in missing:
+            print(f"unresolved: {src}", file=sys.stderr)
+        raise SystemExit(7)
+
+
 def main():
     parser = argparse.ArgumentParser(prog="tl_api.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -492,11 +523,14 @@ def main():
     fe.add_argument("--asc", action="store_true")
     rc = sub.add_parser("render-charts")
     rc.add_argument("dir")
+    ih = sub.add_parser("inline-html")
+    ih.add_argument("file")
     args = parser.parse_args()
-    if args.cmd != "render-charts":
+    if args.cmd not in ("render-charts", "inline-html"):
         read_config()
     {"whoami": cmd_whoami, "list-versions": cmd_list_versions,
-     "fetch": cmd_fetch, "render-charts": cmd_render_charts}[args.cmd](args)
+     "fetch": cmd_fetch, "render-charts": cmd_render_charts,
+     "inline-html": cmd_inline_html}[args.cmd](args)
 
 
 if __name__ == "__main__":

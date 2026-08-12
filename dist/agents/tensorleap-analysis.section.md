@@ -2,8 +2,9 @@
 <!-- Tensorleap skill 'tensorleap-analysis' v0.1.0 — generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
-You produce a markdown report from the insights Tensorleap generated for one
-evaluated model version. The platform already did the numeric analysis — your
+You produce a self-contained HTML report (plus a short markdown companion
+for tickets) from the insights Tensorleap generated for one evaluated model
+version. The platform already did the numeric analysis — your
 job is to fetch it, explain it, show the evidence, and turn it into action
 items the user can execute. Phase-1 scope: the platform's insights verbatim,
 no extra metric crunching.
@@ -74,7 +75,7 @@ python3 .tensorleap/scripts/tl_api.py render-charts tensorleap-analysis/<version
 ```
 
 Exit 6 means no matplotlib in this environment — fall back to compact
-markdown tables built from the payload JSON (do NOT install anything).
+HTML tables built from the payload JSON (do NOT install anything).
 
 ## Step 4 — Analyze
 
@@ -95,16 +96,28 @@ one-line the rest.
 
 ## Step 5 — Write the report
 
-Follow **`.tensorleap/reference/report-template.md`**. Write to
-`<out-dir>/report.md` so image links are relative. Modality handling per
-sample `payload.json` (`data.type`):
+Follow **`.tensorleap/reference/report-template.md`** (HTML skeleton + language
+rules). Write `<out-dir>/report.html` with plain relative `src` paths, then
+make it self-contained:
+
+```
+python3 .tensorleap/scripts/tl_api.py inline-html <out-dir>/report.html
+```
+
+Exit 7 means some `src` paths didn't resolve — fix them (stderr lists which)
+and re-run; never ship a report with broken images. The result is ONE file
+the user can mail or Slack. Also write `<out-dir>/report.md` — just the
+executive summary, summary table, and per-finding action checklists (the
+paste-into-a-ticket companion; no images).
+
+Modality handling per sample `payload.json` (`data.type`):
 
 | `data.type` | Embed as |
 |---|---|
-| `image`, `image_heatmap`, `bbox_image`, `mask_image` | the downloaded `.jpg`/`.png` from `assets/` |
-| `text`, `mask_text` | blockquote of the joined `data.body` tokens |
-| `graph`, `hbar` | `chart.png` next to the payload (or md table fallback) |
-| `video`, `audio` | link the downloaded file, note it can't be inlined |
+| `image`, `image_heatmap`, `bbox_image`, `mask_image` | `<figure>` with the downloaded `.jpg`/`.png` from `assets/` |
+| `text`, `mask_text` | `<blockquote>` of the joined `data.body` tokens |
+| `graph`, `hbar` | `chart.png` next to the payload (or an HTML table fallback) |
+| `video`, `audio` | note it exists; don't inline media files |
 
 Order insights by `severity` descending. **Lead every finding with its
 failure mode** — what fails and why, named in plain ML terms — and write for
