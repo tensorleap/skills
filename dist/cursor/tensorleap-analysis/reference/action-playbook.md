@@ -76,6 +76,50 @@ also recommend rebalancing the splits.
 | `domain_gap` | Performance differs across two values of a metadata field. | `metadata_name`, `domain_gap_score`, `domain_a`, `domain_b` | Balance training data across the domains; domain-specific augmentation; per-domain eval tracking; boost the weak domain via loss weighting. |
 | `mislabeled_samples` | Candidate labeling errors in `subset`. | `subset` | Manually review the top samples (embed them in the report); relabel confirmed ones; re-evaluate. |
 
+## Look for yourself (mandatory per finding)
+
+The platform clusters by metrics, metadata and embeddings — it cannot read
+an image or a sentence. You can. For every finding you write up, open its
+top samples and ask:
+
+1. **Does the content contradict the label?** A visibly dark-haired face
+   labeled blond, a hostile review labeled positive → say so plainly; this
+   turns a "low performance" finding into a mislabeling finding, and the
+   action item changes from training work to label fixing.
+2. **What do these samples share that the metadata can't express?**
+   Lighting, pose, occlusion, background clutter, image quality, phrasing
+   style, topic. If you spot one, name it AND recommend adding it as a
+   metadata field — that makes the pattern trackable in the platform from
+   the next run on.
+3. **Do the members actually belong together?** If the worst samples have
+   nothing visible in common and the metadata story is weak, the finding
+   fails the coherence gate: drop it to the appendix rather than forcing a
+   narrative or merging it into another finding.
+
+Your observations go in the finding's "What the samples show" block, worded
+as your own reading ("Looking at the samples, …") so it never masquerades as
+platform output. "Nothing beyond the platform's story" is a valid, useful
+observation — write it.
+
+## Latent space — what "similar" means for this group
+
+Every insight carries `latent_space`: the representation in which its
+samples clustered together. Always name it in the finding and translate it
+in one line, because it tells the reader in what SENSE the group is a group:
+
+| Name (typical) | Translation |
+|---|---|
+| `classification-semantic` | similar in the features that drive the model's class decision — the model treats these samples alike |
+| `image-non-semantic` | visually similar (low-level appearance), regardless of class |
+| `foreground` | similar main subject/foreground, background discounted |
+| `balanced` | a general-purpose mix of semantic and visual similarity |
+
+Unknown name → write "grouped in the project's '<name>' representation" and
+move on; never guess. The latent space also colors the diagnosis: a cluster
+in a non-semantic space is about appearance (corruptions, lighting, domains),
+while a cluster in the classification-semantic space is about how the model
+reasons (confusions, label boundaries).
+
 ## Action-item style
 
 Write action items an ML engineer can execute this week: name the class /

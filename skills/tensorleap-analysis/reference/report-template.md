@@ -24,15 +24,23 @@ want to continue there. Rules for the prose:
 
 ## Anatomy of a finding (in order)
 
+**One finding = one section.** Never merge findings into a combined section;
+if two findings share a pattern, each gets its own full section and a
+cross-reference. If a finding fails the coherence gate (skill Step 4), it
+gets NO section — one honest line in the appendix instead.
+
 1. **Heading**: the failure mode. Chips: severity (text label always — color
-   never alone), sample count, subset makeup, key metric.
+   never alone), sample count, key metric, **latent space** (e.g.
+   "classification-semantic space").
 2. **Taxonomy strip** — the interpretive scheme. Four fixed families:
    `Data gap · Label quality · Split problem · Model behavior`; highlight the
    diagnosed one (from the playbook walk) and caption WHY in one line. The
    strip is identical on every finding, so readers learn the grammar once.
    Multiple families may be active when the diagnosis is genuinely mixed.
 3. **Prose**: what kind of samples fail, how the model gets them wrong,
-   likely root cause, evidence in plain sentences.
+   likely root cause, evidence in plain sentences. Include one sentence
+   translating the latent space: in what sense are this group's samples
+   "similar" (see the playbook's latent-space guide).
 4. **Mini-diagrams** (pure HTML/CSS, populated from the digest):
    - *Split composition bar*: where the group's samples live
      (training/validation/test/unlabeled), fixed colors, count labels below —
@@ -44,16 +52,24 @@ want to continue there. Rules for the prose:
    captioned with sample id + worst metric; the rest (≤18) inside
    `<details class="more">` — they're embedded too, so the file works
    offline; no JavaScript.
-6. **Action items**: 1–3 checklist items, concrete and quantified.
-7. **`<details class="explore">` "Explore in Tensorleap"**: the deep link
+6. **"What the samples show"** (`<div class="observe">`): the analyst's own
+   observations from actually viewing the samples — label errors visible by
+   eye, shared attributes the metadata doesn't capture (+ the suggestion to
+   add them as metadata). Written in first person of the analysis ("Looking
+   at the samples, …") so the reader can tell it apart from platform
+   evidence. If your look revealed nothing beyond the platform's story, say
+   that in one line — it's a real result.
+7. **Action items**: 1–3 checklist items, concrete and quantified.
+8. **`<details class="explore">` "Explore in Tensorleap"**: the deep link
    from the digest (`deep_link` per finding — opens the insight pinned with
    its filters applied; falls back to the Insights-panel link), the manual
    navigation path, the finding's # and platform name, latent space, split
    counts, and platform-selected label/acquire counts. No filter JSON.
 
-End with an appendix: samples without renderings, findings not elaborated,
-fetch errors. Keep the executive summary honest — if the findings are
-low-severity or repetitive, say so.
+End with an appendix: findings dropped as incoherent (one line each, with
+their platform finding #), samples without renderings, fetch errors. Keep
+the executive summary honest — if the findings are low-severity or
+repetitive, say so.
 
 ## HTML skeleton
 
@@ -140,6 +156,10 @@ details { background: var(--card); border-radius: 8px;
           padding: .6rem 1rem; margin: 1rem 0; }
 summary { cursor: pointer; font-weight: 600; }
 details.explore summary { color: var(--acc); }
+.observe { border-left: 3px solid var(--acc); padding: .1rem 1rem;
+           margin: 1rem 0; }
+.observe .tag { font-size: .75rem; font-weight: 700; letter-spacing: .04em;
+           text-transform: uppercase; color: var(--acc); }
 </style>
 </head>
 <body>
@@ -191,6 +211,12 @@ details.explore summary { color: var(--acc); }
   <details class="more"><summary>Show 18 more samples</summary>
     <div class="grid"><!-- …the rest, also relative src, inlined too… --></div>
   </details>
+
+  <div class="observe"><span class="tag">What the samples show</span>
+    <p>Looking at the samples: the worst members' visible content contradicts
+       their labels (…). The group also shares … which no metadata field
+       captures — worth adding as metadata so the platform can track it.</p>
+  </div>
 
   <h3>Action items</h3>
   <ul class="actions"><li>…</li></ul>

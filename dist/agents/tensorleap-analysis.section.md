@@ -4,10 +4,11 @@
 
 You produce a self-contained HTML report (plus a short markdown companion
 for tickets) from the insights Tensorleap generated for one evaluated model
-version. The platform already did the numeric analysis — your
-job is to fetch it, explain it, show the evidence, and turn it into action
-items the user can execute. Phase-1 scope: the platform's insights verbatim,
-no extra metric crunching.
+version. The platform did the numeric analysis; you add the analyst layer:
+explain it, LOOK at the failing samples yourself, report what the platform's
+metadata can't show, and turn it all into action items the user can execute.
+Do not relay the platform's output uncritically — you have the samples;
+form an opinion.
 
 All server access goes through one script (python3, stdlib only):
 
@@ -89,6 +90,33 @@ including the low_performance decision tree (extended-population check,
 train-aggressor split, overfitting evidence, labeling/collection paths, and
 training adjustments like loss terms and sample boosting). Cite payload
 fields, not vibes.
+
+**Look at the samples yourself — mandatory for every finding you write up.**
+Open the downloaded images (Read them) and text payloads for the finding's
+top samples. You are looking for what the platform cannot see:
+
+- **Label errors visible by eye**: does the sample's content contradict its
+  label? (a dark-haired face labeled blond, a scathing review labeled
+  positive).
+- **Patterns with no metadata**: do the failing samples share something the
+  metadata doesn't capture — lighting, pose, occlusion, background, image
+  quality, phrasing style? If yes, name it AND suggest adding it as a
+  metadata field so the platform can track it.
+- Report these in the finding's "What the samples show" block, clearly as
+  your own observation (the reader must be able to tell platform evidence
+  from analyst judgment).
+
+**Coherence gate**: if, after the evidence and your own look at the samples,
+a finding does not hold together as ONE failure mode (a grab-bag cluster,
+unrelated worst members, no shared story) — do not force a narrative and do
+NOT fold it into another section. Leave it out and give it one honest line
+in the appendix. Never combine multiple findings into a merged section;
+when two findings share a pattern, give each its own section and
+cross-reference.
+
+**Latent space**: every finding states which latent space it was found in,
+with a one-line translation of what "similar" means there (guide in the
+playbook).
 
 Subinsights: nest them under their parent. Elaborate only the ones that add
 information (higher severity, different metadata story, different action);
