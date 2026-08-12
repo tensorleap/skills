@@ -28,6 +28,17 @@ want to continue there. Rules for the prose:
   catch…"). Comparative framing adds nothing the reader can act on, and it
   misattributes — the platform's insight is what surfaced the group you are
   enriching.
+- **State what is known plus the step that completes it — never what can't
+  be done.** Every "we can't confirm / don't know X" is written as "doing Y
+  will establish X" ("adding illumination metadata will confirm the pattern
+  across all 430 members and let the platform track it"), and subtle
+  evidence is a discovery, not a weakness ("the numeric profile is subtle —
+  but the samples make the pattern visible"). Scope: this governs how you
+  present evidence, tooling, and next steps; model failures stay blunt
+  ("misses 48 objects per image") — naming the problem crisply is the value
+  of the report. And framing never upgrades confidence: "the samples make
+  the pattern visible" is right; asserting the unconfirmed cause as fact is
+  not.
 
 ## Anatomy of an insight section (in order)
 
