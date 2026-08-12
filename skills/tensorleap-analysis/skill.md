@@ -158,8 +158,9 @@ Model behavior — highlight the family your playbook walk diagnosed, caption
 why), the **split-composition bar** and **metric-contrast rows** (population
 value from `population_metrics` in insights.json; omit the row if absent),
 6 visible samples + the rest behind `<details>` "Show more", action items,
-and the collapsed **"Explore in Tensorleap"** box using the finding's
-`deep_link` (falls back to `links.insights_panel`) plus the manual path.
+and the collapsed **"Explore in Tensorleap"** box using `deep_link` (a
+version-level link that opens the Insights panel with the version selected —
+it applies no filters; tell the reader the finding's # in the list).
 Write `<out-dir>/report.html` with plain relative `src` paths, then make it
 self-contained:
 

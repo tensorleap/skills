@@ -302,30 +302,9 @@ def population_metrics(project_id, version):
     return {col: sums[col] / counts[col] for col in sums if counts.get(col)}
 
 
-def mint_deep_link(project_id, version_id, version_name, dashboard_id, insight):
-    itype = insight["insightType"]
-    if not itype.get("blob_path"):
-        return None
-    cluster_filter = {
-        "field": "cluster",
-        "operator": "cluster",
-        "value": {"urls": [itype["blob_path"]], "state": "ready"},
-        "displayData": {
-            "type": "insight",
-            "insights": [{
-                "insightType": itype,
-                "index": insight["index"],
-                "version": {"name": version_name, "id": version_id},
-            }],
-        },
-    }
+def mint_version_link(project_id, version_id, dashboard_id):
     state = {"dashboards": {dashboard_id: {
-        "topPanel": {"kind": "insight",
-                     "insightCids": [insight["cid"]],
-                     "activeCid": insight["cid"]},
-        "globalFilters": [cluster_filter],
         "selectedVersions": [{"id": version_id, "isVisibile": True}],
-        "topPanelStack": [],
     }}}
     resp = api("projectstate/upsertState",
                {"projectId": project_id, "state": json.dumps(state)}, soft=True)
@@ -460,17 +439,15 @@ def cmd_fetch(args):
         d.pop("top_samples", None)
 
     version = version_meta(args.project, args.version)
-    version_name = version.get("notes") or args.version
+    version_link = (dashboard_id and mint_version_link(
+        args.project, args.version, dashboard_id)) or panel_link
     for d in parents:
-        link = dashboard_id and mint_deep_link(
-            args.project, args.version, version_name, dashboard_id,
-            {"cid": d["cid"], "index": d["index"], "insightType": d["insightType"]})
-        d["deep_link"] = link or panel_link
+        d["deep_link"] = version_link
 
     result = {
         "projectId": args.project,
         "versionId": args.version,
-        "links": {"insights_panel": panel_link},
+        "links": {"insights_panel": version_link},
         "population_metrics": population_metrics(args.project, version),
         "insights": parents + orphans,
         "counts": {

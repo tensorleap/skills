@@ -66,15 +66,19 @@ gets NO section — one honest line in the appendix instead.
    that in one line — it's a real result.
 7. **Action items**: 1–3 checklist items, concrete and quantified.
 8. **`<details class="explore">` "Explore in Tensorleap"**: the deep link
-   from the digest (`deep_link` per finding — opens the insight pinned with
-   its filters applied; falls back to the Insights-panel link), the manual
-   navigation path, the finding's # and platform name, latent space, split
-   counts, and platform-selected label/acquire counts. No filter JSON.
+   from the digest (`deep_link` — opens the version's Insights panel with
+   this version selected; it does NOT apply any filter, the reader picks
+   the finding from the list by its # and name, which you state), the
+   manual navigation path, the finding's # and platform name, latent
+   space, split counts, and platform-selected label/acquire counts. No
+   filter JSON.
 
 End with an appendix: findings dropped as incoherent (one line each, with
-their platform finding #), samples without renderings, fetch errors. Keep
-the executive summary honest — if the findings are low-severity or
-repetitive, say so.
+their platform finding #), samples whose visualizations aren't rendered yet
+— phrase it as normal on-demand behavior ("not rendered yet; can be
+triggered from the UI"), never as an error — and fetch errors. Keep the
+executive summary honest — if the findings are low-severity or repetitive,
+say so.
 
 ## HTML skeleton
 
@@ -227,12 +231,13 @@ details.explore summary { color: var(--acc); }
   <ul class="actions"><li>…</li></ul>
 
   <details class="explore"><summary>Explore in Tensorleap</summary>
-    <p><a href="DEEP_LINK">Open this finding in Tensorleap</a> — lands on the
-       insight with its filters applied.</p>
+    <p><a href="DEEP_LINK">Open this version's Insights panel</a> — this
+       finding is #1 there ("low performance", severity 3); nothing is
+       filtered for you.</p>
     <p class="muted">Manual path: PROJECT → version VERSION → Insights panel →
-       finding #1 ("low performance", severity 3). Latent space: balanced.
-       Group: 221 test + 93 unlabeled samples. The platform pre-selected 88
-       unlabeled samples for labeling.</p>
+       finding #1. Latent space: balanced. Group: 221 test + 93 unlabeled
+       samples. The platform pre-selected 88 unlabeled samples for
+       labeling.</p>
   </details>
 
   <h2>Appendix</h2>
