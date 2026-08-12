@@ -100,8 +100,8 @@ the same cause type ("bad on roads and also bad on oceans") are different
 findings — check the parent's subinsights first, they often isolate the
 single-population cores.
 
-When two findings look alike, MEASURE before writing: member overlap between
-their CSVs, composition, metric signatures. Then:
+When two findings look alike, MEASURE before writing: composition and metric
+signatures over their CSVs. Then:
 
 - A real difference exists → each section stands on its difference, named in
   its heading (e.g. one group's misses concentrate in held-out data).
@@ -109,6 +109,12 @@ their CSVs, composition, metric signatures. Then:
   single-population story (severity as tiebreak); the other gets an appendix
   line saying what it shares with the kept one and its # in the Insights
   panel.
+
+Write the difference as the finding's own content, never as commentary on
+the report's structure ("what makes this group its own finding…", "unlike
+finding #2…") — state the facts and let the distinction be self-evident.
+Top-level findings are disjoint groups by definition, so never present
+non-overlap as a discovery or a differentiator.
 
 ## Look for yourself (mandatory per finding)
 
