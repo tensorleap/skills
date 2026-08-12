@@ -29,8 +29,13 @@ if two findings share a pattern, each gets its own full section and a
 cross-reference. If a finding fails the coherence gate (skill Step 4), it
 gets NO section — one honest line in the appendix instead.
 
-1. **Heading**: the failure mode. Chips: severity (text label always — color
-   never alone), sample count, key metric, **latent space** (e.g.
+1. **Heading**: what the finding IS. Prefix `Failure mode:` only when the
+   model is failing on a group of samples (low_performance,
+   out_of_distribution, domain_gap). Dataset-integrity findings —
+   duplication, data_leakage, mislabeled_samples — are prefixed
+   `Data issue:`; never call something a failure mode when the model isn't
+   the thing failing. Chips: severity (text label always — color never
+   alone), sample count, key metric, **latent space** (e.g.
    "classification-semantic space").
 2. **Taxonomy strip** — the interpretive scheme. Four fixed families:
    `Data gap · Label quality · Split problem · Model behavior`; highlight the

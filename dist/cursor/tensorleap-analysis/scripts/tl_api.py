@@ -272,11 +272,14 @@ def ui_base_url():
     return f"{scheme}://{host}{slash}{path}".rstrip("/")
 
 
-def population_metrics(project_id, version_id):
+def version_meta(project_id, version_id):
     resp = api("versions/getProjectSlimVersions", {"projectId": project_id}, soft=True)
     versions = (resp or {}).get("versions") or []
-    version = next((v for v in versions if v.get("cid") == version_id), None)
-    csv_path = ((version or {}).get("resources") or {}).get("csv_blob_path")
+    return next((v for v in versions if v.get("cid") == version_id), None) or {}
+
+
+def population_metrics(project_id, version):
+    csv_path = (version.get("resources") or {}).get("csv_blob_path")
     if not csv_path:
         return {}
     blob = download_blob(f"projects/{project_id}/{csv_path}", soft=True)
@@ -299,12 +302,28 @@ def population_metrics(project_id, version_id):
     return {col: sums[col] / counts[col] for col in sums if counts.get(col)}
 
 
-def mint_deep_link(project_id, version_id, dashboard_id, insight):
+def mint_deep_link(project_id, version_id, version_name, dashboard_id, insight):
+    itype = insight["insightType"]
+    if not itype.get("blob_path"):
+        return None
+    cluster_filter = {
+        "field": "cluster",
+        "operator": "cluster",
+        "value": {"urls": [itype["blob_path"]], "state": "ready"},
+        "displayData": {
+            "type": "insight",
+            "insights": [{
+                "insightType": itype,
+                "index": insight["index"],
+                "version": {"name": version_name, "id": version_id},
+            }],
+        },
+    }
     state = {"dashboards": {dashboard_id: {
         "topPanel": {"kind": "insight",
                      "insightCids": [insight["cid"]],
                      "activeCid": insight["cid"]},
-        "globalFilters": insight["insightType"].get("display_filters") or [],
+        "globalFilters": [cluster_filter],
         "selectedVersions": [{"id": version_id, "isVisibile": True}],
         "topPanelStack": [],
     }}}
@@ -440,20 +459,19 @@ def cmd_fetch(args):
     for d in digests.values():
         d.pop("top_samples", None)
 
-    if dashboard_id:
-        for d in parents:
-            link = mint_deep_link(args.project, args.version, dashboard_id,
-                                  {"cid": d["cid"], "insightType": d["insightType"]})
-            d["deep_link"] = link or panel_link
-    else:
-        for d in parents:
-            d["deep_link"] = panel_link
+    version = version_meta(args.project, args.version)
+    version_name = version.get("notes") or args.version
+    for d in parents:
+        link = dashboard_id and mint_deep_link(
+            args.project, args.version, version_name, dashboard_id,
+            {"cid": d["cid"], "index": d["index"], "insightType": d["insightType"]})
+        d["deep_link"] = link or panel_link
 
     result = {
         "projectId": args.project,
         "versionId": args.version,
         "links": {"insights_panel": panel_link},
-        "population_metrics": population_metrics(args.project, args.version),
+        "population_metrics": population_metrics(args.project, version),
         "insights": parents + orphans,
         "counts": {
             "total": len(digests),
