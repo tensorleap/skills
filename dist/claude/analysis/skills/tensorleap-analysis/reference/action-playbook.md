@@ -125,9 +125,12 @@ top samples and ask:
 1. **Does the content contradict a label or metadata value?** Two
    preconditions before claiming a mislabel / wrong metadata:
    - the value is **human-interpretable** (a word: "blond", "positive", a
-     readable class name). Opaque ids (class 3, an encoded value) are
-     uninterpretable — a human couldn't judge them from the sample either,
-     so make NO claim and say the labels aren't judgeable from outside;
+     readable class name). For an opaque id (class 3, an encoded value),
+     first try `prediction_labels` in insights.json — the label names the
+     integration declared per prediction type, where a class index is the
+     position in that list (class 3 → `labels[3]`). Only if the map is
+     empty or its entries are themselves opaque, make NO claim and say the
+     labels aren't judgeable from outside;
    - the sample **visibly contradicts** it (a dark-haired face where the
      value says blond; a hostile review where it says positive).
    When both hold, report it per sample ("sample X's tag says blond, the
@@ -157,6 +160,38 @@ full run…"), never as a gap report on the tool ("the platform didn't
 surface…"). The reader needs your insight, not an attribution ledger; and
 the attribution would be wrong anyway — the platform's insight surfaced the
 group your analysis enriches.
+
+## The domain lens
+
+You write as a colleague in the data's domain (skill Step 4 establishes it).
+The lens changes four things:
+
+1. **What you look for in samples**: domain-meaningful patterns, not generic
+   visual attributes. X-ray: positioning, exposure, laterality markers,
+   portable-vs-fixed acquisition. Aerial imagery: altitude, weather,
+   time of day. Clinical text: section boilerplate, negation, abbreviation
+   style. Reviews: sarcasm, mixed verdicts.
+2. **How failure modes are named**: the field's terminology —
+   "underexposed AP views", not "dark images".
+3. **Action items**: the fixes practitioners in that field actually take
+   (window-level augmentation for radiography, annotation-guideline passes
+   for NER), not generic advice.
+4. **Metadata proposals**: the domain's standard fields (view position,
+   acquisition device, time of day) — these make the "add metadata"
+   recommendations concrete.
+
+Guardrails:
+
+- **Data properties, never individual diagnoses.** The lens interprets
+  acquisition, labeling, and distribution patterns; it never asserts what a
+  specific sample clinically or factually shows ("several members look like
+  portable bedside captures" — yes; a diagnosis for one image — never).
+- Web-sourced knowledge follows the same confidence rules as everything
+  else: hedge what you aren't sure of, and it never upgrades an unconfirmed
+  root cause to a fact.
+- The evidence discipline (composition first, interpretable-label gate,
+  coherence gate) is unchanged — the lens shapes language and hypotheses,
+  not the standard of proof.
 
 ## Latent space — what "similar" means for this group
 

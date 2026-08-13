@@ -302,6 +302,18 @@ def population_metrics(project_id, version):
     return {col: sums[col] / counts[col] for col in sums if counts.get(col)}
 
 
+def prediction_labels(project_id, version):
+    snap_id = version.get("codeSnapshotId")
+    if not snap_id:
+        return {}
+    resp = api("versions/getCodeSnapshot",
+               {"projectId": project_id, "codeSnapshotId": snap_id}, soft=True)
+    setup = ((((resp or {}).get("codeSnapshot") or {}).get("parseResult") or {})
+             .get("setup") or {})
+    return {p.get("name"): p["labels"]
+            for p in setup.get("prediction_types") or [] if p.get("labels")}
+
+
 def mint_version_link(project_id, version_id, dashboard_id):
     state = {"dashboards": {dashboard_id: {
         "selectedVersions": [{"id": version_id, "isVisibile": True}],
@@ -449,6 +461,7 @@ def cmd_fetch(args):
         "versionId": args.version,
         "links": {"insights_panel": version_link},
         "population_metrics": population_metrics(args.project, version),
+        "prediction_labels": prediction_labels(args.project, version),
         "insights": parents + orphans,
         "counts": {
             "total": len(digests),

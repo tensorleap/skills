@@ -60,7 +60,9 @@ version, and stop. On success the out dir contains:
 - `insights.json` — the digest you work from: parent insights with nested
   `subinsights`, each with `insightType` (full engine payload), `files`
   (local csv / top_panel), `samples` (per sample id: downloaded `payload.json`
-  + assets), `errors`, and top-level `counts`.
+  + assets), `errors`, and top-level `counts`, plus `prediction_labels`
+  (per prediction type, the class-name list the integration declared —
+  class index i is `labels[i]`; empty if the integration declared none).
 - `insight_<i>_<type>/` per insight — `samples.csv`, optional
   `top_panel.json`, and `samples/<sample_id>/<dataType>/<visualizer>/…` with
   `payload.json` and any image assets.
@@ -81,7 +83,27 @@ python3 scripts/tl_api.py render-charts tensorleap-analysis/<version>
 Exit 6 means no matplotlib in this environment — fall back to compact
 HTML tables built from the payload JSON (do NOT install anything).
 
-## Step 4 — Analyze
+## Step 4 — Establish the domain
+
+The report reads as if a domain expert wrote it, for domain experts.
+Determine the domain and task from what you already have — the project name,
+`prediction_labels`, the metadata fields, and the samples themselves (drone
+footage, clinical notes, movie reviews announce themselves). Do NOT ask the
+user to confirm a domain you inferred. Ask only when the data genuinely
+leaves you unable to tell what the task is — and then ask once,
+specifically.
+
+When the domain is specialized and a concrete gap would change the analysis,
+run 2–4 targeted web searches: how practitioners interpret the pattern you
+are seeing, what remediation is standard in the field, and the field's
+terminology so failure modes are named in the reader's language
+("underexposed AP views", not "dark images"). No internet access → proceed
+on your own knowledge, silently.
+
+Carry the lens through everything that follows — sample viewing, naming,
+action items, metadata proposals (playbook: "The domain lens").
+
+## Step 5 — Analyze
 
 Read `insights.json`, then per insight read its `top_panel.json` (ready-made
 `summary.title`/`summary.sentence` when present) and skim `samples.csv`
@@ -133,7 +155,7 @@ Subinsights: nest them under their parent. Elaborate only the ones that add
 information (higher severity, different metadata story, different action);
 one-line the rest.
 
-## Step 5 — Write the report
+## Step 6 — Write the report
 
 Follow **`reference/report-template.md`** (HTML skeleton, per-insight
 anatomy, language rules). Each insight gets: severity chips, the

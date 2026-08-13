@@ -9,9 +9,11 @@ people paste into tickets and Slack). Write both into `<out-dir>` so relative
 paths resolve.
 
 **The report serves two audiences at once.** The prose and diagrams are for
-an ML engineer who has never opened Tensorleap; the collapsed "Explore in
-Tensorleap" box under each insight is for users who know the platform and
-want to continue there. Rules for the prose:
+an ML engineer working in the data's domain who has never opened Tensorleap
+— write as a colleague in that domain (its terminology, its standard fixes;
+skill Step 4); the collapsed "Explore in Tensorleap" box under each insight
+is for users who know the platform and want to continue there. Rules for the
+prose:
 
 - Each insight's heading names a **failure mode** in plain ML terms
   ("Confident misclassification of non-cats in the cat region", "Positive
@@ -46,7 +48,7 @@ want to continue there. Rules for the prose:
 into a combined section. When two insights resemble each other, apply the
 playbook's "One failing population per insight" rule: differentiate (each
 section stands on its measured difference) or keep only the clearer one. A
-insight that fails the coherence gate (skill Step 4) gets NO section — one
+insight that fails the coherence gate (skill Step 5) gets NO section — one
 honest line in the appendix instead.
 
 1. **Heading**: what the insight IS, unnumbered. Prefix `Failure mode:` only
