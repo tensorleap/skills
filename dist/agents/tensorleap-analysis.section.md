@@ -155,7 +155,13 @@ one-line the rest.
 ## Step 6 — Write the report
 
 Follow **`.tensorleap/reference/report-template.md`** (HTML skeleton, per-insight
-anatomy, language rules). Each insight gets: severity chips, the
+anatomy, language rules). **The body is grouped by insight TYPE in the
+Insights panel's order** (Failure Mode → Out of Distribution → Duplication →
+Data Leakage → Domain Gap → Mislabeled; the template has the display names
+and one-line meanings) — one `<h2>` group per type present, sections as
+`<h3>` inside, severity-ordered within the group, and the summary table
+mirrors the same order with a subheader row per type. Each insight gets:
+severity chips, the
 **failure-mode taxonomy strip** (Data gap / Label quality / Split problem /
 Model behavior — highlight the family your playbook walk diagnosed, caption
 why), the **split-composition bar** and **metric-contrast rows** (population

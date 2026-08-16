@@ -42,22 +42,46 @@ prose:
   the pattern visible" is right; asserting the unconfirmed cause as fact is
   not.
 
+## Type groups — the report's skeleton
+
+The body is organized exactly like the Insights panel: one group (`<h2>`)
+per insight TYPE present in the run, in the panel's order, each opening with
+the panel's display name, the count, and a one-line meaning of the type.
+Sections (`<h3>`) live inside their group, severity-ordered. Types with no
+insights are omitted. The summary table follows the same order (a subheader
+row per type), so table, body, and panel all read the same way; impact
+priority is the executive summary PROSE's job, not a sort order.
+
+| Panel name | payload `type` | One-line meaning for the group header |
+|---|---|---|
+| Failure Mode | `low_performance` | groups of samples where the model underperforms |
+| Out of Distribution | `out_of_distribution` | samples in one subset unlike anything in the rest of the data |
+| Duplication | `duplication` | near-identical samples within a subset |
+| Data Leakage | `data_leakage` | near-identical samples on both sides of a split |
+| Domain Gap | `domain_gap` | performance differs between two values of a metadata field |
+| Mislabeled | `mislabeled_samples` | samples whose ground truth looks wrong |
+
+When some of a type's insights are covered in the appendix rather than
+elaborated, say so in the group header count ("3 of 6 insights — the rest in
+the appendix") so the number still reconciles with the panel. The group
+header's meaning line may also note, once per report, that the taxonomy
+strip inside each section is a different axis: the type is what the platform
+detected; the strip is the root cause the analysis diagnosed.
+
 ## Anatomy of an insight section (in order)
 
 **One insight = one section = one failing population.** Never merge insights
 into a combined section. When two insights resemble each other, apply the
 playbook's "One failing population per insight" rule: differentiate (each
-section stands on its measured difference) or keep only the clearer one. A
+section stands on its measured difference) or keep only the clearer one. An
 insight that fails the coherence gate (skill Step 5) gets NO section — one
 honest line in the appendix instead.
 
-1. **Heading**: what the insight IS, unnumbered. Prefix `Failure mode:` only
-   when the model is failing on a group of samples (low_performance,
-   out_of_distribution, domain_gap). Dataset-integrity insights —
-   duplication, data_leakage, mislabeled_samples — are prefixed
-   `Data issue:`; never call something a failure mode when the model isn't
-   the thing failing. The section's identity is its **platform insight #**
-   (the Insights-panel number): show it as a chip and in the summary table's
+1. **Heading** (`<h3>`, inside its type group): the failure story itself,
+   unnumbered and unprefixed — "Heavy gaussian noise breaks the classifier".
+   The type is carried by the group header, never repeated as a heading
+   prefix. The section's identity is its **platform insight #** (the
+   Insights-panel number): show it as a chip and in the summary table's
    first column, and never invent a parallel report numbering — prose
    cross-references between sections go by the failure mode's NAME ("the
    tiny-objects fix above"), never by number. Other chips: severity (text
@@ -144,8 +168,15 @@ body { background: var(--bg); color: var(--ink); margin: 0;
        font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
 article { max-width: 860px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
 h1 { font-size: 1.6rem; line-height: 1.25; }
-h2 { font-size: 1.2rem; margin-top: 2.5em; padding-top: 1em;
+h2 { font-size: 1.35rem; margin-top: 2.8em; padding-top: 1.1em;
+     border-top: 2px solid var(--ink); }
+h2 .count { font-size: .85rem; font-weight: 500; color: var(--ink-2);
+     margin-left: .6em; }
+h3 { font-size: 1.15rem; margin-top: 2.2em; padding-top: .9em;
      border-top: 1px solid var(--line); }
+h4 { font-size: 1rem; margin: 1.4em 0 .4em; }
+tr.typerow td { font-weight: 700; padding-top: .9rem;
+     border-bottom: 2px solid var(--line); }
 .meta, figcaption, .muted { color: var(--ink-2); font-size: .85rem; }
 a { color: var(--acc); }
 .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 1rem; }
@@ -214,9 +245,17 @@ details.explore summary { color: var(--acc); }
   <p>…3–6 sentences…</p>
   <div class="tablewrap"><table>
     <tr><th>Insight</th><th>Failure mode</th><th>Severity</th><th>Samples</th><th>Top action</th></tr>
+    <tr class="typerow"><td colspan="5">Failure Mode</td></tr>
+    <tr><td>#1</td><td>…</td><td>3 of 3</td><td>314</td><td>…</td></tr>
+    <tr class="typerow"><td colspan="5">Duplication</td></tr>
+    <tr><td>#24</td><td>…</td><td>2 of 3</td><td>88</td><td>…</td></tr>
   </table></div>
 
-  <h2>Failure mode: …</h2>
+  <h2>Failure Mode <span class="count">3 of 6 insights — the rest in the appendix</span></h2>
+  <p class="muted">Groups of samples where the model underperforms. Each section's taxonomy
+     strip gives the root cause the analysis diagnosed.</p>
+
+  <h3>Heavy gaussian noise breaks the classifier</h3>
   <div class="chips">
     <span class="chip sev sev3">Severity 3 of 3</span>
     <span class="chip">insight #1</span>
@@ -261,7 +300,7 @@ details.explore summary { color: var(--acc); }
        captures — worth adding as metadata so the platform can track it.</p>
   </div>
 
-  <h3>Action items</h3>
+  <h4>Action items</h4>
   <ul class="actions"><li>…</li></ul>
 
   <details class="explore"><summary>Explore in Tensorleap</summary>
