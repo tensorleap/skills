@@ -63,6 +63,13 @@ also recommend rebalancing the splits.
     - Not enough → **label what's available**, plus **collect more real
       data** matching the cluster's metadata profile, or **use/create a
       synthetic-data pipeline** if one is connected.
+    - No `aggressor_fixing` payload but the group's composition includes
+      unlabeled members → **still suggest labeling them** ("this group
+      contains N unlabeled samples — labeling them adds supervised signal
+      exactly where the model struggles"), then the collection/synthetic
+      options as above. This suggestion is mandatory whenever a
+      low-performance group has unlabeled members, never left to
+      case-by-case judgment; when the group has none, say nothing.
   - **Neither feasible** → fall back to **training adjustments**: loss-term
     addition and sample boosting (loss weighting / oversampling), as above.
 
