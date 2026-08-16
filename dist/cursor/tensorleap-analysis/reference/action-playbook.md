@@ -25,6 +25,15 @@ class, which metadata slice, how many samples).
 Run these checks in order for every low-performance insight (and any
 subinsight you elaborate). Each check names the payload fields that answer it.
 
+**An `aggressor_fixing` payload is a MUST-surface suggestion.** When the
+insight carries the payload (the Insights panel shows its Aggressor Fixing
+button), the card's "Do next" MUST include the platform's suggestion with
+its numbers — the samples to label and/or to acquire — regardless of which
+branch your diagnosis takes. Your judgment may rank or sequence it ("after
+the label audit"), never omit it. This binds every insight that has a card
+(a sub-based card cites its parent's payload); an insight ignored through
+the coherence gate is instead handled by its archive suggestion in Notes.
+
 **0. Is the extended metadata population failing too?**
 Look at `mutual_info_elements`: the features characterizing the cluster define
 a metadata population wider than the cluster itself.
@@ -64,12 +73,10 @@ also recommend rebalancing the splits.
       data** matching the cluster's metadata profile, or **use/create a
       synthetic-data pipeline** if one is connected.
     - No `aggressor_fixing` payload but the group's composition includes
-      unlabeled members → **still suggest labeling them** ("this group
-      contains N unlabeled samples — labeling them adds supervised signal
-      exactly where the model struggles"), then the collection/synthetic
-      options as above. This suggestion is mandatory whenever a
-      low-performance group has unlabeled members, never left to
-      case-by-case judgment; when the group has none, say nothing.
+      unlabeled members → suggest labeling them ("this group contains N
+      unlabeled samples — labeling them adds supervised signal exactly
+      where the model struggles"), then the collection/synthetic options
+      as above.
   - **Neither feasible** → fall back to **training adjustments**: loss-term
     addition and sample boosting (loss weighting / oversampling), as above.
 
