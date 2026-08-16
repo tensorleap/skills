@@ -3,19 +3,22 @@
 # Interim installer for Tensorleap AI-assistant skills.
 #
 # Installs the generated per-tool wrappers into a target repo (or your home dir)
-# from the committed dist/. Standalone tools (Claude, Cursor, Copilot) are
+# from the committed dist/. Standalone tools (Claude, Cursor, Copilot, Devin) are
 # written as their own files; AGENTS.md gets an idempotent marked-section upsert
 # that never clobbers content you already own. Copilot gets a native Agent Skill
 # folder — .github/skills/<name>/ in a repo, or ~/.copilot/skills/<name>/ with
 # --global (read by both VS Code and Copilot CLI). Cursor gets the same skill
 # folder at .cursor/skills/<name>/ in a repo, or ~/.cursor/skills/<name>/ with
-# --global. Installs every skill in the repo (the Claude "plugin" grouping only
-# matters for the native marketplace path, not for this file-copy install).
+# --global. Devin gets the same skill folder at .devin/skills/<name>/ in a repo
+# — no --global: Devin scans the repo it clones for a session on an ephemeral
+# cloud machine, not the user's home dir. Installs every skill in the repo (the
+# Claude "plugin" grouping only matters for the native marketplace path, not
+# for this file-copy install).
 #
 # The future front door is `leap skills install <name>`; this is the bridge.
 #
 # Usage:
-#   ./install.sh [--tool <claude|cursor|copilot|agents|all>] [--repo|--global]
+#   ./install.sh [--tool <claude|cursor|copilot|agents|devin|all>] [--repo|--global]
 #                [--ref <branch>] [TARGET_DIR]
 #   curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh \
 #     | sh -s -- --tool copilot [--global] [TARGET_DIR]
@@ -53,8 +56,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$TOOL" in
-  claude|cursor|copilot|agents|all) ;;
-  *) echo "install: --tool must be one of claude|cursor|copilot|agents|all" >&2; exit 2 ;;
+  claude|cursor|copilot|agents|devin|all) ;;
+  *) echo "install: --tool must be one of claude|cursor|copilot|agents|devin|all" >&2; exit 2 ;;
 esac
 
 if [ "$SCOPE" = "global" ]; then
@@ -171,6 +174,25 @@ if want cursor; then
     chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
     say "cursor skill -> $dest"
   done
+fi
+
+if want devin; then
+  if [ "$SCOPE" = "global" ]; then
+    echo "install: --tool devin has no --global install — Devin scans the repo" >&2
+    echo "it clones for a session, not the user's home dir; skipping." >&2
+  else
+    dev_root="$TARGET/.devin/skills"
+    for skill in $(list_skills); do
+      src="$DIST/devin/$skill"
+      [ -d "$src" ] || continue
+      dest="$dev_root/$skill"
+      rm -rf "$dest"   # fresh copy: files removed upstream must not linger after updates
+      mkdir -p "$dest"
+      cp -R "$src/." "$dest/"
+      chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
+      say "devin skill -> $dest"
+    done
+  fi
 fi
 
 if want agents; then

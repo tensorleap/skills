@@ -2,8 +2,8 @@
 
 The single source of truth for Tensorleap's AI-assistant **skills**. Each skill is
 authored **once** in a canonical format; this repo generates thin, per-tool
-wrappers (GitHub Copilot, Claude Code, Cursor, `AGENTS.md`) from it and ships the
-shared scripts each skill needs.
+wrappers (GitHub Copilot, Claude Code, Cursor, Devin, `AGENTS.md`) from it and
+ships the shared scripts each skill needs.
 
 > **v1 ships one skill:** [`tensorleap-integration-creation`](skills/tensorleap-integration-creation/skill.md)
 > — authoring and debugging a Tensorleap integration (`leap_integration.py` +
@@ -151,6 +151,50 @@ under `.tensorleap/` (with `--global`: the same paths under your home dir).
 Delete that `.mdc` file so the content isn't loaded twice (and `.tensorleap/`,
 unless an `AGENTS.md` install still uses it).
 
+## Devin
+
+[Devin](https://devin.ai) is Cognition's autonomous software engineering agent
+that clones a repo onto an ephemeral cloud machine to work a session, rather
+than running in your own IDE or terminal like the other tools here. The skill
+installs as a native [Devin Agent Skill](https://docs.devin.ai/product-guides/skills)
+(the open Agent Skills standard shared with Cursor and Copilot): Devin scans
+your repo for `SKILL.md` files whenever it clones it for a session and
+activates the skill when your task matches its description.
+
+### Install into a repo
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh -s -- --tool devin /path/to/your-project
+```
+
+(Omit the path to install into the current directory.) This creates
+`.devin/skills/tensorleap-integration-creation/` in the project — a
+self-contained folder (`SKILL.md` + helper scripts + reference docs).
+
+There is no `--global` install for Devin: sessions run on ephemeral cloud
+machines that clone the repo fresh each time, not the user's own machine, so
+there's no persistent home directory for Devin to read a personal skill from.
+
+### Verify it's discovered
+
+Open the skill list in a Devin session for the repo (or ask Devin to list its
+skills) — `tensorleap-integration-creation` should appear, sourced from
+`.devin/skills/`.
+
+### Use it
+
+Start a Devin session on the repo you want to integrate and describe the task.
+The skill activates on Tensorleap-integration language; a good starting prompt:
+
+> Integrate this project with Tensorleap: write leap_integration.py and leap.yaml
+> in the decorator style for the model at `<path/to/model.onnx>` over the dataset
+> at `<path/to/data>`. Start with the skill's preflight gate, then follow its run
+> loop until check_dataset() passes and the integration-test exit table is green.
+
+**Staying up to date:** there is no self-update check for Devin installs (no
+persistent global install to check from) — rerun the install command to pull
+the latest skill version into the repo.
+
 ## AGENTS.md / everything at once
 
 ```bash
@@ -175,8 +219,9 @@ silently degrade the Claude experience.
 
 A **plugin** is a Claude-Code-only grouping of skills, declared in `plugins.json`
 (it also carries plugin-level metadata + version). **Only Claude has plugins** — the
-other tools flatten to one artifact per skill and ignore the grouping entirely. So
-packaging choices only ever affect the Claude column.
+other tools (Copilot, Cursor, Devin, AGENTS.md) flatten to one artifact per skill
+and ignore the grouping entirely. So packaging choices only ever affect the
+Claude column.
 
 ```
 skills/                             # the atoms — author here
@@ -194,6 +239,7 @@ dist/                                # generated wrappers (committed; CI asserts
   claude/<plugin>/                   # a Claude plugin: plugin.json + skills/<skill>/{SKILL.md,scripts,reference}
   copilot/<skill>/                   # a Copilot Agent Skill: SKILL.md + scripts + reference (self-contained)
   cursor/<skill>/                    # a Cursor Agent Skill: same shape
+  devin/<skill>/                     # a Devin Agent Skill: same shape
   agents/<skill>.section.md          # flat marked-section fragment per skill
 .claude-plugin/marketplace.json      # generated; native `marketplace add` path
 install.sh                           # interim installer (clone-and-run or curl|sh)
@@ -201,9 +247,9 @@ install.sh                           # interim installer (clone-and-run or curl|
 
 The two per-tool-variable paths in the body — the shared `scripts/` and `reference/`
 dirs — are written canonically as `{{scripts_dir}}` / `{{reference_dir}}`. Claude,
-Cursor and Copilot resolve them skill-relative (self-contained folders); AGENTS.md
-resolves them to `.tensorleap/scripts` and `.tensorleap/reference`, where the
-installer places them.
+Cursor, Copilot and Devin resolve them skill-relative (self-contained folders);
+AGENTS.md resolves them to `.tensorleap/scripts` and `.tensorleap/reference`,
+where the installer places them.
 
 ## Developing
 
