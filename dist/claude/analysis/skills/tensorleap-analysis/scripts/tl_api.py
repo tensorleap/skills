@@ -32,6 +32,7 @@ import io
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -79,22 +80,29 @@ def api(path, body, soft=False):
         method="POST")
     if API["key"]:
         req.add_header("Authorization", f"Bearer {API['key']}")
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            raw = resp.read()
-            return json.loads(raw) if raw.strip() else {}
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode(errors="replace")[:500]
-        if e.code in (401, 403):
-            print(f"auth rejected by {API['url']} ({e.code}): {detail}", file=sys.stderr)
-            raise SystemExit(3)
-        if soft:
-            return None
-        print(f"POST /api/v2/{path} -> {e.code}: {detail}", file=sys.stderr)
-        raise SystemExit(4)
-    except urllib.error.URLError as e:
-        print(f"cannot reach {API['url']}: {e.reason}", file=sys.stderr)
-        raise SystemExit(4)
+    for attempt in (1, 2):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read()
+                return json.loads(raw) if raw.strip() else {}
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode(errors="replace")[:500]
+            if e.code in (401, 403):
+                print(f"auth rejected by {API['url']} ({e.code}): {detail}", file=sys.stderr)
+                raise SystemExit(3)
+            if soft:
+                return None
+            print(f"POST /api/v2/{path} -> {e.code}: {detail}", file=sys.stderr)
+            raise SystemExit(4)
+        except OSError as e:
+            if attempt == 1:
+                time.sleep(2)
+                continue
+            reason = getattr(e, "reason", e)
+            if soft:
+                return None
+            print(f"cannot reach {API['url']}: {reason}", file=sys.stderr)
+            raise SystemExit(4)
 
 
 def fetch_url(url):
@@ -213,7 +221,8 @@ def fetch_insight_files(insight, project_id, out_dir, k, rank_by, ascending, dig
                     inner = next((n for n in zf.namelist() if n.endswith(".csv")), None)
                     blob = zf.read(inner) if inner else b""
             local_csv = os.path.join(idir, "samples.csv")
-            open(local_csv, "wb").write(blob)
+            with open(local_csv, "wb") as f:
+                f.write(blob)
             digest["files"]["csv"] = local_csv
             sample_ids, columns = sample_ids_from_csv(blob, rank_by, ascending, k)
             digest["csv_columns"] = list(columns)
@@ -233,7 +242,8 @@ def fetch_insight_files(insight, project_id, out_dir, k, rank_by, ascending, dig
         blob = download_blob(f"projects/{project_id}/{top_panel}", soft=True)
         if blob is not None:
             local_tp = os.path.join(idir, "top_panel.json")
-            open(local_tp, "wb").write(blob)
+            with open(local_tp, "wb") as f:
+                f.write(blob)
             digest["files"]["top_panel"] = local_tp
             try:
                 summary = (json.loads(blob).get("summary") or {})
@@ -430,16 +440,20 @@ def cmd_fetch(args):
 
     def fetch_sample(job):
         d, raw, hashed, entry = job
-        for path in choose_paths(list_sample_paths(prefix, hashed), hashed):
-            rel = path.split(f"{hashed}/", 1)[-1]
-            local = os.path.join(args.out, d["dir"], "samples", raw, rel)
-            os.makedirs(os.path.dirname(local), exist_ok=True)
-            blob = download_blob(path, soft=True)
-            if blob is None:
-                entry.setdefault("errors", []).append(f"download failed: {path}")
-                continue
-            open(local, "wb").write(blob)
-            entry["files"].append(local)
+        try:
+            for path in choose_paths(list_sample_paths(prefix, hashed), hashed):
+                rel = path.split(f"{hashed}/", 1)[-1]
+                local = os.path.join(args.out, d["dir"], "samples", raw, rel)
+                os.makedirs(os.path.dirname(local), exist_ok=True)
+                blob = download_blob(path, soft=True)
+                if blob is None:
+                    entry.setdefault("errors", []).append(f"download failed: {path}")
+                    continue
+                with open(local, "wb") as f:
+                    f.write(blob)
+                entry["files"].append(local)
+        except (OSError, SystemExit) as e:
+            entry.setdefault("errors", []).append(f"sample fetch failed: {raw}: {e}")
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(fetch_sample, jobs))

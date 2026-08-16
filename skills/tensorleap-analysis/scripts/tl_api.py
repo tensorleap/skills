@@ -32,6 +32,7 @@ import io
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -79,22 +80,29 @@ def api(path, body, soft=False):
         method="POST")
     if API["key"]:
         req.add_header("Authorization", f"Bearer {API['key']}")
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            raw = resp.read()
-            return json.loads(raw) if raw.strip() else {}
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode(errors="replace")[:500]
-        if e.code in (401, 403):
-            print(f"auth rejected by {API['url']} ({e.code}): {detail}", file=sys.stderr)
-            raise SystemExit(3)
-        if soft:
-            return None
-        print(f"POST /api/v2/{path} -> {e.code}: {detail}", file=sys.stderr)
-        raise SystemExit(4)
-    except urllib.error.URLError as e:
-        print(f"cannot reach {API['url']}: {e.reason}", file=sys.stderr)
-        raise SystemExit(4)
+    for attempt in (1, 2):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read()
+                return json.loads(raw) if raw.strip() else {}
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode(errors="replace")[:500]
+            if e.code in (401, 403):
+                print(f"auth rejected by {API['url']} ({e.code}): {detail}", file=sys.stderr)
+                raise SystemExit(3)
+            if soft:
+                return None
+            print(f"POST /api/v2/{path} -> {e.code}: {detail}", file=sys.stderr)
+            raise SystemExit(4)
+        except OSError as e:
+            if attempt == 1:
+                time.sleep(2)
+                continue
+            reason = getattr(e, "reason", e)
+            if soft:
+                return None
+            print(f"cannot reach {API['url']}: {reason}", file=sys.stderr)
+            raise SystemExit(4)
 
 
 def fetch_url(url):
