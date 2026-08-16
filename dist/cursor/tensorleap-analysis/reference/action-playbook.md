@@ -171,7 +171,7 @@ The lens changes four things:
    portable-vs-fixed acquisition. Aerial imagery: altitude, weather,
    time of day. Clinical text: section boilerplate, negation, abbreviation
    style. Reviews: sarcasm, mixed verdicts.
-2. **How failure modes are named**: the field's terminology —
+2. **How issues are named**: the field's terminology —
    "underexposed AP views", not "dark images".
 3. **Action items**: the fixes practitioners in that field actually take
    (window-level augmentation for radiography, annotation-guideline passes
@@ -223,7 +223,7 @@ automatic_tests), cite its numbers instead of inventing new ones.
 
 The evidence-field table above is for YOUR reading, not for quoting: the
 report never shows raw payload fields, blob paths, or filter JSON. Lead every
-insight with the **failure mode** — what fails, how the model gets it wrong,
+insight with **what is going wrong** — what fails, how the model gets it wrong,
 the likely root cause — and translate the platform's numbers into sentences
 an outsider follows ("78% of the failing samples are night-time images vs
 12% elsewhere").

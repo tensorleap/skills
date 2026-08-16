@@ -96,7 +96,7 @@ specifically.
 When the domain is specialized and a concrete gap would change the analysis,
 run 2–4 targeted web searches: how practitioners interpret the pattern you
 are seeing, what remediation is standard in the field, and the field's
-terminology so failure modes are named in the reader's language
+terminology so issues are named in the reader's language
 ("underexposed AP views", not "dark images"). No internet access → proceed
 on your own knowledge, silently.
 
@@ -140,7 +140,7 @@ top samples. You are looking for what the platform cannot see:
   from analyst judgment).
 
 **Coherence gate**: if, after the evidence and your own look at the samples,
-an insight does not hold together as ONE failure mode (a grab-bag cluster,
+an insight does not hold together as ONE story about one failing population (a grab-bag cluster,
 unrelated worst members, no shared story) — do not force a narrative and do
 NOT fold it into another section. Leave it out and give it one honest line
 in the appendix. Never combine multiple insights into a merged section;
@@ -164,10 +164,12 @@ Data Leakage → Domain Gap → Mislabeled; the template has the display names
 and one-line meanings) — one `<h2>` group per type present, sections as
 `<h3>` inside, severity-ordered within the group, and the summary table
 mirrors the same order with a subheader row per type. Each insight gets:
-severity chips, the
-**failure-mode taxonomy strip** (Data gap / Label quality / Split problem /
-Model behavior — highlight the family your playbook walk diagnosed, caption
-why), the **split-composition bar** and **metric-contrast rows** (population
+severity chips, a bold
+one-sentence **bottom line**, the **root-cause label** (Data gap / Label
+quality / Split problem / Model behavior — the family your playbook walk
+diagnosed, with a one-line caption; fixed vocabulary so it reads as a
+consistent grammar), the **split-composition bar** and **metric-contrast
+rows** (population
 value from `population_metrics` in insights.json; omit the row if absent),
 6 visible samples + the rest behind `<details>` "Show more", action items,
 and the collapsed **"Explore in Tensorleap"** box using `deep_link` (a
@@ -200,8 +202,8 @@ Careful: `insights.json` lists files as of FETCH time — `chart.png` /
 `boxes.jpg` appear on disk only after render-charts, so resolve them from the
 payload's directory, not from the digest's file list.
 
-Order insights by `severity` descending. **Lead every insight with its
-failure mode** — what fails and why, named in plain ML terms — and write for
+Order insights by `severity` descending. **Lead every insight with what
+is going wrong** — what fails and why, named in plain ML terms — and write for
 an ML engineer with zero knowledge of Tensorleap internals: no blob paths,
 filter JSON, or raw payload field names in the prose (the template's language
 rules are binding). Keep the executive summary honest — if the insights are
