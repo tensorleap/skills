@@ -59,11 +59,17 @@ is for users who know the platform and want to continue there.
 5. **One `<h2>` group per insight type present**, in the panel's order,
    with a count badge and a one-line meaning (table below). Inside, one
    **card** per insight (anatomy below), severity-ordered.
-6. **Appendix**: insights without their own card (one line each, with their
-   panel #), unrendered visualizations phrased as on-demand behavior (never
-   as an error), fetch errors. The coherence gate is YOUR editorial
-   decision; word its outcome neutrally and ground it in the data — never
-   as a verdict label on the insight ("incoherent", "not actionable").
+6. **Notes**: short and terse — a few one-line bullets, no paragraphs.
+   One line per insight without a card, stating why in half a sentence and
+   ending in what the reader can do: an insight whose story is covered by
+   another card ("covered by the crowded-scenes actions"), a group whose
+   metrics are at population level ("no action needed"), or an insight where
+   the subinsight check found no single story ("its subinsights repeat the
+   stories above — a candidate for archiving in the panel"). Plus, when
+   relevant: unrendered visualizations phrased as on-demand behavior (never
+   as an error) and fetch errors. Word editorial outcomes neutrally and
+   ground them in the data — never verdict labels on the insight
+   ("incoherent", "not actionable").
 
 | Panel name | payload `type` | One-line meaning for the group header |
 |---|---|---|
@@ -74,8 +80,9 @@ is for users who know the platform and want to continue there.
 | Domain Gap | `domain_gap` | performance differs between two values of a metadata field |
 | Mislabeled | `mislabeled_samples` | samples whose ground truth looks wrong |
 
-When some of a type's insights live in the appendix, the group's count badge
-reconciles with the panel ("3 of 6").
+When some of a type's insights have no card, the group's count badge
+reconciles with the panel ("3 of 6") and each missing insight has its one
+Notes line.
 
 ## Anatomy of an insight card (in order)
 
@@ -84,9 +91,12 @@ into a combined card. When two insights resemble each other, apply the
 playbook's "One failing population per insight" rule: differentiate (each
 card stands on its measured difference, as content — never as commentary on
 the report's structure) or keep only the clearer one. An insight that fails
-the coherence gate (skill Step 5) gets NO card — one honest line in the
-appendix instead. Top-level insights are disjoint by definition; never
-present non-overlap as a discovery.
+the coherence gate goes through the subinsight rescue (skill Step 5): a
+subinsight that isolates one clear story gets the card instead — its chips
+carry both identities ("insight #3 · sub-insight #9") and its explore line
+names the parent in the panel. No coherent core → no card; one terse Notes
+line with the archive suggestion. Top-level insights are disjoint by
+definition; never present non-overlap as a discovery.
 
 The card (`<section class="card sev3|sev2|sev1">`) carries a left accent in
 the severity color — always paired with the severity chip's text, never
@@ -302,7 +312,7 @@ details.explore summary { color: var(--acc); font-size: .9rem; }
     </details>
   </section>
 
-  <h2>Appendix</h2>
+  <h2>Notes</h2>
   <ul><li>…</li></ul>
 </article>
 </body>

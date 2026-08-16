@@ -106,7 +106,7 @@ signatures over their CSVs. Then:
 - A real difference exists → each section stands on its difference, named in
   its heading (e.g. one group's misses concentrate in held-out data).
 - You cannot name a difference → elaborate only the insight with the clearer
-  single-population story (severity as tiebreak); the other gets an appendix
+  single-population story (severity as tiebreak); the other gets one Notes
   line saying what it shares with the kept one and its # in the Insights
   panel.
 
@@ -144,10 +144,12 @@ top samples and ask:
    the next run on.
 3. **Do the members actually belong together?** If the composition is
    diffuse, the worst samples have nothing visible in common, and the
-   metadata story is weak, the insight fails the coherence gate: drop it to
-   the appendix rather than forcing a narrative or merging it into another
-   insight. A real signal buried in a dropped insight (e.g. its tail
-   over-represents a tagged subgroup) still gets its one appendix line.
+   metadata story is weak, the insight fails the coherence gate. Check its
+   subinsights before giving up — they often isolate a coherent core that
+   deserves the card instead (skill Step 5). If no core emerges, ignore the
+   insight (the report equivalent of archiving it in the panel) with one
+   terse Notes line — never force a narrative or merge it into another
+   card.
 
 Your observations go in the insight's "What the samples show" block, worded
 as your own reading ("Looking at the samples, …") so it never masquerades as

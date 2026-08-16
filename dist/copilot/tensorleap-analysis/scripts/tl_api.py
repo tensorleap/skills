@@ -39,7 +39,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 API = {"url": None, "key": None}
-SUB_TOP_K = 3
+SUB_TOP_K = 6
 CANDIDATE_FACTOR = 4
 
 

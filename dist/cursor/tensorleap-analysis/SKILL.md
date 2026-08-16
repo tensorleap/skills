@@ -139,21 +139,33 @@ top samples. You are looking for what the platform cannot see:
   your own observation (the reader must be able to tell platform evidence
   from analyst judgment).
 
-**Coherence gate**: if, after the evidence and your own look at the samples,
-an insight does not hold together as ONE story about one failing population (a grab-bag cluster,
-unrelated worst members, no shared story) — do not force a narrative and do
-NOT fold it into another section. Leave it out and give it one honest line
-in the appendix. Never combine multiple insights into a merged section;
-when two insights share a pattern, give each its own section and
-cross-reference.
+**Coherence gate — with a subinsight rescue.** Sometimes an insight does
+not hold together as ONE story about one failing population (a grab-bag
+cluster, unrelated worst members, no shared story — this happens: a latent
+space, an algorithm edge case, anything). Then:
+
+1. **Check its subinsights first** (same discipline: composition, metric
+   signature, your own look at the samples). A subinsight that isolates one
+   clear story gets its own card, standing in for the parent — its chips
+   carry both identities ("insight #3 · sub-insight #9") and its explore
+   line points at the parent in the panel. Several coherent subs → several
+   cards.
+2. **No coherent core → ignore the insight** — the report equivalent of
+   archiving it in the panel. Nothing in the body; one terse line in Notes
+   naming it a candidate for archiving, with the half-sentence of evidence
+   ("its subinsights repeat the stories above").
+
+Never force a narrative and never fold an incoherent insight into another
+card. When two insights share a pattern, each gets its own card and a
+cross-reference by name.
 
 **Latent space**: every insight states which latent space it was found in,
 with a one-line translation of what "similar" means there (guide in the
 playbook).
 
-Subinsights: nest them under their parent. Elaborate only the ones that add
-information (higher severity, different metadata story, different action);
-one-line the rest.
+Subinsights of COHERENT parents: nest them under the parent card. Elaborate
+only the ones that add information (higher severity, different metadata
+story, different action); one-line the rest.
 
 ## Step 6 — Write the report
 
@@ -207,11 +219,12 @@ is going wrong** — what fails and why, named in plain ML terms — and write f
 an ML engineer with zero knowledge of Tensorleap internals: no blob paths,
 filter JSON, or raw payload field names in the prose (the template's language
 rules are binding). Keep the executive summary honest — if the insights are
-low-severity or repetitive, say so. Close with the appendix of missing
-visualizations and fetch errors from the digest.
+low-severity or repetitive, say so. Close with the terse Notes section
+(template: one line per insight without a card, ending in what the reader
+can do; unrendered visualizations as on-demand behavior; fetch errors).
 
 **Before finishing, read the rendered report as its reader would** — every
-sentence, chips, captions, link texts, the appendix. Assembled text is where
+sentence, chips, captions, link texts, the Notes. Assembled text is where
 clumsiness hides ("this insight is insight #2", repeated phrases, stale
 numbers). Fix anything you would not have written in a single pass. Ship
 only what reads clean end-to-end.
@@ -222,6 +235,6 @@ at `<path>/report.md`. No findings, no summaries, no severity counts, no
 recommended first action, no observations — everything you have to say lives
 IN the report; the session message just hands it over. Anything discovered
 along the way that isn't part of the analysis (e.g. a suspected data or
-server irregularity) goes in the report's appendix, not the closing message.
+server irregularity) goes in the report's Notes, not the closing message.
 Then answer follow-up questions from the analysis you already did — the
 conversational depth is for when the user asks, never volunteered up front.
