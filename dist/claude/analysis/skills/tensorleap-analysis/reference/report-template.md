@@ -123,7 +123,9 @@ color alone:
    screens). Count labels on the bar always; omit the contrast if
    `population_metrics` lacks the column.
 7. **Samples**: 6 visible `<figure>`s (or `<blockquote>`s for text), each
-   captioned with sample id + worst metric; the rest (≤18) inside
+   captioned with sample id + worst metric. The card states once, before
+   the grid, which visualizer the figures show and what to see in it, in
+   domain terms (playbook: "Pick the evidence"); the rest (≤18) inside
    `<details class="more">`. Watch total file size (`inline-html` prints
    it): aim under ~10 MB — cap hidden samples on large-resolution datasets.
 8. **"What the samples show"** (`.observe`): the analyst's own observations

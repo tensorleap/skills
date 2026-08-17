@@ -32,6 +32,7 @@ import io
 import json
 import os
 import sys
+import tarfile
 import time
 import urllib.error
 import urllib.request
@@ -312,16 +313,34 @@ def population_metrics(project_id, version):
     return {col: sums[col] / counts[col] for col in sums if counts.get(col)}
 
 
-def prediction_labels(project_id, version):
+def code_snapshot(project_id, version):
     snap_id = version.get("codeSnapshotId")
     if not snap_id:
         return {}
     resp = api("versions/getCodeSnapshot",
                {"projectId": project_id, "codeSnapshotId": snap_id}, soft=True)
-    setup = ((((resp or {}).get("codeSnapshot") or {}).get("parseResult") or {})
-             .get("setup") or {})
-    return {p.get("name"): p["labels"]
-            for p in setup.get("prediction_types") or [] if p.get("labels")}
+    return (resp or {}).get("codeSnapshot") or {}
+
+
+def extract_integration_code(project_id, snapshot, out_dir):
+    blob_name = snapshot.get("blobName")
+    if not blob_name:
+        return None
+    blob = download_blob(f"projects/{project_id}/{blob_name}", soft=True)
+    if blob is None:
+        return None
+    dest = os.path.join(out_dir, "integration")
+    try:
+        with tarfile.open(fileobj=io.BytesIO(blob), mode="r:*") as tar:
+            members = [m for m in tar.getmembers()
+                       if (m.isfile() or m.isdir())
+                       and not m.name.startswith("/")
+                       and ".." not in m.name.split("/")]
+            tar.extractall(dest, members=members)
+    except (tarfile.TarError, OSError) as e:
+        print(f"integration code extract failed: {e}", file=sys.stderr)
+        return None
+    return {"dir": dest, "entry_file": snapshot.get("codeEntryFile")}
 
 
 def mint_version_link(project_id, version_id, dashboard_id):
@@ -425,13 +444,9 @@ def cmd_fetch(args):
 
     def choose_paths(paths, hashed):
         keep = []
-        has_plain_image = any(
-            f"{hashed}/image/" in p and "/assets/" in p for p in paths)
         for p in paths:
             data_type = p.split(f"{hashed}/", 1)[-1].split("/", 1)[0]
             if "/assets/" in p or p.endswith((".mp4", ".wav")):
-                if data_type == "image_heatmap" and has_plain_image:
-                    continue
                 keep.append(p)
             elif p.endswith("payload.json") and data_type not in (
                     "image", "image_heatmap", "video", "video_heatmap"):
@@ -465,6 +480,8 @@ def cmd_fetch(args):
         d.pop("top_samples", None)
 
     version = version_meta(args.project, args.version)
+    snapshot = code_snapshot(args.project, version)
+    setup = ((snapshot.get("parseResult") or {}).get("setup")) or {}
     version_link = (dashboard_id and mint_version_link(
         args.project, args.version, dashboard_id)) or panel_link
     for d in parents:
@@ -475,7 +492,13 @@ def cmd_fetch(args):
         "versionId": args.version,
         "links": {"insights_panel": version_link},
         "population_metrics": population_metrics(args.project, version),
-        "prediction_labels": prediction_labels(args.project, version),
+        "prediction_labels": {p.get("name"): p["labels"]
+                              for p in setup.get("prediction_types") or []
+                              if p.get("labels")},
+        "visualizers": [{"name": v.get("name"), "type": v.get("type"),
+                         "arg_names": v.get("arg_names")}
+                        for v in setup.get("visualizers") or []],
+        "integration": extract_integration_code(args.project, snapshot, args.out),
         "insights": parents + orphans,
         "counts": {
             "total": len(digests),

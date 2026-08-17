@@ -172,6 +172,40 @@ surface…"). The reader needs your insight, not an attribution ledger; and
 the attribution would be wrong anyway — the platform's insight surfaced the
 group your analysis enriches.
 
+## Pick the evidence — which visualizers make the card
+
+An integration can declare many visualizers per sample (raw input, GT and
+prediction overlays, instance crops, grids, bar plots, videos, 3D). The
+card embeds the 1–2 that prove the insight's claim, chosen per insight:
+
+1. **State the claim first.** What is this insight asserting is wrong? The
+   selection criterion is then concrete — which visualizer lets a skeptical
+   reader verify that claim with their own eyes? Not "most informative" in
+   the abstract; informative *for the claim*.
+2. **Audition, don't infer.** Open the top 2–3 samples in every
+   primary-evidence candidate (for object detection that means both the
+   instance-level and the whole-image views). Do not derive the choice from
+   priors — latent-space granularity, metric signature, and metadata
+   correlations only order which candidate you open first. The right
+   visualizer is the one in which the samples' shared failure is visible
+   when they sit side by side.
+3. **Commit per insight.** One choice for every sample on the card —
+   comparability across samples beats per-sample optimality. Supporting
+   evidence (a confidence bar plot next to an instance crop) is a second
+   slot, not a second story.
+4. **Caption what it shows.** The card states, once, what the chosen view
+   renders in domain terms (from your visualizer one-liners, skill Step 5)
+   and what the reader should see in it. Keep it affirmative — say what
+   this view reveals, never what the other views lack.
+5. **Embeddability constrains, never decides silently.** Video and
+   interactive 3D don't ship in static HTML: embed the best static proxy
+   (a representative frame, a rendered view) and say the full version is
+   one click away via the deep link.
+
+The audition doubles as the coherence gate: when no visualizer at any
+granularity makes the group cohere, that is the "no coherent core" path —
+archive, don't force.
+
 ## The domain lens
 
 You write as a colleague in the data's domain (skill Step 4 establishes it).

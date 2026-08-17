@@ -72,7 +72,15 @@ version, and stop. On success the out dir contains:
   (local csv / top_panel), `samples` (per sample id: downloaded `payload.json`
   + assets), `errors`, and top-level `counts`, plus `prediction_labels`
   (per prediction type, the class-name list the integration declared —
-  class index i is `labels[i]`; empty if the integration declared none).
+  class index i is `labels[i]`; empty if the integration declared none),
+  `visualizers` (every visualizer the integration declared: name, data
+  type, argument names), and `integration` (where the pushed code was
+  extracted; null if the download failed).
+- `integration/` — the integration code exactly as it was pushed for this
+  version (`integration.entry_file` names the entry file). If it's missing,
+  fall back to the code in the cwd when a `leap.yaml` is present — and say
+  in the report's Notes that you read the local checkout, which may have
+  drifted since the push.
 - `insight_<i>_<type>/` per insight — `samples.csv`, optional
   `top_panel.json`, and `samples/<sample_id>/<dataType>/<visualizer>/…` with
   `payload.json` and any image assets.
@@ -133,6 +141,14 @@ identity, and treat the platform's mutual-information features as
 *over-represented*, not *defining* (playbook: "Characterize by composition,
 not by the tail").
 
+**Know the visualizers before opening any sample.** Read the integration
+code (`integration/`, entry file first, then the modules it imports) and
+write yourself a one-liner per entry in the digest's `visualizers` list:
+what it renders, from which tensor (input / ground truth / prediction), at
+what granularity (a single instance vs the whole sample), and what the
+visual encoding means. Report captions speak from these one-liners — never
+from function names.
+
 **Look at the samples yourself — mandatory for every insight you write up.**
 Open the downloaded images (Read them) and text payloads for the insight's
 top samples. You are looking for what the platform cannot see:
@@ -148,6 +164,12 @@ top samples. You are looking for what the platform cannot see:
 - Report these in the insight's "What the samples show" block, clearly as
   your own observation (the reader must be able to tell platform evidence
   from analyst judgment).
+
+**Pick the evidence per insight** (playbook: "Pick the evidence"). State
+what the insight asserts is wrong, audition every primary-evidence
+candidate visualizer on 2–3 top samples, then commit to the 1–2 that let a
+skeptical reader verify the claim — and keep that choice for every sample
+on the card.
 
 **Coherence gate — with a subinsight rescue.** Sometimes an insight does
 not hold together as ONE story about one failing population (a grab-bag
