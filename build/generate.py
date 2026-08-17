@@ -22,6 +22,11 @@ OUTPUTS (into dist/, plus a generated .claude-plugin/marketplace.json)
               SKILL.md (minimal frontmatter) + scripts + reference. Discovered
               natively by Copilot from .github/skills/ (project) or
               ~/.copilot/skills/ (global).
+  devin    -> dist/devin/<skill>/              self-contained Devin Agent Skill:
+              SKILL.md (minimal frontmatter) + scripts + reference. Discovered
+              natively by Devin from .devin/skills/ in the repo it clones for a
+              session (no home-dir "global" install — Devin runs on ephemeral
+              cloud machines, not the user's).
 
   Non-Claude outputs FLATTEN: the plugin grouping is invisible to them.
 
@@ -320,6 +325,7 @@ def build_all(root):
     emit_flat(skills, root)
     emit_skill_folders(skills, root, "copilot")
     emit_skill_folders(skills, root, "cursor")
+    emit_skill_folders(skills, root, "devin")
     _write(os.path.join(root, MARKETPLACE_REL), render_marketplace(catalog))
     return catalog, skills, warnings
 
