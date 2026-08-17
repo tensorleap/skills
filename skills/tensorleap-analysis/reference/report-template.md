@@ -221,8 +221,9 @@ a { color: var(--acc); }
 .legend .test { --dot: var(--st-test); } .legend .unl { --dot: var(--st-unl); }
 .contrast { display: grid; grid-template-columns: 6.5rem 1fr 5rem;
             gap: .35rem .6rem; align-items: center; font-size: .82rem; }
-.contrast .track { background: var(--bg); border-radius: 3px; height: 10px; }
-.contrast .fill { background: var(--acc); height: 100%; border-radius: 3px; }
+.contrast .track { background: var(--line); border-radius: 3px; height: 10px; }
+.contrast .fill { display: block; background: var(--acc); height: 100%;
+                  border-radius: 3px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
         gap: .75rem; margin: 1rem 0; }
 figure { margin: 0; }
