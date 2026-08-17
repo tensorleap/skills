@@ -193,10 +193,12 @@ card embeds the 1–2 that prove the insight's claim, chosen per insight:
    comparability across samples beats per-sample optimality. Supporting
    evidence (a confidence bar plot next to an instance crop) is a second
    slot, not a second story.
-4. **Caption what it shows.** The card states, once, what the chosen view
-   renders in domain terms (from your visualizer one-liners, skill Step 5)
-   and what the reader should see in it. Keep it affirmative — say what
-   this view reveals, never what the other views lack.
+4. **Name the view, keep the reasoning internal.** The card names, once,
+   what the chosen view renders in domain terms (from your visualizer
+   one-liners, skill Step 5) — "ground-truth lanes over the camera frame",
+   never a function name. Why this view was chosen stays out of the
+   report: the samples either show the story on their own or the choice
+   was wrong.
 5. **Embeddability constrains, never decides silently.** Video and
    interactive 3D don't ship in static HTML: embed the best static proxy
    (a representative frame, a rendered view) and say the full version is
