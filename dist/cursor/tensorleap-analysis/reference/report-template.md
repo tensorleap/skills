@@ -53,9 +53,12 @@ is for users who know the platform and want to continue there.
 3. **Executive summary**: 3–5 sentences. This is where impact PRIORITY
    lives ("labeling the two corruption groups is the highest-leverage
    action") — the rest of the report is panel-ordered, not impact-ordered.
+   Where the prose names a specific issue, link the phrase to its card's
+   anchor ("a <a href="#insight-1">gaussian-noise group</a>…").
 4. **Overview table**: a TOC of the report in body order — columns
    `Insight | Issue | Severity | Samples | First action`, with a subheader
-   row per type. "Issue" holds the section's headline, compressed.
+   row per type. "Issue" holds the section's headline, compressed. The
+   Insight cell links to the card's anchor (`<a href="#insight-4">#4</a>`).
 5. **One `<h2>` group per insight type present**, in the panel's order,
    with a count badge and a one-line meaning (table below). Inside, one
    **card** per insight (anatomy below), severity-ordered.
@@ -105,7 +108,9 @@ cross-mention is a single orienting context sentence in prose ("this group
 is the sharpest slice of the broader animals-on-roads cluster, insight #3").
 The explore box may state the panel's sub-insight count as navigation info.
 
-The card (`<section class="card sev3|sev2|sev1">`) carries a left accent in
+The card (`<section class="card sev3|sev2|sev1" id="insight-<N>">` —
+sub-based cards use `id="insight-<N>-sub-<M>"`; these anchors are what the
+overview table and executive summary link to) carries a left accent in
 the severity color — always paired with the severity chip's text, never
 color alone:
 
@@ -194,7 +199,7 @@ a { color: var(--acc); }
 .tile span { font-size: .78rem; color: var(--ink-2); }
 .card { background: var(--card); border-radius: 12px;
      padding: 1.2rem 1.3rem; margin: 1.2rem 0;
-     border-left: 5px solid var(--ink-2); }
+     border-left: 5px solid var(--ink-2); scroll-margin-top: 1rem; }
 .card.sev3 { border-left-color: var(--sev3); }
 .card.sev2 { border-left-color: var(--sev2); }
 .card.sev1 { border-left-color: var(--sev1); }
@@ -280,14 +285,14 @@ details.explore summary { color: var(--acc); font-size: .9rem; }
   <div class="tablewrap"><table>
     <tr><th>Insight</th><th>Issue</th><th>Severity</th><th>Samples</th><th>First action</th></tr>
     <tr class="typerow"><td colspan="5">Failure Mode</td></tr>
-    <tr><td>#1</td><td>…</td><td>3 of 3</td><td>314</td><td>…</td></tr>
+    <tr><td><a href="#insight-1">#1</a></td><td>…</td><td>3 of 3</td><td>314</td><td>…</td></tr>
   </table></div>
 
   <h2>Failure Mode <span class="count">3 of 6</span></h2>
   <p class="muted">Groups of samples where the model underperforms. Root cause per card is
      the analysis's diagnosis, one of: data gap, label quality, split problem, model behavior.</p>
 
-  <section class="card sev3">
+  <section class="card sev3" id="insight-1">
     <h3>Heavy gaussian noise breaks the classifier</h3>
     <div class="chips">
       <span class="chip sev s3">Severity 3 of 3</span>
