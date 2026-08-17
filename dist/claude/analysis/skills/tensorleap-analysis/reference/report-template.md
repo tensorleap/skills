@@ -98,6 +98,13 @@ names the parent in the panel. No coherent core → no card; one terse Notes
 line with the archive suggestion. Top-level insights are disjoint by
 definition; never present non-overlap as a discovery.
 
+**Every card speaks at exactly one granularity.** A card never contains
+subinsight sections, lists, or one-liners — subinsights either promote to
+their own card (skill Step 5) or don't appear. The only permitted parent/sub
+cross-mention is a single orienting context sentence in prose ("this group
+is the sharpest slice of the broader animals-on-roads cluster, insight #3").
+The explore box may state the panel's sub-insight count as navigation info.
+
 The card (`<section class="card sev3|sev2|sev1">`) carries a left accent in
 the severity color — always paired with the severity chip's text, never
 color alone:

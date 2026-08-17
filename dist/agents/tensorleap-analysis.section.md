@@ -182,9 +182,21 @@ cross-reference by name.
 with a one-line translation of what "similar" means there (guide in the
 playbook).
 
-Subinsights of COHERENT parents: nest them under the parent card. Elaborate
-only the ones that add information (higher severity, different metadata
-story, different action); one-line the rest.
+**Subinsights are analysis inputs, never card content.** Analyze a parent's
+subinsights with the full discipline (composition, metrics, your own look at
+samples), then make a PROMOTION decision — one message at one granularity
+per card:
+
+- Subs merely refine the parent (same story, tighter slices, no distinct
+  action) → the parent gets the card; subinsights appear nowhere in it.
+- A sub carries a distinct story or action → promote it to its OWN card
+  (chips: "insight #3 · sub-insight #9"). The parent keeps a card only if
+  its story minus that sub still stands with its own action; otherwise the
+  sub's card replaces it, and the parent appears only as one orienting
+  sentence of context in the sub's prose.
+- Never present a parent's message and a sub's sharper message in the same
+  card ("animals on roads" + "cats on roads at night") — the reader can't
+  tell which to act on.
 
 ## Step 6 — Write the report
 

@@ -125,6 +125,13 @@ insight #2…") — state the facts and let the distinction be self-evident.
 Top-level insights are disjoint groups by definition, so never present
 non-overlap as a discovery or a differentiator.
 
+A parent and its subinsight are NOT two populations — they are one
+population at two zoom levels, and a card carries one message at one zoom.
+When a sub is promoted to a card, the look-alike rule above applies between
+it and its parent's card exactly as between two top-level insights: either
+the parent's remaining story stands on a measured difference with its own
+action, or only one of the two zooms gets a card.
+
 ## Look for yourself (mandatory per insight)
 
 The platform clusters by metrics, metadata and embeddings — it cannot read
