@@ -139,8 +139,10 @@ color alone:
    names the view in domain terms ("predicted boxes over the camera frame")
    so GT isn't mistaken for prediction — orientation only, never selection
    rationale; the rest (≤18) inside
-   `<details class="more">`. Watch total file size (`inline-html` prints
-   it): aim under ~10 MB — cap hidden samples on large-resolution datasets.
+   `<details class="more">`, whose summary is exactly
+   `Show <N> more samples` with N the hidden count — that wording, every
+   card, every report. Watch total file size (`inline-html` prints it): aim
+   under ~10 MB — cap hidden samples on large-resolution datasets.
 8. **"What the samples show"** (`.observe`): the analyst's own observations
    from viewing the samples, first-person ("Looking at the samples, …") so
    it can't be mistaken for platform output. "Nothing beyond the platform's
