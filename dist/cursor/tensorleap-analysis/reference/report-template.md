@@ -151,6 +151,10 @@ color alone:
    `population_metrics` lacks the column, and label its baseline for what it
    is (population mean vs the core's median — playbook: "Compare like with
    like").
+   The contrast is **grouped by metric**: one `<span class="cmetric">` naming
+   the metric AND carrying its unit ("missed objects per image"), then its
+   two bar rows. Values are bare numbers — a unit repeated on every row wraps
+   the column and ruins the alignment. Two metrics is the useful maximum.
 7. **Samples**: 6 visible `<figure>`s (or `<blockquote>`s for text), each
    captioned with sample id + worst metric. A half-sentence before the grid
    names the view in domain terms ("predicted boxes over the camera frame")
@@ -158,7 +162,21 @@ color alone:
    rationale; the rest (≤18) inside
    `<details class="more">`, whose summary is exactly
    `Show <N> more samples` with N the hidden count — that wording, every
-   card, every report. Watch total file size (`inline-html` prints it): aim
+   card, every report.
+   **Grid density follows the source resolution**, from the insight's
+   `asset_resolution.max_width` in `insights.json`, divided by how many
+   images each figure shows side by side (a GT-and-prediction pair is two).
+   Give every image at least ~340 px of column, and never more columns than
+   the resolution can fill: `<div class="grid">` (4-up) below ~340 px per
+   image — thumbnail-scale data like MNIST or QuickDraw; `class="grid wide"`
+   (2-up) from ~340 px; `class="grid solo"` (one per row, the full card
+   width) from ~700 px, which is where detection and segmentation frames
+   land. A dense 1360 px frame shown four-across gives ~100 px per view — the
+   reader cannot verify anything in it, and an unverifiable figure is worse
+   than no figure. Side-by-side views inside one figure go in
+   `<div class="pair">`; when the pair would halve an already-tight width,
+   show the single more probative view instead (Step 5 picked it) or stack
+   the two vertically. Watch total file size (`inline-html` prints it): aim
    under ~10 MB — cap hidden samples on large-resolution datasets.
 8. **"What the samples show"** (`.observe`): the analyst's own observations
    from viewing the samples, first-person ("Looking at the samples, …") so
@@ -234,7 +252,7 @@ a { color: var(--acc); }
         background: var(--sev-color, var(--ink-2)); }
 .s3 { --sev-color: var(--sev3); } .s2 { --sev-color: var(--sev2); }
 .s1 { --sev-color: var(--sev1); }
-.facts { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center;
+.facts { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: start;
      margin: 1rem 0; }
 .facts > div { flex: 1 1 260px; }
 .splitbar { display: flex; gap: 2px; height: 14px; border-radius: 4px;
@@ -250,13 +268,22 @@ a { color: var(--acc); }
           background: var(--dot, var(--st-other)); }
 .legend .train { --dot: var(--st-train); } .legend .val { --dot: var(--st-val); }
 .legend .test { --dot: var(--st-test); } .legend .unl { --dot: var(--st-unl); }
-.contrast { display: grid; grid-template-columns: 6.5rem 1fr 5rem;
-            gap: .35rem .6rem; align-items: center; font-size: .82rem; }
+.contrast { display: grid; grid-template-columns: 6.5rem 1fr max-content;
+            gap: .3rem .6rem; align-items: center; font-size: .82rem; }
+.contrast .cmetric { grid-column: 1 / -1; color: var(--ink-2); font-size: .78rem;
+            margin-top: .55rem; }
+.contrast .cmetric:first-child { margin-top: 0; }
+.contrast .track + span { white-space: nowrap; text-align: right; }
 .contrast .track { background: var(--line); border-radius: 3px; height: 10px; }
 .contrast .fill { display: block; background: var(--acc); height: 100%;
                   border-radius: 3px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
         gap: .75rem; margin: 1rem 0; }
+.grid.wide { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+.grid.solo { grid-template-columns: 1fr; }
+.grid.solo figure img, .grid.wide figure img { max-height: 70vh; object-fit: contain; }
+.pair { display: flex; gap: .4rem; }
+.pair img { min-width: 0; }
 figure { margin: 0; }
 figure img { width: 100%; border-radius: 6px; display: block; }
 blockquote { border-left: 3px solid var(--line); margin: 1rem 0;
@@ -332,8 +359,12 @@ details.explore summary { color: var(--acc); font-size: .9rem; }
         <p class="muted">core composition; 902 samples affected in total</p>
       </div>
       <div class="contrast">
-        <span>failing core</span><span class="track"><span class="fill" style="width:48%"></span></span><span>0.42 acc</span>
-        <span>all data</span><span class="track"><span class="fill" style="width:100%"></span></span><span>0.87 acc</span>
+        <span class="cmetric">accuracy</span>
+        <span>failing core</span><span class="track"><span class="fill" style="width:48%"></span></span><span>0.42</span>
+        <span>all data</span><span class="track"><span class="fill" style="width:100%"></span></span><span>0.87</span>
+        <span class="cmetric">missed objects per image</span>
+        <span>failing core</span><span class="track"><span class="fill" style="width:100%"></span></span><span>57</span>
+        <span>all data</span><span class="track"><span class="fill" style="width:19%"></span></span><span>11</span>
       </div>
     </div>
     <div class="grid">…6 figures…</div>

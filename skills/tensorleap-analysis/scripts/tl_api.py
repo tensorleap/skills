@@ -41,6 +41,7 @@ import io
 import json
 import os
 import subprocess
+import struct
 import sys
 import tarfile
 import time
@@ -335,6 +336,31 @@ def enable_fast_local(probe_file_name):
     print(f"fast-local: signing objects locally (host {signing_host})",
           file=sys.stderr)
     return True
+
+
+def image_size(path):
+    """(width, height) from a PNG/JPEG/GIF header. Stdlib only, no PIL."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(26)
+            if head[:8] == b"\x89PNG\r\n\x1a\n":
+                return struct.unpack(">II", head[16:24])
+            if head[:6] in (b"GIF87a", b"GIF89a"):
+                return struct.unpack("<HH", head[6:10])
+            if head[:2] != b"\xff\xd8":
+                return None
+            f.seek(2)
+            while True:
+                marker = f.read(2)
+                if len(marker) < 2 or marker[0] != 0xFF:
+                    return None
+                size = struct.unpack(">H", f.read(2))[0]
+                if 0xC0 <= marker[1] <= 0xCF and marker[1] not in (0xC4, 0xC8, 0xCC):
+                    h, w = struct.unpack(">HH", f.read(5)[1:])
+                    return w, h
+                f.seek(size - 2, 1)
+    except Exception:
+        return None
 
 
 def hash_sample_index(raw):
@@ -733,6 +759,14 @@ def cmd_fetch(args):
 
     for d in digests.values():
         d.pop("top_samples", None)
+        sizes = [wh for entry in d["samples"].values() for wh in
+                 (image_size(f) for f in entry["files"]
+                  if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif")))
+                 if wh]
+        if sizes:
+            d["asset_resolution"] = {"max_width": max(w for w, _ in sizes),
+                                     "max_height": max(h for _, h in sizes),
+                                     "images": len(sizes)}
 
     carded = parents + orphans
     for a in carded:

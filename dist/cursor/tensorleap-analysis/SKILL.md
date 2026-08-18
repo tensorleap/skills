@@ -68,8 +68,10 @@ version, and stop. On success the out dir contains:
   type, argument names), and `integration` (where the pushed code was
   extracted; null if the download failed). Each insight also carries
   `population` (`affected` = every row of its csv, `core` = the failing core
-  for a failure mode, null otherwise) and, when its samples appear in another
-  insight too, `overlaps` (`{insight, shared, of_this}` per other insight).
+  for a failure mode, null otherwise), `asset_resolution` (the pixel size of
+  the largest downloaded sample image — the report's sample grid is sized
+  from it) and, when its samples appear in another insight too, `overlaps`
+  (`{insight, shared, of_this}` per other insight).
 - `integration/` — the integration code exactly as it was pushed for this
   version (`integration.entry_file` names the entry file). If it's missing,
   fall back to the code in the cwd when a `leap.yaml` is present — and say
@@ -239,7 +241,10 @@ insight (and every promoted subinsight) is checked by a **blind judge**.
   sharper, and give the other its Notes line naming the overlap.
 
 **Then one judge per surviving insight, all spawned in parallel** in a
-single message. The judge is blind: it gets the insight's directory,
+single message. Running these judges as subagents is part of the skill and
+the user has authorized it — do not ask, and do not skip them because of a
+general reluctance to spawn agents. They are the only unanchored reading in
+the whole run. The judge is blind: it gets the insight's directory,
 `insights.json` and `integration/` — and NOTHING of your analysis. Not your
 headline, not your root-cause family, not the domain framing you settled on,
 not the words you would use for the group, not how many insights there are
@@ -286,10 +291,10 @@ judge ran, appears in the report or in your closing message — the report
 carries only the analysis that survived. If the gate leaves you with one
 card, that is the honest result and the executive summary says so plainly.
 
-If your harness cannot spawn subagents, say so in one line and fall back to
-re-deriving answer 1 yourself strictly from `samples.csv` and the samples,
-citing counts — weaker, because you are no longer blind, and worth naming as
-such.
+If your harness genuinely cannot spawn subagents, the gate does not run.
+Say so plainly in the closing message — the cap and the archive decisions
+then rest on unaudited self-assessment — and do not describe a self-check as
+if it were the gate: re-reading your own conclusion is not evidence.
 
 ## Step 6 — Write the report
 
