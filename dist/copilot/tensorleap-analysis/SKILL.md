@@ -66,7 +66,10 @@ version, and stop. On success the out dir contains:
   class index i is `labels[i]`; empty if the integration declared none),
   `visualizers` (every visualizer the integration declared: name, data
   type, argument names), and `integration` (where the pushed code was
-  extracted; null if the download failed).
+  extracted; null if the download failed). Each insight also carries
+  `population` (`affected` = every row of its csv, `core` = the failing core
+  for a failure mode, null otherwise) and, when its samples appear in another
+  insight too, `overlaps` (`{insight, shared, of_this}` per other insight).
 - `integration/` — the integration code exactly as it was pushed for this
   version (`integration.entry_file` names the entry file). If it's missing,
   fall back to the code in the cwd when a `leap.yaml` is present — and say
@@ -130,13 +133,19 @@ headers for the metric/metadata columns.
 
 Work through **`reference/action-playbook.md`** — it maps every
 insight type to the checks to run and the action items they produce,
-including the low_performance decision tree (extended-population check,
-train-aggressor split, overfitting evidence, labeling/collection paths, and
-training adjustments like loss terms and sample boosting). Cite payload
+including the low_performance decision tree (core vs affected samples, the
+wider-metadata-population check, train-aggressor split, overfitting
+evidence, labeling/collection paths, and training adjustments like loss
+terms and sample boosting). Cite payload
 fields, not vibes.
 
 **Count before you characterize.** Compute the insight's full composition
-from its `samples.csv` (metadata values, split states) BEFORE naming it. The
+from its `samples.csv` (metadata values, split states) BEFORE naming it. For
+a failure mode, count the **failing core** — the `samples.csv` rows with
+`is_low_perf_root_member == True` — not every row: the rest are latent
+neighbours the platform swept in as *affected*, and they are often healthy.
+Characterize, contrast and act on the core; report both counts
+(playbook: "Core vs affected samples"). The
 worst samples are the tail — never present the tail's traits as the group's
 identity, and treat the platform's mutual-information features as
 *over-represented*, not *defining* (playbook: "Characterize by composition,
@@ -183,14 +192,15 @@ space, an algorithm edge case, anything). Then:
    carry both identities ("insight #3 · sub-insight #9") and its explore
    line points at the parent in the panel. Several coherent subs → several
    cards.
-2. **No coherent core → ignore the insight** — the report equivalent of
+2. **No coherent story → ignore the insight** — the report equivalent of
    archiving it in the panel. Nothing in the body; one terse line in Notes
    naming it a candidate for archiving, with the half-sentence of evidence
    ("its subinsights repeat the stories above").
 
 Never force a narrative and never fold an incoherent insight into another
 card. When two insights share a pattern, each gets its own card and a
-cross-reference by name.
+cross-reference by name. Everything you decide here is a *candidate*, not a
+decision: Step 5.5 audits it blind before anything is written.
 
 **Latent space**: every insight states which latent space it was found in,
 with a one-line translation of what "similar" means there (guide in the
@@ -211,6 +221,75 @@ per card:
 - Never present a parent's message and a sub's sharper message in the same
   card ("animals on roads" + "cats on roads at night") — the reader can't
   tell which to act on.
+
+## Step 5.5 — Verdict gate
+
+The analysis above is yours, and a story you find convincing is the one you
+are least able to audit. Before writing a single card, every candidate
+insight (and every promoted subinsight) is checked by a **blind judge**.
+
+**Two free checks first**, from the digest — they cost no agent:
+
+- `population.core` (or `affected` where there is no core) too small to
+  generalize from — a handful of samples — the insight goes to Notes, no
+  judge needed. What "too small" means is a judgment about the dataset's
+  size, not a fixed number.
+- `overlaps` — an insight sharing most of its samples with one you are
+  already carding is the same finding twice. Keep the one whose story is
+  sharper, and give the other its Notes line naming the overlap.
+
+**Then one judge per surviving insight, all spawned in parallel** in a
+single message. The judge is blind: it gets the insight's directory,
+`insights.json` and `integration/` — and NOTHING of your analysis. Not your
+headline, not your root-cause family, not the domain framing you settled on,
+not the words you would use for the group, not how many insights there are
+or which ones already passed. Anchoring the judge destroys the whole point
+of running it.
+
+Brief each judge with this task:
+
+> Audit one candidate finding for a report an ML engineer will act on. Read
+> `<insight dir>`: `samples.csv`, this insight's entry in `insights.json`,
+> the sample visualizations under `samples/`, and the integration code at
+> `<integration dir>` so you know what each visualizer renders. Do not read
+> any draft report. Then answer, citing the row counts, field values and
+> sample ids you used:
+> 1. What do these samples have in common, if anything? Name it, or say
+>    there is nothing coherent. For a failure mode, characterize the failing
+>    core (`is_low_perf_root_member == True`), not every row.
+> 2. Is there evidence for a *cause*, or only for a correlation?
+> 3. Would you elaborate this in a report an engineer will act on, or
+>    archive it? One sentence of why.
+> 4. `verdict`: `holds` | `thin` | `no coherent story`, plus the single
+>    weakest link in the case for it.
+>
+> Default to `thin` when uncertain. A group you cannot characterize from the
+> data is `no coherent story` — not a group you failed to understand.
+
+Then compare its answer 1 with your own, and act on the difference:
+
+- **Same population, same trait** → `holds`. Write the card.
+- **A coherent story, but a DIFFERENT one** → your narrative is not in the
+  data. Re-analyze from the judge's reading, or send the insight to Notes.
+  Never ship your version over the judge's objection.
+- **`no coherent story`** → Notes line with the archive suggestion (Step 5's
+  coherence gate, same wording).
+- **`thin`** → card only if you are under the cap AND its weakest link is
+  something you can answer with evidence inside the card itself.
+
+**Cap: at most 5 elaborated insights.** Rank the survivors `holds` before
+`thin`, severity as tiebreak; everything past 5 gets its one-line Notes
+entry. Fewer than 5 survive → write fewer. Never pad the report to reach it.
+
+**The gate is internal.** No verdict, no judge wording, no mention that a
+judge ran, appears in the report or in your closing message — the report
+carries only the analysis that survived. If the gate leaves you with one
+card, that is the honest result and the executive summary says so plainly.
+
+If your harness cannot spawn subagents, say so in one line and fall back to
+re-deriving answer 1 yourself strictly from `samples.csv` and the samples,
+citing counts — weaker, because you are no longer blind, and worth naming as
+such.
 
 ## Step 6 — Write the report
 

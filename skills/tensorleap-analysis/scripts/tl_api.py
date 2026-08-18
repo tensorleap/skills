@@ -398,7 +398,7 @@ def cmd_list_versions(args):
 def sample_ids_from_csv(csv_bytes, rank_by, ascending, k):
     rows = list(csv.DictReader(io.StringIO(csv_bytes.decode(errors="replace"))))
     if not rows or "sample_id" not in rows[0]:
-        return None, rows[0].keys() if rows else []
+        return None, (rows[0].keys() if rows else []), rows
     if not rank_by:
         rank_by = next((c for c in rows[0]
                         if c.startswith("metrics.")
@@ -410,7 +410,7 @@ def sample_ids_from_csv(csv_bytes, rank_by, ascending, k):
             except (TypeError, ValueError):
                 return float("-inf")
         rows.sort(key=keyf, reverse=not ascending)
-    return [r["sample_id"] for r in rows[:k]], list(rows[0].keys())
+    return [r["sample_id"] for r in rows[:k]], list(rows[0].keys()), rows
 
 
 def sample_ids_from_cluster(cluster_json, k):
@@ -438,8 +438,15 @@ def fetch_insight_files(insight, project_id, out_dir, k, rank_by, ascending, dig
             with open(local_csv, "wb") as f:
                 f.write(blob)
             digest["files"]["csv"] = local_csv
-            sample_ids, columns = sample_ids_from_csv(blob, rank_by, ascending, k)
+            sample_ids, columns, rows = sample_ids_from_csv(blob, rank_by, ascending, k)
             digest["csv_columns"] = list(columns)
+            digest["population"] = {
+                "affected": len(rows),
+                "core": sum(1 for r in rows
+                            if str(r.get("is_low_perf_root_member")).lower() == "true")
+                        or None,
+            }
+            digest["_ids"] = set(r.get("sample_id") for r in rows if r.get("sample_id"))
             if sample_ids is None:
                 digest["errors"].append("csv has no sample_id column")
 
@@ -726,6 +733,21 @@ def cmd_fetch(args):
 
     for d in digests.values():
         d.pop("top_samples", None)
+
+    carded = parents + orphans
+    for a in carded:
+        shared = []
+        for b in carded:
+            if b is a:
+                continue
+            common = (a.get("_ids") or set()) & (b.get("_ids") or set())
+            if common:
+                shared.append({"insight": b["index"], "shared": len(common),
+                               "of_this": round(len(common) / len(a["_ids"]), 3)})
+        if shared:
+            a["overlaps"] = sorted(shared, key=lambda x: -x["shared"])
+    for d in digests.values():
+        d.pop("_ids", None)
 
     version = version_meta(args.project, args.version)
     snapshot = code_snapshot(args.project, version)

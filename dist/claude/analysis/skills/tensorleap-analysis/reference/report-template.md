@@ -28,6 +28,12 @@ is for users who know the platform and want to continue there.
   `insights.json` for whoever wants them; the report speaks English.
 - Any platform term you do use gets a one-line translation the first time
   (e.g. "severity 3 — the platform's highest").
+- **"failing core" and "affected samples"** are the fixed wording for a
+  failure mode's two populations, and the first card to use them translates
+  once: "the platform flags 902 affected samples — the failing group plus its
+  latent neighbours; 314 of them actually underperform and are what this
+  card is about." Never "extended population" or "root members" (payload
+  vocabulary), and never a bare "314 samples" where the panel will show 902.
 - Your own analysis is presented on its own merits: say what you found and
   how ("profiling the group's metadata against the full run shows objects 3×
   smaller than average"), never as a comparison with what the platform did
@@ -56,7 +62,8 @@ is for users who know the platform and want to continue there.
    Where the prose names a specific issue, link the phrase to its card's
    anchor ("a <a href="#insight-1">gaussian-noise group</a>…").
 4. **Overview table**: a TOC of the report in body order — columns
-   `Insight | Issue | Severity | Samples | First action`, with a subheader
+   `Insight | Issue | Severity | Samples | First action` (Samples reads
+   `73 core / 232 affected` for a failure mode), with a subheader
    row per type. "Issue" holds the section's headline, compressed. The
    Insight cell links to the card's anchor (`<a href="#insight-4">#4</a>`).
 5. **One `<h2>` group per insight type present**, in the panel's order,
@@ -66,9 +73,13 @@ is for users who know the platform and want to continue there.
    One line per insight without a card, stating why in half a sentence and
    ending in what the reader can do: an insight whose story is covered by
    another card ("covered by the crowded-scenes actions"), a group whose
-   metrics are at population level ("no action needed"), or an insight where
+   metrics are at population level ("no action needed"), an insight where
    the subinsight check found no single story ("its subinsights repeat the
-   stories above — a candidate for archiving in the panel"). Plus, when
+   stories above — a candidate for archiving in the panel"), an insight
+   holding too few samples to generalize from, or one that repeats a carded
+   insight's samples (name the overlap and the card it duplicates). At most
+   five insights are elaborated (skill Step 5.5) — the rest live here, each
+   in one line. Plus, when
    relevant: unrendered visualizations phrased as on-demand behavior (never
    as an error) and fetch errors. Word editorial outcomes neutrally and
    ground them in the data — never verdict labels on the insight
@@ -97,7 +108,7 @@ the report's structure) or keep only the clearer one. An insight that fails
 the coherence gate goes through the subinsight rescue (skill Step 5): a
 subinsight that isolates one clear story gets the card instead — its chips
 carry both identities ("insight #3 · sub-insight #9") and its explore line
-names the parent in the panel. No coherent core → no card; one terse Notes
+names the parent in the panel. No coherent story → no card; one terse Notes
 line with the archive suggestion. Top-level insights are disjoint by
 definition; never present non-overlap as a discovery.
 
@@ -119,7 +130,10 @@ color alone:
    shown as a chip and in the overview table; prose cross-references between
    cards go by NAME ("the tiny-objects fix above"), never by number.
 2. **Chips**: severity ("Severity 1 of 3"), insight #, sample count, key
-   metric, latent space.
+   metric, latent space. For a failure mode the count chip carries BOTH
+   populations — `73 failing core · 232 affected` — and every other number on
+   the card (composition, contrast, action items) is the core's. Other
+   insight types have one count.
 3. **Bottom line** (`<p class="lede">`): ONE bold sentence — what is going
    wrong and why it matters. A reader who stops here still got the point.
 4. **Root cause** (`<p class="rootcause">`): `Root cause — <family>:` one
@@ -132,8 +146,11 @@ color alone:
    space (playbook guide).
 6. **Facts row** (`.facts`): the split-composition bar and the
    group-vs-all-data metric contrast side by side (they stack on narrow
-   screens). Count labels on the bar always; omit the contrast if
-   `population_metrics` lacks the column.
+   screens). Both are computed on the failing core for a failure mode.
+   Count labels on the bar always; omit the contrast if
+   `population_metrics` lacks the column, and label its baseline for what it
+   is (population mean vs the core's median — playbook: "Compare like with
+   like").
 7. **Samples**: 6 visible `<figure>`s (or `<blockquote>`s for text), each
    captioned with sample id + worst metric. A half-sentence before the grid
    names the view in domain terms ("predicted boxes over the camera frame")
@@ -299,7 +316,7 @@ details.explore summary { color: var(--acc); font-size: .9rem; }
     <div class="chips">
       <span class="chip sev s3">Severity 3 of 3</span>
       <span class="chip">insight #1</span>
-      <span class="chip">314 samples</span>
+      <span class="chip">314 failing core · 902 affected</span>
       <span class="chip">accuracy 0.42</span>
       <span class="chip">image-non-semantic space</span>
     </div>
@@ -312,9 +329,10 @@ details.explore summary { color: var(--acc); font-size: .9rem; }
       <div>
         <div class="splitbar"><span class="st-test" style="width:70%"></span><span class="st-unl" style="width:30%"></span></div>
         <div class="legend"><span class="train"><b></b>training 0</span> <span class="test"><b></b>test 221</span> <span class="unl"><b></b>unlabeled 93</span></div>
+        <p class="muted">core composition; 902 samples affected in total</p>
       </div>
       <div class="contrast">
-        <span>this group</span><span class="track"><span class="fill" style="width:48%"></span></span><span>0.42 acc</span>
+        <span>failing core</span><span class="track"><span class="fill" style="width:48%"></span></span><span>0.42 acc</span>
         <span>all data</span><span class="track"><span class="fill" style="width:100%"></span></span><span>0.87 acc</span>
       </div>
     </div>
