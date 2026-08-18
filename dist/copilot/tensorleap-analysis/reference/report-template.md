@@ -163,20 +163,32 @@ color alone:
    `<details class="more">`, whose summary is exactly
    `Show <N> more samples` with N the hidden count — that wording, every
    card, every report.
-   **Grid density follows the source resolution**, from the insight's
-   `asset_resolution.max_width` in `insights.json`, divided by how many
-   images each figure shows side by side (a GT-and-prediction pair is two).
-   Give every image at least ~340 px of column, and never more columns than
-   the resolution can fill: `<div class="grid">` (4-up) below ~340 px per
-   image — thumbnail-scale data like MNIST or QuickDraw; `class="grid wide"`
-   (2-up) from ~340 px; `class="grid solo"` (one per row, the full card
-   width) from ~700 px, which is where detection and segmentation frames
-   land. A dense 1360 px frame shown four-across gives ~100 px per view — the
-   reader cannot verify anything in it, and an unverifiable figure is worse
-   than no figure. Side-by-side views inside one figure go in
-   `<div class="pair">`; when the pair would halve an already-tight width,
-   show the single more probative view instead (Step 5 picked it) or stack
-   the two vertically. Watch total file size (`inline-html` prints it): aim
+   **Two views of one sample go side by side, always** — inside
+   `<figure><div class="pair"><img><img></div><figcaption>…` . Comparing
+   ground truth with prediction is the entire reason both are shown, and a
+   reader cannot compare what does not share a horizontal line of sight.
+   Never stack them vertically and never invent a wrapper class: stacked
+   full-width views are the single worst layout the report can produce — two
+   enormous images per sample, and the comparison destroyed.
+
+   **Grid density is then chosen so each VIEW lands near 340 px.** Take the
+   insight's `asset_resolution.max_width` from `insights.json` as the source
+   width per view; the grid itself is ~790 px wide:
+
+   | views per figure | source width per view | class | width per view |
+   |---|---|---|---|
+   | 1 | under 200 px | `grid` (4-up) | ~190 px |
+   | 1 | 200–400 px | `grid wide` (2-up) | ~385 px |
+   | 1 | over 400 px | `grid solo` (1-up) | ~790 px |
+   | 2 | under 200 px | `grid wide` (2-up) | ~190 px |
+   | 2 | 200 px and up | `grid solo` (1-up) | ~390 px |
+
+   Thumbnail-scale data (MNIST, QuickDraw) stays 4-up — there is nothing
+   more to see. Detection and segmentation frames land in `solo`. A dense
+   1360 px frame shown four-across gives ~100 px per view: the reader cannot
+   verify anything in it, and an unverifiable figure is worse than none.
+   If a single figure would still tower over the page, show the one more
+   probative view (Step 5 picked it) rather than shrinking both. Watch total file size (`inline-html` prints it): aim
    under ~10 MB — cap hidden samples on large-resolution datasets.
 8. **"What the samples show"** (`.observe`): the analyst's own observations
    from viewing the samples, first-person ("Looking at the samples, …") so
@@ -281,9 +293,9 @@ a { color: var(--acc); }
         gap: .75rem; margin: 1rem 0; }
 .grid.wide { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
 .grid.solo { grid-template-columns: 1fr; }
-.grid.solo figure img, .grid.wide figure img { max-height: 70vh; object-fit: contain; }
 .pair { display: flex; gap: .4rem; }
-.pair img { min-width: 0; }
+.pair img { flex: 1 1 0; min-width: 0; }
+.grid.solo > figure > img { width: auto; max-width: 100%; max-height: 62vh; }
 figure { margin: 0; }
 figure img { width: 100%; border-radius: 6px; display: block; }
 blockquote { border-left: 3px solid var(--line); margin: 1rem 0;
