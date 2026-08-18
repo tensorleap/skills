@@ -239,60 +239,6 @@ per card:
   card ("animals on roads" + "cats on roads at night") — the reader can't
   tell which to act on.
 
-## Step 5.5 — Challenge pass
-
-Every insight you are about to card gets challenged by a **blind reader**
-first. The challenge is advisory: it can change what a card *says*, and it
-can never remove one. You did the domain work, read the integration and saw
-every sample; the challenger has none of that, so it is a second pair of
-eyes, not an authority. An earlier version of this step let it veto, and it
-silently deleted findings that were sound.
-
-**One challenger per insight, all spawned in parallel** in a single message.
-Running them as subagents is part of the skill and the user has authorized
-it — do not ask. Each is blind: it gets the insight's directory,
-`insights.json` and `integration/`, and NOTHING of your analysis — not your
-headline, not your root-cause family, not your domain framing or wording,
-not how many insights there are. Anchoring it wastes the pass.
-
-Brief each one:
-
-> Read `<insight dir>`: `samples.csv`, this insight's entry in
-> `insights.json`, the sample visualizations under `samples/`, and the
-> integration code at `<integration dir>` so you know what each visualizer
-> renders. Do not read any draft report. Then answer, citing the row counts,
-> field values and sample ids you used:
-> 1. What do these samples have in common, if anything? For a failure mode,
->    characterize the failing core (`is_low_perf_root_member == True`), not
->    every row. Say plainly if you find nothing that holds them together.
-> 2. Is there evidence for a *cause*, or only for a correlation?
-> 3. What is the single weakest link — the claim a domain expert would
->    attack first, and the counter-example or missing check that would
->    settle it?
->
-> You are not deciding whether this gets reported. Do not rank it, do not
-> recommend archiving. Report what the data supports and where it is thin.
-
-Then work each challenge INTO the card you were going to write:
-
-- **Weakest link** → answer it in the prose with evidence, or state the
-  limit in the same sentence as the claim ("on the 12 samples I opened…",
-  "the metadata cannot separate these two causes"). A claim you cannot
-  support gets softened to what the evidence carries — not deleted.
-- **A different reading** → the challenger saw something you didn't, or it
-  saw less. Decide, with the samples in front of you, and if both readings
-  survive the data, the card carries both. Your reading is not wrong because
-  a blind reader disagrees.
-- **"Nothing holds them together"** → re-run Step 5's coherence gate on this
-  insight with that in mind. The gate decides, as it always has.
-
-**The pass is internal.** No challenge, no challenger wording, and no
-mention that the step ran appears in the report or the closing message.
-
-If subagents are unavailable, say so in one line and skip the step — a
-self-challenge from the context that wrote the analysis is not a second
-reader, and pretending otherwise is worse than not running it.
-
 ## Step 6 — Write the report
 
 Follow **`{{reference_dir}}/report-template.md`** (HTML skeleton, per-insight
@@ -344,8 +290,7 @@ payload's directory, not from the digest's file list.
 the strongest case — severity first, then how much of the data the finding
 touches and whether it carries a distinct action — and give every other
 insight its one-line Notes entry. Fewer than 6 worth carding → write fewer;
-never pad. The cap is decided on the evidence alone: Step 5.5's challenges
-change what cards say, never which insights make the cap.
+never pad.
 
 Order insights by `severity` descending. **Lead every insight with what
 is going wrong** — what fails and why, named in plain ML terms — and write for
