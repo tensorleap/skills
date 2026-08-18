@@ -113,7 +113,12 @@ so it is safe to pass always, and it does nothing on remote servers.
 The report reads as if a domain expert wrote it, for domain experts.
 Determine the domain and task from what you already have — the project name,
 `prediction_labels`, the metadata fields, and the samples themselves (drone
-footage, clinical notes, movie reviews announce themselves). Do NOT ask the
+footage, clinical notes, movie reviews announce themselves). **The
+integration code in `integration/` is the most explicit source**: dataset
+paths and file names, preprocessing steps, the class list, how metadata is
+derived, what the loss and metrics measure, and comments and docstrings the
+author wrote for themselves. You will read it in Step 5 for the visualizers
+anyway — read it here first, for the subject matter. Do NOT ask the
 user to confirm a domain you inferred. Ask only when the data genuinely
 leaves you unable to tell what the task is — and then ask once,
 specifically.
