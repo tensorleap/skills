@@ -17,6 +17,7 @@ python3 .tensorleap/scripts/tl_api.py whoami
 python3 .tensorleap/scripts/tl_api.py list-versions [--project NAME_OR_ID]
 python3 .tensorleap/scripts/tl_api.py fetch --project ID --version ID --out DIR
                                         [--top-k 10] [--rank-by COL] [--asc]
+                                        [--fast-local] [--refresh]
 python3 .tensorleap/scripts/tl_api.py render-charts DIR
 ```
 
@@ -87,6 +88,16 @@ python3 .tensorleap/scripts/tl_api.py render-charts tensorleap-analysis/<version
 
 Exit 6 means no matplotlib in this environment — fall back to compact
 HTML tables built from the payload JSON (do NOT install anything).
+
+**Repeat runs are cheap.** Blobs are cached (`~/.cache/tensorleap-analysis`)
+and sample directories already present in `--out` are reused, so re-running
+after a crash or a report edit costs seconds; `--refresh` forces a full
+re-download. On a **localhost** server add `--fast-local`: storage URLs are
+signed locally instead of one API call per file, and one object listing
+replaces one listing call per sample (measured 3m47s → 10s on a 6-insight
+version). It self-calibrates against a single API-issued URL, verifies the
+bytes it produces, and silently falls back to the API path on any doubt —
+so it is safe to pass always, and it does nothing on remote servers.
 
 ## Step 4 — Establish the domain
 

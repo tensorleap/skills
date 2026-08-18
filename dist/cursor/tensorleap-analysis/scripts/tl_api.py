@@ -12,6 +12,14 @@ Usage:
   tl_api.py list-versions [--project NAME_OR_ID]
   tl_api.py fetch --project ID --version ID --out DIR [--top-k 10]
                   [--rank-by COLUMN] [--asc]
+                  [--fast-local] [--cache-dir DIR] [--refresh]
+
+Repeat runs reuse work: blobs are cached under ~/.cache/tensorleap-analysis
+(--cache-dir, empty to disable) and sample dirs already present in --out are
+kept as-is; --refresh re-downloads everything. --fast-local (localhost
+servers only) signs storage URLs locally instead of asking the API for one
+signed URL per file — calibrated from a single API-issued URL and verified
+byte-for-byte before use, falling back to the API on any doubt.
   tl_api.py render-charts DIR
   tl_api.py inline-html FILE.html   # embed <img src> files as data URIs, in place
 
@@ -28,18 +36,23 @@ import argparse
 import base64
 import csv
 import hashlib
+import hmac
 import io
 import json
 import os
+import subprocess
 import sys
 import tarfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 API = {"url": None, "key": None}
+CACHE = {"dir": None, "refresh": False}
+SIGN = {"ready": False}
 SUB_TOP_K = 6
 CANDIDATE_FACTOR = 4
 
@@ -111,17 +124,217 @@ def fetch_url(url):
         return resp.read()
 
 
-def download_blob(file_name, soft=False):
-    resp = api("versions/getDownloadSignedUrl", {"fileName": file_name}, soft=soft)
-    if resp is None:
+def write_atomic(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.part{os.getpid()}"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
+def cache_path(file_name):
+    if not CACHE["dir"]:
         return None
-    try:
-        return fetch_url(resp["url"])
-    except Exception as e:
-        if soft:
+    return os.path.join(CACHE["dir"],
+                        hashlib.sha256(file_name.encode()).hexdigest())
+
+
+def sigv4(uri, host, stamp, scope, params):
+    """Presigned sigv4 signature for a GET of `uri` against `host`."""
+    query = "&".join(f"{urllib.parse.quote(k, safe='')}="
+                     f"{urllib.parse.quote(v, safe='')}"
+                     for k, v in sorted(params.items()))
+    canonical = f"GET\n{uri}\n{query}\nhost:{host}\n\nhost\nUNSIGNED-PAYLOAD"
+    to_sign = (f"AWS4-HMAC-SHA256\n{stamp}\n{scope}\n"
+               f"{hashlib.sha256(canonical.encode()).hexdigest()}")
+    key = f"AWS4{SIGN['secret']}".encode()
+    for part in scope.split("/"):
+        key = hmac.new(key, part.encode(), hashlib.sha256).digest()
+    return query, hmac.new(key, to_sign.encode(), hashlib.sha256).hexdigest()
+
+
+def storage_key(file_name):
+    """Object key for a name that is either already bucket-absolute
+    (organizations/...) or relative to this team's prefix."""
+    if file_name.startswith(SIGN["team_prefix"].split("/", 1)[0] + "/"):
+        return file_name
+    return SIGN["team_prefix"] + file_name
+
+
+def sign_url(file_name):
+    """Presign the object URL locally, using the calibration captured from one
+    API-issued URL. Returns None when the fast path is unavailable, so callers
+    fall back to the API."""
+    if not SIGN.get("ready"):
+        return None
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    scope = f"{stamp[:8]}/{SIGN['region']}/s3/aws4_request"
+    uri = SIGN["bucket_path"] + urllib.parse.quote(storage_key(file_name))
+    params = {
+        "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+        "X-Amz-Credential": f"{SIGN['access']}/{scope}",
+        "X-Amz-Date": stamp,
+        "X-Amz-Expires": "3600",
+        "X-Amz-SignedHeaders": "host",
+    }
+    query, sig = sigv4(uri, SIGN["signing_host"], stamp, scope, params)
+    return f"{SIGN['base']}{uri}?{query}&X-Amz-Signature={sig}"
+
+
+def list_objects(key_prefix):
+    """Every key under `key_prefix` via S3 ListObjectsV2, signed locally.
+    One paginated call replaces one listing API call per sample."""
+    if not SIGN.get("ready"):
+        return None
+    import xml.etree.ElementTree as ET
+    ns = "{http://s3.amazonaws.com/doc/2006-03-01/}"
+    keys, token = [], None
+    while True:
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        scope = f"{stamp[:8]}/{SIGN['region']}/s3/aws4_request"
+        params = {
+            "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+            "X-Amz-Credential": f"{SIGN['access']}/{scope}",
+            "X-Amz-Date": stamp,
+            "X-Amz-Expires": "3600",
+            "X-Amz-SignedHeaders": "host",
+            "list-type": "2",
+            "max-keys": "1000",
+            "prefix": key_prefix,
+        }
+        if token:
+            params["continuation-token"] = token
+        query, sig = sigv4(SIGN["bucket_path"], SIGN["signing_host"],
+                           stamp, scope, params)
+        url = f"{SIGN['base']}{SIGN['bucket_path']}?{query}&X-Amz-Signature={sig}"
+        try:
+            root = ET.fromstring(fetch_url(url))
+        except Exception as e:
+            print(f"fast-local: listing failed ({e}) — using the API path",
+                  file=sys.stderr)
             return None
-        print(f"download failed for {file_name}: {e}", file=sys.stderr)
-        raise SystemExit(4)
+        keys.extend(c.findtext(f"{ns}Key") for c in root.findall(f"{ns}Contents"))
+        if root.findtext(f"{ns}IsTruncated") != "true":
+            return keys
+        token = root.findtext(f"{ns}NextContinuationToken")
+        if not token:
+            return keys
+
+
+def download_blob(file_name, soft=False):
+    cp = cache_path(file_name)
+    if cp and not CACHE["refresh"] and os.path.isfile(cp):
+        with open(cp, "rb") as f:
+            return f.read()
+    data = None
+    fast = sign_url(file_name)
+    if fast:
+        try:
+            data = fetch_url(fast)
+        except Exception:
+            data = None
+    if data is None:
+        resp = api("versions/getDownloadSignedUrl", {"fileName": file_name}, soft=soft)
+        if resp is None:
+            return None
+        try:
+            data = fetch_url(resp["url"])
+        except Exception as e:
+            if soft:
+                return None
+            print(f"download failed for {file_name}: {e}", file=sys.stderr)
+            raise SystemExit(4)
+    if cp and data is not None:
+        write_atomic(cp, data)
+    return data
+
+
+def storage_credentials():
+    cmd = ["leap", "server", "tools", "kubectl", "get", "secret",
+           "minio-secret", "-n", "tensorleap", "-o", "json"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, timeout=60).stdout
+        data = json.loads(out)["data"]
+        return (base64.b64decode(data["rootUser"]).decode(),
+                base64.b64decode(data["rootPassword"]).decode())
+    except Exception:
+        return None, None
+
+
+def signing_host_candidates(public_netloc):
+    """Hosts the server might have signed with. The storage service is reached
+    through the public origin, but the signature may cover its in-cluster
+    endpoint, so candidates come from the cluster's own service list."""
+    candidates = [public_netloc]
+    cmd = ["leap", "server", "tools", "kubectl", "get", "svc",
+           "-n", "tensorleap", "-o", "json"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, timeout=60).stdout
+        for item in json.loads(out).get("items", []):
+            name = (item.get("metadata") or {}).get("name", "")
+            if "minio" not in name:
+                continue
+            for port in (item.get("spec") or {}).get("ports", []):
+                candidates.append(f"{name}:{port.get('port')}")
+    except Exception:
+        pass
+    return candidates
+
+
+def enable_fast_local(probe_file_name):
+    """Calibrate local signing against one API-issued URL: reproduce ITS
+    signature to learn the signing host, then verify byte equality before
+    trusting the fast path."""
+    if API["url"].split("://", 1)[-1].split(":")[0] not in (
+            "localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        print("fast-local: server is not local — using the API path",
+              file=sys.stderr)
+        return False
+    resp = api("versions/getDownloadSignedUrl", {"fileName": probe_file_name},
+               soft=True)
+    if not resp or not resp.get("url"):
+        return False
+    url = urllib.parse.urlparse(resp["url"])
+    params = dict(urllib.parse.parse_qsl(url.query))
+    target = params.pop("X-Amz-Signature", None)
+    cred = (params.get("X-Amz-Credential") or "").split("/")
+    quoted = urllib.parse.quote(probe_file_name)
+    if not target or len(cred) < 5 or not url.path.endswith(quoted):
+        return False
+    access, secret = storage_credentials()
+    if not secret or access != cred[0]:
+        print("fast-local: storage credentials unavailable — using the API path",
+              file=sys.stderr)
+        return False
+    prefix = url.path[:-len(quoted)]
+    bucket_path = "/" + prefix.strip("/").split("/", 1)[0] + "/"
+    SIGN.update({"base": f"{url.scheme}://{url.netloc}",
+                 "bucket_path": bucket_path,
+                 "team_prefix": prefix[len(bucket_path):],
+                 "region": cred[2], "access": access, "secret": secret})
+    scope = "/".join(cred[1:])
+    signing_host = next(
+        (host for host in signing_host_candidates(url.netloc)
+         if sigv4(url.path, host, params["X-Amz-Date"], scope, params)[1] == target),
+        None)
+    if not signing_host:
+        print("fast-local: could not reproduce the server's signature — "
+              "using the API path", file=sys.stderr)
+        return False
+    SIGN.update({"signing_host": signing_host, "ready": True})
+    try:
+        expected = fetch_url(resp["url"])
+        got = fetch_url(sign_url(probe_file_name))
+    except Exception:
+        got = expected = None
+    if got is None or got != expected:
+        SIGN["ready"] = False
+        print("fast-local: local signing did not verify — using the API path",
+              file=sys.stderr)
+        return False
+    print(f"fast-local: signing objects locally (host {signing_host})",
+          file=sys.stderr)
+    return True
 
 
 def hash_sample_index(raw):
@@ -259,6 +472,9 @@ def fetch_insight_files(insight, project_id, out_dir, k, rank_by, ascending, dig
 
 
 def list_sample_paths(prefix, hashed_id):
+    listed = SIGN.get("listing")
+    if listed is not None:
+        return listed.get(hashed_id, [])
     resp = api("visualizations/getSampleVisualizationsPath",
                {"scatterSampleVisualizationsPrefix": prefix,
                 "sampleId": hashed_id, "fileNameMatch": ""}, soft=True)
@@ -356,6 +572,10 @@ def mint_version_link(project_id, version_id, dashboard_id):
 
 
 def cmd_fetch(args):
+    CACHE["dir"] = args.cache_dir or None
+    CACHE["refresh"] = args.refresh
+    if CACHE["dir"]:
+        os.makedirs(CACHE["dir"], exist_ok=True)
     insights = api("insights/getInsights",
                    {"projectId": args.project, "versionId": args.version}).get("insights", [])
     if not insights:
@@ -401,6 +621,14 @@ def cmd_fetch(args):
         else:
             parents.append(d)
 
+    if args.fast_local:
+        probe = next((f'projects/{args.project}/{x["insightType"][field]}'
+                      for x in digests.values()
+                      for field in ("csv_path", "blob_path")
+                      if x["insightType"].get(field)), None)
+        if probe:
+            enable_fast_local(probe)
+
     def fetch_files(d):
         k = args.top_k if not d["parent_id"] else min(SUB_TOP_K, args.top_k)
         d["top_k"] = k
@@ -425,6 +653,18 @@ def cmd_fetch(args):
         if resp:
             available = set(resp.get("samplesIds", []))
             prefix = resp.get("scatterSampleVisualizationsPrefix")
+        if prefix and SIGN.get("ready"):
+            keys = list_objects(storage_key(prefix))
+            if keys:
+                grouped = {}
+                root = storage_key(prefix)
+                for key in keys:
+                    sample_id = key[len(root):].split("/", 1)[0]
+                    grouped.setdefault(sample_id, []).append(key)
+                SIGN["listing"] = grouped
+                available |= set(grouped) & set(id_map.values())
+                print(f"fast-local: listed {len(keys)} stored files for "
+                      f"{len(grouped)} samples in one call", file=sys.stderr)
 
     jobs = []
     for d in digests.values():
@@ -455,6 +695,14 @@ def cmd_fetch(args):
 
     def fetch_sample(job):
         d, raw, hashed, entry = job
+        sample_dir = os.path.join(args.out, d["dir"], "samples", raw)
+        if not args.refresh and os.path.isdir(sample_dir):
+            existing = [os.path.join(root, f)
+                        for root, _dirs, files in os.walk(sample_dir)
+                        for f in files if not f.endswith(".part")]
+            if existing:
+                entry["files"].extend(sorted(existing))
+                return
         try:
             for path in choose_paths(list_sample_paths(prefix, hashed), hashed):
                 rel = path.split(f"{hashed}/", 1)[-1]
@@ -689,6 +937,14 @@ def main():
     fe.add_argument("--top-k", type=int, default=24)
     fe.add_argument("--rank-by")
     fe.add_argument("--asc", action="store_true")
+    fe.add_argument("--fast-local", action="store_true",
+                    help="sign storage URLs locally (localhost servers only) "
+                         "instead of one API call per file")
+    fe.add_argument("--cache-dir",
+                    default=os.path.expanduser("~/.cache/tensorleap-analysis"),
+                    help="blob cache; empty string disables")
+    fe.add_argument("--refresh", action="store_true",
+                    help="re-download everything, ignoring cache and existing files")
     rc = sub.add_parser("render-charts")
     rc.add_argument("dir")
     ih = sub.add_parser("inline-html")
