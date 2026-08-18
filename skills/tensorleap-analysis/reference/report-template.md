@@ -49,6 +49,9 @@ is for users who know the platform and want to continue there.
 
 ## Page structure
 
+The HTML page runs title → summary → overview table → insight groups, and
+ends with the last card. Notes live in `report.md` alone (item 6).
+
 1. **Title + meta line** (project/version, insight counts, server, the
    Insights-panel link).
 2. **KPI strip** (`.tiles`): 3–4 stat tiles with the model-level numbers a
@@ -69,7 +72,9 @@ is for users who know the platform and want to continue there.
 5. **One `<h2>` group per insight type present**, in the panel's order,
    with a count badge and a one-line meaning (table below). Inside, one
    **card** per insight (anatomy below), severity-ordered.
-6. **Notes**: short and terse — a few one-line bullets, no paragraphs.
+6. **Notes — in `report.md` only, never in the HTML.** The HTML ends with
+   the last insight card; the markdown companion closes with a `## Notes`
+   section. Short and terse — a few one-line bullets, no paragraphs.
    One line per insight without a card, stating why in half a sentence and
    ending in what the reader can do: an insight whose story is covered by
    another card ("covered by the crowded-scenes actions"), a group whose
@@ -392,8 +397,6 @@ details.explore summary { color: var(--acc); font-size: .9rem; }
     </details>
   </section>
 
-  <h2>Notes</h2>
-  <ul><li>…</li></ul>
 </article>
 </body>
 </html>
@@ -402,6 +405,7 @@ details.explore summary { color: var(--acc); font-size: .9rem; }
 ## report.md (the paste-into-a-ticket companion)
 
 Just: title line, the Insights-panel link, the executive-summary paragraph,
-the overview table, and each card's "Do next" checklist under its headline
-(with the panel insight # in the heading). No images, no evidence sections —
-link to `report.html` for those.
+the overview table, each card's "Do next" checklist under its headline (with
+the panel insight # in the heading), and a closing `## Notes` section — the
+only place Notes appear. No images, no evidence sections — link to
+`report.html` for those.

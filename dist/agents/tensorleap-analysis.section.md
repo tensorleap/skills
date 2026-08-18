@@ -72,7 +72,7 @@ version, and stop. On success the out dir contains:
 - `integration/` — the integration code exactly as it was pushed for this
   version (`integration.entry_file` names the entry file). If it's missing,
   fall back to the code in the cwd when a `leap.yaml` is present — and say
-  in the report's Notes that you read the local checkout, which may have
+  in the companion's Notes that you read the local checkout, which may have
   drifted since the push.
 - `insight_<i>_<type>/` per insight — `samples.csv`, optional
   `top_panel.json`, and `samples/<sample_id>/<dataType>/<visualizer>/…` with
@@ -192,8 +192,9 @@ space, an algorithm edge case, anything). Then:
    line points at the parent in the panel. Several coherent subs → several
    cards.
 2. **No coherent story → ignore the insight** — the report equivalent of
-   archiving it in the panel. Nothing in the body; one terse line in Notes
-   naming it a candidate for archiving, with the half-sentence of evidence
+   archiving it in the panel. Nothing in the report; one terse line in the
+   companion's Notes naming it a candidate for archiving, with the
+   half-sentence of evidence
    ("its subinsights repeat the stories above").
 
 Never force a narrative and never fold an incoherent insight into another
@@ -249,9 +250,11 @@ python3 .tensorleap/scripts/tl_api.py inline-html <out-dir>/report.html
 
 Exit 7 means some `src` paths didn't resolve — fix them (stderr lists which)
 and re-run; never ship a report with broken images. The result is ONE file
-the user can mail or Slack. Also write `<out-dir>/report.md` — just the
-executive summary, summary table, and per-insight action checklists (the
-paste-into-a-ticket companion; no images).
+the user can mail or Slack. Also write `<out-dir>/report.md` — the
+executive summary, summary table, per-insight action checklists, and the
+**Notes** section (template: one line per insight without a card, ending in
+what the reader can do; unrendered visualizations as on-demand behavior;
+fetch errors). It is the paste-into-a-ticket companion; no images.
 
 Modality handling per sample `payload.json` (`data.type`):
 
@@ -278,12 +281,12 @@ is going wrong** — what fails and why, named in plain ML terms — and write f
 an ML engineer with zero knowledge of Tensorleap internals: no blob paths,
 filter JSON, or raw payload field names in the prose (the template's language
 rules are binding). Keep the executive summary honest — if the insights are
-low-severity or repetitive, say so. Close with the terse Notes section
-(template: one line per insight without a card, ending in what the reader
-can do; unrendered visualizations as on-demand behavior; fetch errors).
+low-severity or repetitive, say so. The HTML ends with the last insight
+card — **no Notes section in the HTML.**
 
 **Before finishing, read the rendered report as its reader would** — every
-sentence, chips, captions, link texts, the Notes. Assembled text is where
+sentence, chips, captions, link texts, and the companion's Notes.
+Assembled text is where
 clumsiness hides ("this insight is insight #2", repeated phrases, stale
 numbers). Fix anything you would not have written in a single pass. Ship
 only what reads clean end-to-end.
@@ -294,7 +297,8 @@ at `<path>/report.md`. No findings, no summaries, no severity counts, no
 recommended first action, no observations — everything you have to say lives
 IN the report; the session message just hands it over. Anything discovered
 along the way that isn't part of the analysis (e.g. a suspected data or
-server irregularity) goes in the report's Notes, not the closing message.
+server irregularity) goes in the companion's Notes, not the closing
+message.
 Then answer follow-up questions from the analysis you already did — the
 conversational depth is for when the user asks, never volunteered up front.
 <!-- END TENSORLEAP SKILL: tensorleap-analysis -->
