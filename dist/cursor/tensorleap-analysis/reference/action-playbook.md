@@ -11,9 +11,9 @@ class, which metadata slice, how many samples).
 | Field | Meaning | How to cite it |
 |---|---|---|
 | `severity` | Integer, higher = worse. Order the report by it. | "Severity 3 (highest in this run)" |
-| `n_samples` | **Affected samples** — the cluster plus its latent neighbourhood. For `low_performance` this is NOT the failing group (see "Core vs affected samples"). | "4,772 affected samples (9% of the population)" |
+| `n_samples` | The cluster plus its latent neighbourhood. For `low_performance` this is NOT the failing group — never quote it (see below). | Internal only |
 | `severity_metrics` | Per-metric `{metric_name, value, normalized_value}`. | "loss 2.1× the population median" |
-| `metrics_info` | Per-metric statistics. For `low_performance`, "Cluster Median/Average" are the **failing core**'s; "Outside Cluster" is everything beyond the affected set. | Table of mean/median per metric |
+| `metrics_info` | Per-metric statistics. For `low_performance`, "Cluster Median/Average" are the failing group's; "Outside Cluster" is everything beyond the wider cluster. | Table of mean/median per metric |
 | `mutual_info_elements` | What characterizes the cluster: `features[{feature_name, feature_value, direction}]`, `value_in_cluster` vs `value_outside_cluster`, `score`, `is_unique` | "dominated by `weather=night` (78% in-cluster vs 12% outside)" — this is the heart of the story |
 | `display_filters` | The dashboard filters that reproduce the cluster. | Include verbatim so the user can open it in the UI |
 | `automatic_tests` | Suggested regression tests `{test_name, filter, metric_name, metric_value, operator}`. | Offer as "add this as a platform test" |
@@ -34,30 +34,27 @@ the label audit"), never omit it. This binds every insight that has a card
 (a sub-based card cites its parent's payload); an insight ignored through
 the coherence gate is instead handled by its archive suggestion in Notes.
 
-**Core vs affected samples.** A low-performance insight covers two
-populations: the **failing core** — the samples that actually underperform —
-and the **affected samples** (`n_samples`: the core plus its latent
-neighbourhood, and what the panel's filter and the deep link show).
-`samples.csv` marks the split: `is_low_perf_root_member == True` is the core.
-The non-core members are frequently healthy — in a measured run the core's
-median error was 7.8× the rest of the data while the non-core members sat
-*below* the population median. So:
+**The cluster's csv is wider than the failing group.** `samples.csv` holds
+the cluster plus its latent neighbourhood, and `n_samples` counts all of it —
+the non-members are frequently healthy: in a measured run the failing group's
+median error was 7.8× the rest of the data while the others sat *below* the
+population median. `is_low_perf_root_member == True` marks the samples that
+actually underperform (the digest pre-counts them as `population.samples`).
 
-- **Characterize, count and contrast on the CORE.** Composition, split bar,
-  metadata majorities, metric contrast, the story itself: core rows only.
-  Mutual-information features describe the affected set — re-check every one
-  of them against the core before naming the group by it.
-- **Report both numbers** wherever a count appears: `73 failing core / 232
-  affected`. Never put the affected count next to a core-derived multiplier.
-- **The affected set earns its place twice**: the overfitting check below
-  (its training samples vs the core) and navigation, so the reader is not
-  surprised by the larger number in the panel.
+- **Characterize, count and contrast on those rows only.** Composition, split
+  bar, metadata majorities, metric contrast, the story itself.
+  Mutual-information features are computed over the wider csv — re-check every
+  one against the failing rows before naming the group by it.
+- **The group's size is that count.** Never quote `n_samples`, and never quote
+  the number the panel's filter shows; they describe the wider cluster, which
+  the report does not discuss.
 - **Compare like with like.** `metrics_info` "Cluster Median" is a median;
   `population_metrics` values are population *means*. Contrast median with
-  median (compute the core's from `samples.csv` when the engine has none) and
-  name the baseline you used — the rest of the data, or the whole population.
+  median (compute it from `samples.csv` when the engine has none) and name the
+  baseline you used — the rest of the data, or the whole population.
 
-Every other insight type has no core/affected split: `n_samples` is the group.
+Insight types other than `low_performance` have no such split: every csv row
+is a member.
 
 **0. Is the wider metadata population failing too?**
 Look at `mutual_info_elements`: the features characterizing the cluster define
@@ -68,11 +65,11 @@ a metadata population wider than the cluster itself.
   cluster from the healthy rest of its population (domain-gap-style
   comparison over the metadata).
 
-**1. Can more data solve it?** Applies when the failing core is NOT dominated
-by training data: train-sample share < 40% of the core, or the core's
+**1. Can more data solve it?** Applies when the failing group is NOT dominated
+by training data: train-sample share < 40% of the group, or the group's
 training samples are < 5% of all training data (`is_train_aggressor`,
 `cluster_extended_stats`, and the per-state breakdown in `samples.csv`).
-If there are no (or a distinct minority of) test/val samples in the core,
+If there are no (or a distinct minority of) test/val samples in the group,
 also recommend rebalancing the splits.
 
 - **Mostly training data (train aggressor)** → more data won't help:
@@ -85,9 +82,8 @@ also recommend rebalancing the splits.
 
 - **Not a train aggressor** → data-side fixes, in this order:
   - **Overfitting?** `overfitting_metrics` / `overfitting_evidence` flag it
-    (MAD-robust contrast between the affected set's training samples and the
-    failing core; flagged above 2.0). If flagged → present the evidence
-    (affected-vs-core comparison) and recommend **balancing the dataset —
+    (MAD-robust contrast between the wider cluster's training samples and the
+    failing group; flagged above 2.0). If flagged → present the evidence and recommend **balancing the dataset —
     move samples from test to train** for this population.
   - **Unlabeled data available?** `aggressor_fixing` says what the platform
     already selected: `num_of_samples_to_label` (chosen via similarity

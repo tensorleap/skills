@@ -64,10 +64,11 @@ version, and stop. On success the out dir contains:
   `visualizers` (every visualizer the integration declared: name, data
   type, argument names), and `integration` (where the pushed code was
   extracted; null if the download failed). Each insight also carries
-  `population` (`affected` = every row of its csv, `core` = the failing core
-  for a failure mode, null otherwise), `asset_resolution` (the pixel size of
-  the largest downloaded sample image — the report's sample grid is sized
-  from it) and, when its samples appear in another insight too, `overlaps`
+  `population` (`samples` = the group the report describes — for a failure
+  mode the rows that actually underperform, otherwise every csv row; and
+  `csv_rows`, the raw row count, internal only), `asset_resolution` (the
+  pixel size of the largest downloaded sample image — the report's sample
+  grid is sized from it) and, when its samples appear in another insight too, `overlaps`
   (`{insight, shared, of_this}` per other insight).
 - `integration/` — the integration code exactly as it was pushed for this
   version (`integration.entry_file` names the entry file). If it's missing,
@@ -132,19 +133,19 @@ headers for the metric/metadata columns.
 
 Work through **`.tensorleap/reference/action-playbook.md`** — it maps every
 insight type to the checks to run and the action items they produce,
-including the low_performance decision tree (core vs affected samples, the
-wider-metadata-population check, train-aggressor split, overfitting
+including the low_performance decision tree (which csv rows are the failing
+group, the wider-metadata-population check, train-aggressor split, overfitting
 evidence, labeling/collection paths, and training adjustments like loss
 terms and sample boosting). Cite payload
 fields, not vibes.
 
 **Count before you characterize.** Compute the insight's full composition
 from its `samples.csv` (metadata values, split states) BEFORE naming it. For
-a failure mode, count the **failing core** — the `samples.csv` rows with
-`is_low_perf_root_member == True` — not every row: the rest are latent
-neighbours the platform swept in as *affected*, and they are often healthy.
-Characterize, contrast and act on the core; report both counts
-(playbook: "Core vs affected samples"). The
+a failure mode, count only the rows with `is_low_perf_root_member == True`:
+the rest are latent neighbours the platform swept in, and they are often
+healthy. Characterize, contrast and act on those rows, and quote that count
+as the group's size — never `n_samples` (playbook: "The cluster's csv is
+wider than the failing group"). The
 worst samples are the tail — never present the tail's traits as the group's
 identity, and treat the platform's mutual-information features as
 *over-represented*, not *defining* (playbook: "Characterize by composition,

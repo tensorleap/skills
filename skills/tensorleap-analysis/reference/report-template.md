@@ -28,12 +28,12 @@ is for users who know the platform and want to continue there.
   `insights.json` for whoever wants them; the report speaks English.
 - Any platform term you do use gets a one-line translation the first time
   (e.g. "severity 3 — the platform's highest").
-- **"failing core" and "affected samples"** are the fixed wording for a
-  failure mode's two populations, and the first card to use them translates
-  once: "the platform flags 902 affected samples — the failing group plus its
-  latent neighbours; 314 of them actually underperform and are what this
-  card is about." Never "extended population" or "root members" (payload
-  vocabulary), and never a bare "314 samples" where the panel will show 902.
+- **A failure mode's sample count is the number that actually underperforms**
+  (`population.samples` in the digest), and it is written plainly: "314
+  samples". The platform's `n_samples` counts a wider latent neighbourhood
+  the report does not discuss — never quote it, and never invent vocabulary
+  for the difference ("core", "affected", "extended population", "root
+  members" are all payload-side words that mean nothing to the reader).
 - Your own analysis is presented on its own merits: say what you found and
   how ("profiling the group's metadata against the full run shows objects 3×
   smaller than average"), never as a comparison with what the platform did
@@ -65,8 +65,7 @@ ends with the last card. Notes live in `report.md` alone (item 6).
    Where the prose names a specific issue, link the phrase to its card's
    anchor ("a <a href="#insight-1">gaussian-noise group</a>…").
 4. **Overview table**: a TOC of the report in body order — columns
-   `Insight | Issue | Severity | Samples | First action` (Samples reads
-   `73 core / 232 affected` for a failure mode), with a subheader
+   `Insight | Issue | Severity | Samples | First action`, with a subheader
    row per type. "Issue" holds the section's headline, compressed. The
    Insight cell links to the card's anchor (`<a href="#insight-4">#4</a>`).
 5. **One `<h2>` group per insight type present**, in the panel's order,
@@ -136,10 +135,10 @@ color alone:
    shown as a chip and in the overview table; prose cross-references between
    cards go by NAME ("the tiny-objects fix above"), never by number.
 2. **Chips**: severity ("Severity 1 of 3"), insight #, sample count, key
-   metric, latent space. For a failure mode the count chip carries BOTH
-   populations — `73 failing core · 232 affected` — and every other number on
-   the card (composition, contrast, action items) is the core's. Other
-   insight types have one count.
+   metric, latent space. The count chip is `population.samples` — for a
+   failure mode, the samples that actually underperform — and every other
+   number on the card (composition, contrast, action items) describes that
+   same set.
 3. **Bottom line** (`<p class="lede">`): ONE bold sentence — what is going
    wrong and why it matters. A reader who stops here still got the point.
 4. **Root cause** (`<p class="rootcause">`): `Root cause — <family>:` one
@@ -152,23 +151,30 @@ color alone:
    space (playbook guide).
 6. **Facts row** (`.facts`): the split-composition bar and the
    group-vs-all-data metric contrast side by side (they stack on narrow
-   screens). Both are computed on the failing core for a failure mode.
+   screens). Both describe the same samples the count chip names.
    Count labels on the bar always; omit the contrast if
    `population_metrics` lacks the column, and label its baseline for what it
-   is (population mean vs the core's median — playbook: "Compare like with
+   is (a population mean is not a median — playbook: "Compare like with
    like").
    The contrast is **grouped by metric**: one `<span class="cmetric">` naming
    the metric AND carrying its unit ("missed objects per image"), then its
    two bar rows. Values are bare numbers — a unit repeated on every row wraps
    the column and ruins the alignment. Two metrics is the useful maximum.
-7. **Samples**: 6 visible `<figure>`s (or `<blockquote>`s for text), each
-   captioned with sample id + worst metric. A half-sentence before the grid
+7. **Samples**: a few visible `<figure>`s (or `<blockquote>`s for text), each
+   captioned with sample id + worst metric. **How many are visible follows
+   the grid density** — big figures earn fewer: `grid solo` shows **2**,
+   `grid wide` **4**, the default 4-up **6**. One row of samples, then the
+   rest behind the fold; a card that scrolls for a screen and a half before
+   its action items has buried them. A half-sentence before the grid
    names the view in domain terms ("predicted boxes over the camera frame")
    so GT isn't mistaken for prediction — orientation only, never selection
    rationale; the rest (≤18) inside
    `<details class="more">`, whose summary is exactly
    `Show <N> more samples` with N the hidden count — that wording, every
-   card, every report.
+   card, every report. **The block is never omitted** when samples were
+   fetched and not shown: if file size forces a smaller hidden set, lower N
+   and keep the block. A reader who cannot tell that 18 more samples exist
+   has been told the card holds everything.
    **Two views of one sample go side by side, always** — inside
    `<figure><div class="pair"><img><img></div><figcaption>…` . Comparing
    ground truth with prediction is the entire reason both are shown, and a
@@ -194,8 +200,9 @@ color alone:
    1360 px frame shown four-across gives ~100 px per view: the reader cannot
    verify anything in it, and an unverifiable figure is worse than none.
    If a single figure would still tower over the page, show the one more
-   probative view (Step 5 picked it) rather than shrinking both. Watch total file size (`inline-html` prints it): aim
-   under ~10 MB — cap hidden samples on large-resolution datasets.
+   probative view (Step 5 picked it) rather than shrinking both.
+   Watch total file size (`inline-html` prints it): aim under ~10 MB — on
+   large-resolution datasets carry fewer hidden samples, never zero.
 8. **"What the samples show"** (`.observe`): the analyst's own observations
    from viewing the samples, first-person ("Looking at the samples, …") so
    it can't be mistaken for platform output. "Nothing beyond the platform's
@@ -361,7 +368,7 @@ details.explore summary { color: var(--acc); font-size: .9rem; }
     <div class="chips">
       <span class="chip sev s3">Severity 3 of 3</span>
       <span class="chip">insight #1</span>
-      <span class="chip">314 failing core · 902 affected</span>
+      <span class="chip">314 samples</span>
       <span class="chip">accuracy 0.42</span>
       <span class="chip">image-non-semantic space</span>
     </div>
@@ -374,14 +381,13 @@ details.explore summary { color: var(--acc); font-size: .9rem; }
       <div>
         <div class="splitbar"><span class="st-test" style="width:70%"></span><span class="st-unl" style="width:30%"></span></div>
         <div class="legend"><span class="train"><b></b>training 0</span> <span class="test"><b></b>test 221</span> <span class="unl"><b></b>unlabeled 93</span></div>
-        <p class="muted">core composition; 902 samples affected in total</p>
       </div>
       <div class="contrast">
         <span class="cmetric">accuracy</span>
-        <span>failing core</span><span class="track"><span class="fill" style="width:48%"></span></span><span>0.42</span>
+        <span>this group</span><span class="track"><span class="fill" style="width:48%"></span></span><span>0.42</span>
         <span>all data</span><span class="track"><span class="fill" style="width:100%"></span></span><span>0.87</span>
         <span class="cmetric">missed objects per image</span>
-        <span>failing core</span><span class="track"><span class="fill" style="width:100%"></span></span><span>57</span>
+        <span>this group</span><span class="track"><span class="fill" style="width:100%"></span></span><span>57</span>
         <span>all data</span><span class="track"><span class="fill" style="width:19%"></span></span><span>11</span>
       </div>
     </div>

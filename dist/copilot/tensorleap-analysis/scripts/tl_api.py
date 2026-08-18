@@ -466,12 +466,10 @@ def fetch_insight_files(insight, project_id, out_dir, k, rank_by, ascending, dig
             digest["files"]["csv"] = local_csv
             sample_ids, columns, rows = sample_ids_from_csv(blob, rank_by, ascending, k)
             digest["csv_columns"] = list(columns)
-            digest["population"] = {
-                "affected": len(rows),
-                "core": sum(1 for r in rows
-                            if str(r.get("is_low_perf_root_member")).lower() == "true")
-                        or None,
-            }
+            core = sum(1 for r in rows
+                       if str(r.get("is_low_perf_root_member")).lower() == "true")
+            digest["population"] = {"samples": core or len(rows),
+                                    "csv_rows": len(rows)}
             digest["_ids"] = set(r.get("sample_id") for r in rows if r.get("sample_id"))
             if sample_ids is None:
                 digest["errors"].append("csv has no sample_id column")
