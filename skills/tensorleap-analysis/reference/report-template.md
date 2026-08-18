@@ -78,7 +78,9 @@ is for users who know the platform and want to continue there.
    stories above — a candidate for archiving in the panel"), an insight
    holding too few samples to generalize from, or one that repeats a carded
    insight's samples (`overlaps` in the digest names the shared count — say
-   which card it duplicates). Plus, when
+   which card it duplicates), or an insight past the 6-card cap (skill
+   Step 6). Every insight in the run is either a card or a Notes line —
+   nothing is silently dropped. Plus, when
    relevant: unrendered visualizations phrased as on-demand behavior (never
    as an error) and fetch errors. Word editorial outcomes neutrally and
    ground them in the data — never verdict labels on the insight
