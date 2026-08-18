@@ -77,9 +77,8 @@ is for users who know the platform and want to continue there.
    the subinsight check found no single story ("its subinsights repeat the
    stories above — a candidate for archiving in the panel"), an insight
    holding too few samples to generalize from, or one that repeats a carded
-   insight's samples (name the overlap and the card it duplicates). At most
-   five insights are elaborated (skill Step 5.5) — the rest live here, each
-   in one line. Plus, when
+   insight's samples (`overlaps` in the digest names the shared count — say
+   which card it duplicates). Plus, when
    relevant: unrendered visualizations phrased as on-demand behavior (never
    as an error) and fetch errors. Word editorial outcomes neutrally and
    ground them in the data — never verdict labels on the insight

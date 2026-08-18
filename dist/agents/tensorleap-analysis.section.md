@@ -198,8 +198,7 @@ space, an algorithm edge case, anything). Then:
 
 Never force a narrative and never fold an incoherent insight into another
 card. When two insights share a pattern, each gets its own card and a
-cross-reference by name. Everything you decide here is a *candidate*, not a
-decision: Step 5.5 audits it blind before anything is written.
+cross-reference by name.
 
 **Latent space**: every insight states which latent space it was found in,
 with a one-line translation of what "similar" means there (guide in the
@@ -220,78 +219,6 @@ per card:
 - Never present a parent's message and a sub's sharper message in the same
   card ("animals on roads" + "cats on roads at night") — the reader can't
   tell which to act on.
-
-## Step 5.5 — Verdict gate
-
-The analysis above is yours, and a story you find convincing is the one you
-are least able to audit. Before writing a single card, every candidate
-insight (and every promoted subinsight) is checked by a **blind judge**.
-
-**Two free checks first**, from the digest — they cost no agent:
-
-- `population.core` (or `affected` where there is no core) too small to
-  generalize from — a handful of samples — the insight goes to Notes, no
-  judge needed. What "too small" means is a judgment about the dataset's
-  size, not a fixed number.
-- `overlaps` — an insight sharing most of its samples with one you are
-  already carding is the same finding twice. Keep the one whose story is
-  sharper, and give the other its Notes line naming the overlap.
-
-**Then one judge per surviving insight, all spawned in parallel** in a
-single message. Running these judges as subagents is part of the skill and
-the user has authorized it — do not ask, and do not skip them because of a
-general reluctance to spawn agents. They are the only unanchored reading in
-the whole run. The judge is blind: it gets the insight's directory,
-`insights.json` and `integration/` — and NOTHING of your analysis. Not your
-headline, not your root-cause family, not the domain framing you settled on,
-not the words you would use for the group, not how many insights there are
-or which ones already passed. Anchoring the judge destroys the whole point
-of running it.
-
-Brief each judge with this task:
-
-> Audit one candidate finding for a report an ML engineer will act on. Read
-> `<insight dir>`: `samples.csv`, this insight's entry in `insights.json`,
-> the sample visualizations under `samples/`, and the integration code at
-> `<integration dir>` so you know what each visualizer renders. Do not read
-> any draft report. Then answer, citing the row counts, field values and
-> sample ids you used:
-> 1. What do these samples have in common, if anything? Name it, or say
->    there is nothing coherent. For a failure mode, characterize the failing
->    core (`is_low_perf_root_member == True`), not every row.
-> 2. Is there evidence for a *cause*, or only for a correlation?
-> 3. Would you elaborate this in a report an engineer will act on, or
->    archive it? One sentence of why.
-> 4. `verdict`: `holds` | `thin` | `no coherent story`, plus the single
->    weakest link in the case for it.
->
-> Default to `thin` when uncertain. A group you cannot characterize from the
-> data is `no coherent story` — not a group you failed to understand.
-
-Then compare its answer 1 with your own, and act on the difference:
-
-- **Same population, same trait** → `holds`. Write the card.
-- **A coherent story, but a DIFFERENT one** → your narrative is not in the
-  data. Re-analyze from the judge's reading, or send the insight to Notes.
-  Never ship your version over the judge's objection.
-- **`no coherent story`** → Notes line with the archive suggestion (Step 5's
-  coherence gate, same wording).
-- **`thin`** → card only if you are under the cap AND its weakest link is
-  something you can answer with evidence inside the card itself.
-
-**Cap: at most 5 elaborated insights.** Rank the survivors `holds` before
-`thin`, severity as tiebreak; everything past 5 gets its one-line Notes
-entry. Fewer than 5 survive → write fewer. Never pad the report to reach it.
-
-**The gate is internal.** No verdict, no judge wording, no mention that a
-judge ran, appears in the report or in your closing message — the report
-carries only the analysis that survived. If the gate leaves you with one
-card, that is the honest result and the executive summary says so plainly.
-
-If your harness genuinely cannot spawn subagents, the gate does not run.
-Say so plainly in the closing message — the cap and the archive decisions
-then rest on unaudited self-assessment — and do not describe a self-check as
-if it were the gate: re-reading your own conclusion is not evidence.
 
 ## Step 6 — Write the report
 
