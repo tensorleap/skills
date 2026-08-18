@@ -170,9 +170,9 @@ top samples and ask:
      labels aren't judgeable from outside;
    - the sample **visibly contradicts** it (a dark-haired face where the
      value says blond; a hostile review where it says positive).
-   When both hold, report it per sample ("sample X's tag says blond, the
-   image shows dark hair") and only generalize as far as you actually
-   checked. A metadata tag disagreeing with the image is a metadata
+   When both hold, report it by sample ("sample X's tag says blond, the
+   image shows dark hair") — naming the samples, never counting the
+   displayed ones. A metadata tag disagreeing with the image is a metadata
    problem; call it a *label* problem only when it's the label itself.
 2. **What do these samples share that the metadata can't express?**
    Lighting, pose, occlusion, background clutter, image quality, phrasing
@@ -192,6 +192,13 @@ Your observations go in the insight's "What the samples show" block, worded
 as your own reading ("Looking at the samples, …") so it never masquerades as
 platform output. Confirming the platform's story is a valid, useful
 observation — write it.
+
+State observations about the GROUP, never about the rendered set. "Five of
+the six images shown", "most of the samples on this card", "all six frames"
+describe the report's layout; the insight has hundreds of members and the
+card shows a handful of them. Counts come from `samples.csv`, which covers
+every member; a visual pattern the csv cannot count gets named without a
+number, and that gap is the argument for the metadata field you propose.
 
 Present what you add on its own merits — the method and the insight
 ("profiling the metadata shows…", "comparing the group's object sizes to the

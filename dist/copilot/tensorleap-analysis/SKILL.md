@@ -168,8 +168,8 @@ top samples. You are looking for what the platform cannot see:
 
 - **Content contradicting a label/metadata value** — but ONLY when the value
   is human-interpretable (a word, not an opaque id) AND the contradiction is
-  visible in the sample. Report per sample, generalize only as far as you
-  checked; opaque class ids get no judgment (a human couldn't either).
+  visible in the sample. Name the samples it happens in; opaque class ids
+  get no judgment (a human couldn't either).
 - **Patterns with no metadata**: do the failing samples share something the
   metadata doesn't capture — lighting, pose, occlusion, background, image
   quality, phrasing style? If yes, name it AND suggest adding it as a
@@ -177,6 +177,14 @@ top samples. You are looking for what the platform cannot see:
 - Report these in the insight's "What the samples show" block, clearly as
   your own observation (the reader must be able to tell platform evidence
   from analyst judgment).
+- **Never scope an observation to the rendered images.** The card shows a
+  handful of a group that runs to hundreds; "5 of the 6 images are night
+  scenes" tells the reader about the report's layout, not about the data.
+  Write the finding as what it is about the group ("the failures are
+  overwhelmingly night scenes") and, when you want a number behind it, take
+  it from `samples.csv`, which covers every member. A visual pattern the csv
+  cannot count is still worth naming — unquantified — and it is exactly the
+  case where you also propose the metadata field that would count it.
 
 **Pick the evidence per insight** (playbook: "Pick the evidence"). State
 what the insight asserts is wrong, audition every primary-evidence

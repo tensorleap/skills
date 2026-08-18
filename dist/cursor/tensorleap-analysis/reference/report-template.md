@@ -206,7 +206,10 @@ color alone:
 8. **"What the samples show"** (`.observe`): the analyst's own observations
    from viewing the samples, first-person ("Looking at the samples, …") so
    it can't be mistaken for platform output. "Nothing beyond the platform's
-   story" is a real, useful result.
+   story" is a real, useful result. Observations are about the **group**,
+   never about the figures on the card — no "5 of the 6 images", no "all the
+   samples shown here". Numbers come from `samples.csv`, which covers every
+   member; a pattern only the eye can see is named without one.
 9. **"Do next"** (`.donext`): the strongest-looking block on the card — 1–3
    concrete, quantified checklist items.
 10. **Explore in Tensorleap** (`<details class="explore">`): exactly two
