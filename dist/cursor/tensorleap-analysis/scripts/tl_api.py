@@ -1032,7 +1032,28 @@ def cmd_render_charts(args):
                     rendered += 1
         except Exception as e:
             print(f"render failed for {root}: {e}", file=sys.stderr)
-    print(f"rendered {rendered} (skipped {lib_skipped} for missing matplotlib/PIL)")
+    thumbs = 0
+    if Image:
+        for root, _dirs, files in os.walk(args.dir):
+            for f in files:
+                if (not f.lower().endswith((".jpg", ".jpeg", ".png"))
+                        or f.endswith(".thumb.jpg")):
+                    continue
+                dest = os.path.join(root, f + ".thumb.jpg")
+                if os.path.exists(dest):
+                    continue
+                try:
+                    img = Image.open(os.path.join(root, f))
+                    if max(img.size) <= 640:
+                        continue
+                    img = img.convert("RGB")
+                    img.thumbnail((640, 640))
+                    img.save(dest, "JPEG", quality=80)
+                    thumbs += 1
+                except Exception as e:
+                    print(f"thumbnail failed for {root}/{f}: {e}", file=sys.stderr)
+    print(f"rendered {rendered}, thumbnails {thumbs} "
+          f"(skipped {lib_skipped} for missing matplotlib/PIL)")
     if lib_skipped and not rendered:
         raise SystemExit(6)
 
@@ -1195,8 +1216,11 @@ def _figure_html(sample, base, missing):
         return f'<blockquote>{sample["text"]}{note}</blockquote>'
     imgs = []
     for src in sample.get("images", []):
-        if not os.path.isfile(os.path.join(base, src)):
-            missing.append(src)
+        if src.endswith(".thumb.jpg"):
+            missing.append(f"{src}: thumbnails are for analysis viewing only — "
+                           f"reference the original image")
+        elif not os.path.isfile(os.path.join(base, src)):
+            missing.append(f"missing image: {src}")
         imgs.append(f'<img src="{src}">')
     body = f'<div class="pair">{"".join(imgs)}</div>' if len(imgs) > 1 else "".join(imgs)
     return f'<figure>{body}<figcaption>{cap}</figcaption></figure>'
@@ -1359,8 +1383,8 @@ def cmd_build_report(args):
     open(txt_path, "w", encoding="utf-8").write(txt)
     print(f"{html_path}\n{txt_path}")
     if missing:
-        for src in missing:
-            print(f"missing image: {src}", file=sys.stderr)
+        for msg in missing:
+            print(msg, file=sys.stderr)
         raise SystemExit(8)
 
 

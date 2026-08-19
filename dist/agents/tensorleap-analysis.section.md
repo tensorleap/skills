@@ -99,6 +99,9 @@ python3 .tensorleap/scripts/tl_api.py render-charts tensorleap-analysis/<version
 
 Exit 6 means no matplotlib in this environment — fall back to compact
 HTML tables built from the payload JSON (do NOT install anything).
+render-charts also writes a `<name>.thumb.jpg` (max 640 px) beside every
+larger image — the copies you view in Step 5. They never go in the report;
+build-report rejects them.
 
 **Repeat runs are cheap.** Blobs are cached (`~/.cache/tensorleap-analysis`)
 and sample directories already present in `--out` are reused, so re-running
@@ -175,8 +178,14 @@ visual encoding means. Report captions speak from these one-liners — never
 from function names.
 
 **Look at the samples yourself — mandatory for every insight you write up.**
-Open the downloaded images (Read them) and text payloads for the insight's
-top samples. You are looking for what the platform cannot see:
+Open the downloaded images (Read them) and text payloads. View the
+`.thumb.jpg` copy when one exists; open the full-resolution original only
+when the judgment hangs on fine detail — small objects, text inside the
+image, subtle artifacts, any mislabeled-sample check — or whenever the thumb
+leaves you unsure. **Coverage rule: before the card is final, you have
+viewed every sample that ships on it — visible and folded.** A reader can
+open the fold; a card whose own samples contradict its prose is the worst
+report you can produce. You are looking for what the platform cannot see:
 
 - **Content contradicting a label/metadata value** — but ONLY when the value
   is human-interpretable (a word, not an opaque id) AND the contradiction is
@@ -197,6 +206,15 @@ top samples. You are looking for what the platform cannot see:
   it from the `summarize` output, which covers every member. A visual pattern the csv
   cannot count is still worth naming — unquantified — and it is exactly the
   case where you also propose the metadata field that would count it.
+  **Calibrate the claim to your coverage**: a universal ("every",
+  "overwhelmingly", "the failures are X") is earned only when the pattern
+  held in ALL the card's samples you viewed. A pattern that held in some is
+  a **recurring trait**, written as the discovery plus the step that
+  quantifies it ("steep high-altitude viewpoints recur across the failures;
+  an altitude metadata field would show how much of the group they
+  explain"). Say nothing about the samples that lack the trait — the group's
+  identity is its measured composition, and "the rest are mixed" is a
+  verdict on the insight, not a finding.
 
 **Pick the evidence per insight** (playbook: "Pick the evidence"). State
 what the insight asserts is wrong, audition every primary-evidence

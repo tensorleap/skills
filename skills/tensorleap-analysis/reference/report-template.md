@@ -216,7 +216,11 @@ in render order:
    story" is a real, useful result. Observations are about the **group**,
    never about the figures on the card — no "5 of the 6 images", no "all the
    samples shown here". Numbers come from the `summarize` output, which
-   covers every member; a pattern only the eye can see is named without one.
+   covers every member; a pattern only the eye can see is named without one —
+   as a universal only if it held in every card sample viewed (skill Step 5's
+   coverage rule), otherwise as a recurring trait plus the metadata field
+   that would quantify it, with the samples lacking the trait left
+   uncharacterized.
 9. **"Do next"** (`do_next`): the strongest-looking block on the card — 1–3
    concrete, quantified checklist items.
 10. **Explore in Tensorleap** (`explore`): exactly two sentences — the link
