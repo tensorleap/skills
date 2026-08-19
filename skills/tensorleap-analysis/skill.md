@@ -38,11 +38,13 @@ python3 {{scripts_dir}}/tl_api.py fetch --project ID --version ID --out DIR
                                         [--top-k 10] [--rank-by COL] [--asc]
                                         [--fast-local] [--refresh]
 python3 {{scripts_dir}}/tl_api.py render-charts DIR
+python3 {{scripts_dir}}/tl_api.py summarize DIR
+python3 {{scripts_dir}}/tl_api.py build-report DIR
 ```
 
 Exit codes: `0` ok · `2` bad args / ambiguous project · `3` not authenticated
 · `4` server unreachable/error · `5` version has no insights · `6` matplotlib
-missing (render-charts only). Auth and server URL come from the leap CLI's
+missing (render-charts only) · `8` build-report input invalid. Auth and server URL come from the leap CLI's
 own login (`~/.config/tensorleap/config.yaml`) — the script talks to whichever
 server `leap auth select` points at, exactly like the UI does.
 
@@ -163,13 +165,18 @@ evidence, labeling/collection paths, and training adjustments like loss
 terms and sample boosting). Cite payload
 fields, not vibes.
 
-**Count before you characterize.** Compute the insight's full composition
-from its `samples.csv` (metadata values, split states) BEFORE naming it. For
-a failure mode, count only the rows with `is_low_perf_root_member == True`:
-the rest are latent neighbours the platform swept in, and they are often
-healthy. Characterize, contrast and act on those rows, and quote that count
-as the group's size — never `n_samples` (playbook: "The cluster's csv is
-wider than the failing group"). The
+**Count before you characterize.** Run
+`summarize <out-dir>` once and work from its output — per insight it computes
+the composition you would otherwise count by hand: the failing group's size
+(`group_rows`, restricted to `is_low_perf_root_member == True` rows when the
+column exists — the rest are latent neighbours the platform swept in, and
+they are often healthy), split states, per-metadata-column value shares with
+the all-data share beside them (over-representation is the ratio between the
+two), and group-vs-all-data metric means. Characterize, contrast and act on
+that group, and quote `group_rows` as its size — never `n_samples` (playbook:
+"The cluster's csv is wider than the failing group"). Open `samples.csv`
+itself only for a question the summary can't answer (e.g. a per-sample
+cross-column join). The
 worst samples are the tail — never present the tail's traits as the group's
 identity, and treat the platform's mutual-information features as
 *over-represented*, not *defining* (playbook: "Characterize by composition,
@@ -203,7 +210,7 @@ top samples. You are looking for what the platform cannot see:
   scenes" tells the reader about the report's layout, not about the data.
   Write the finding as what it is about the group ("the failures are
   overwhelmingly night scenes") and, when you want a number behind it, take
-  it from `samples.csv`, which covers every member. A visual pattern the csv
+  it from the `summarize` output, which covers every member. A visual pattern the csv
   cannot count is still worth naming — unquantified — and it is exactly the
   case where you also propose the metadata field that would count it.
 
@@ -256,33 +263,36 @@ per card:
 
 ## Step 6 — Write the report
 
-Follow **`{{reference_dir}}/report-template.md`** (HTML skeleton, per-insight
-anatomy, language rules). **The body is grouped by insight TYPE in the
+Follow **`{{reference_dir}}/report-template.md`** (report.json schema,
+per-insight anatomy, language rules). You never write HTML: author
+`<out-dir>/report.json` — content only, image paths relative to `<out-dir>` —
+and the script renders the page. **The body is grouped by insight TYPE in the
 Insights panel's order** (Failure Mode → Out of Distribution → Duplication →
 Data Leakage → Domain Gap → Mislabeled; the template has the display names
-and one-line meanings) — one `<h2>` group per type present, sections as
-`<h3>` inside, severity-ordered within the group, and the summary table
-mirrors the same order with a subheader row per type. Each insight gets:
-severity chips, a bold
+and one-line meanings) — one group per type present, severity-ordered within
+the group, and the overview table mirrors the same order with a subheader
+row per type. Each insight gets: chips, a bold
 one-sentence **bottom line**, the **root-cause label** (Data gap / Label
 quality / Split problem / Model behavior — the family your playbook walk
 diagnosed, with a one-line caption; fixed vocabulary so it reads as a
 consistent grammar), the **split-composition bar** and **metric-contrast
 rows** (population
-value from `population_metrics` in insights.json; omit the row if absent),
-6 visible samples + the rest behind `<details>` "Show more", action items,
+value from `population_metrics` in insights.json; omit if absent),
+the samples (visible count and the "Show more" fold are script-handled from
+`grid`), action items,
 and the collapsed **"Explore in Tensorleap"** box using `deep_link` (a
 version-level link that opens the Insights panel with the version selected —
 it applies no filters; tell the reader the insight's # in the list).
-Write `<out-dir>/report.html` with plain relative `src` paths, then make it
-self-contained:
+Then render and make it self-contained:
 
 ```
+python3 {{scripts_dir}}/tl_api.py build-report <out-dir>
 python3 {{scripts_dir}}/tl_api.py inline-html <out-dir>/report.html
 ```
 
-Exit 7 means some `src` paths didn't resolve — fix them (stderr lists which)
-and re-run; never ship a report with broken images. The result is ONE file
+build-report exit 8 means report.json is invalid or an image path didn't
+resolve; inline-html exit 7 means a `src` didn't resolve — fix (stderr lists
+which) and re-run; never ship a report with broken images. The result is ONE file
 the user can mail or Slack. Also write `<out-dir>/report.md` — the
 executive summary, summary table, per-insight action checklists, and the
 **Notes** section (template: one line per insight without a card, ending in
@@ -291,12 +301,12 @@ fetch errors). It is the paste-into-a-ticket companion; no images.
 
 Modality handling per sample `payload.json` (`data.type`):
 
-| `data.type` | Embed as |
+| `data.type` | Sample entry in report.json |
 |---|---|
-| `image`, `image_heatmap`, `mask_image` | `<figure>` with the downloaded `.jpg`/`.png` from `assets/` |
-| `bbox_image` | `boxes.jpg` rendered by render-charts next to the payload (GT and prediction decoders are separate visualizers — caption which one you show); the raw asset has no boxes |
-| `text`, `mask_text` | `<blockquote>` of the joined `data.body` tokens |
-| `graph`, `hbar` | `chart.png` next to the payload (or an HTML table fallback) |
+| `image`, `image_heatmap`, `mask_image` | `images`: the downloaded `.jpg`/`.png` from `assets/` |
+| `bbox_image` | `images`: `boxes.jpg` rendered by render-charts next to the payload (GT and prediction decoders are separate visualizers — caption which one you show); the raw asset has no boxes |
+| `text`, `mask_text` | `text`: the joined `data.body` tokens |
+| `graph`, `hbar` | `images`: `chart.png` next to the payload (no matplotlib → a small HTML table in the card's prose instead) |
 | `video`, `audio` | note it exists; don't inline media files |
 
 Careful: `insights.json` lists files as of FETCH time — `chart.png` /
@@ -317,11 +327,14 @@ rules are binding). Keep the executive summary honest — if the insights are
 low-severity or repetitive, say so. The HTML ends with the last insight
 card — **no Notes section in the HTML.**
 
-**Before finishing, read the rendered report as its reader would** — every
-sentence, chips, captions, link texts, and the companion's Notes.
-Assembled text is where
+**Before finishing, read the rendered report as its reader would** — via
+`<out-dir>/report.txt` (build-report's text linearization of the full page:
+every sentence, chips, captions, link texts), plus the companion's Notes.
+Never re-read report.html for this — report.txt is the same content without
+the markup. Assembled text is where
 clumsiness hides ("this insight is insight #2", repeated phrases, stale
-numbers). Fix anything you would not have written in a single pass. Ship
+numbers). Fix anything you would not have written in a single pass — in
+report.json, then re-run build-report and inline-html. Ship
 only what reads clean end-to-end.
 
 **Your closing message names the deliverables and stops.** Two sentences at

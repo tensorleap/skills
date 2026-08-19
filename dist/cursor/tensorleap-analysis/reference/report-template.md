@@ -1,11 +1,20 @@
 # Report template
 
-The deliverable is **one self-contained `report.html`** (images inlined as
-data URIs by `tl_api.py inline-html` — author it with plain relative `src`
-paths and let the script do the inlining; oversized images are downscaled and
-recompressed automatically), plus a short **`report.md`** holding only the
-executive summary and the action-item checklists (the part people paste into
-tickets and Slack). Write both into `<out-dir>` so relative paths resolve.
+The deliverable is **one self-contained `report.html`**, but you never write
+HTML. You write **`<out-dir>/report.json`** (schema below — content only:
+headings, prose, sample paths, numbers), then
+`tl_api.py build-report <out-dir>` renders `report.html` (layout, CSS, chips,
+split bars, contrast bars, "Show N more samples" folds — all script-owned)
+plus `report.txt`, a plain-text linearization for your final read-through.
+Then `tl_api.py inline-html <out-dir>/report.html` embeds the images as data
+URIs (oversized ones are downscaled and recompressed automatically). Image
+paths in report.json are relative to `<out-dir>`. Alongside it you write a
+short **`report.md`** holding only the executive summary and the action-item
+checklists (the part people paste into tickets and Slack).
+
+Every string in report.json is inserted as an HTML fragment: inline markup
+(`<a>`, `<em>`) is allowed where prose calls for it, and `&`/`<` used as
+plain characters must be written as entities.
 
 **The report serves two audiences at once.** The prose and diagrams are for
 an ML engineer working in the data's domain who has never opened Tensorleap
@@ -124,62 +133,60 @@ cross-mention is a single orienting context sentence in prose ("this group
 is the sharpest slice of the broader animals-on-roads cluster, insight #3").
 The explore box may state the panel's sub-insight count as navigation info.
 
-The card (`<section class="card sev3|sev2|sev1" id="insight-<N>">` —
-sub-based cards use `id="insight-<N>-sub-<M>"`; these anchors are what the
-overview table and executive summary link to) carries a left accent in
-the severity color — always paired with the severity chip's text, never
-color alone:
+Each card is one object in the schema's `cards` array. Its `id` is the
+anchor (`insight-<N>`; sub-based cards use `insight-<N>-sub-<M>`) that the
+overview table and executive summary link to. From the `severity` field
+(1–3) the script derives both the left accent color and the leading
+"Severity S of 3" chip — never restate severity in `chips`. Card content,
+in render order:
 
-1. **Heading** (`<h3>`): the issue itself, unnumbered, no type prefix — the
-   group header carries the type. Identity = the **platform insight #**:
+1. **Heading** (`heading`): the issue itself, unnumbered, no type prefix —
+   the group header carries the type. Identity = the **platform insight #**:
    shown as a chip and in the overview table; prose cross-references between
    cards go by NAME ("the tiny-objects fix above"), never by number.
-2. **Chips**: severity ("Severity 1 of 3"), insight #, sample count, key
-   metric, latent space. The count chip is `population.samples` — for a
-   failure mode, the samples that actually underperform — and every other
-   number on the card (composition, contrast, action items) describes that
-   same set.
-3. **Bottom line** (`<p class="lede">`): ONE bold sentence — what is going
+2. **Chips** (`chips`): insight #, sample count, key metric, latent space
+   (the severity chip is script-generated). The count chip is
+   `population.samples` — for a failure mode, the samples that actually
+   underperform — and every other number on the card (composition, contrast,
+   action items) describes that same set.
+3. **Bottom line** (`lede`): ONE bold sentence — what is going
    wrong and why it matters. A reader who stops here still got the point.
-4. **Root cause** (`<p class="rootcause">`): `Root cause — <family>:` one
-   caption sentence. The family vocabulary is fixed — `Data gap`,
+4. **Root cause** (`root_cause`): rendered as `Root cause — <family>:` plus
+   your one caption sentence. The family vocabulary is fixed — `Data gap`,
    `Label quality`, `Split problem`, `Model behavior` (two families allowed
    when the diagnosis is genuinely mixed about ONE population) — so the
    label reads as a consistent grammar across every card and every report.
-5. **Prose**: what kind of samples fail, how the model gets them wrong, the
-   evidence in plain sentences, and one sentence translating the latent
-   space (playbook guide).
-6. **Facts row** (`.facts`): the split-composition bar and the
+5. **Prose** (`prose`, a list of paragraphs): what kind of samples fail, how
+   the model gets them wrong, the evidence in plain sentences, and one
+   sentence translating the latent space (playbook guide).
+6. **Facts row** (`split` + `contrast`): the split-composition bar and the
    group-vs-all-data metric contrast side by side (they stack on narrow
-   screens). Both describe the same samples the count chip names.
-   Count labels on the bar always; omit the contrast if
-   `population_metrics` lacks the column, and label its baseline for what it
-   is (a population mean is not a median — playbook: "Compare like with
-   like").
-   The contrast is **grouped by metric**: one `<span class="cmetric">` naming
-   the metric AND carrying its unit ("missed objects per image"), then its
-   two bar rows. Values are bare numbers — a unit repeated on every row wraps
-   the column and ruins the alignment. Two metrics is the useful maximum.
-7. **Samples**: a few visible `<figure>`s (or `<blockquote>`s for text), each
-   captioned with sample id + worst metric. **How many are visible follows
-   the grid density** — big figures earn fewer: `grid solo` shows **2**,
-   `grid wide` **4**, the default 4-up **6**. One row of samples, then the
-   rest behind the fold; a card that scrolls for a screen and a half before
-   its action items has buried them. A half-sentence before the grid
-   names the view in domain terms ("predicted boxes over the camera frame")
-   so GT isn't mistaken for prediction — orientation only, never selection
-   rationale; the rest (≤18) inside
-   `<details class="more">`, whose summary is exactly
-   `Show <N> more samples` with N the hidden count — that wording, every
-   card, every report. **The block is never omitted** when samples were
-   fetched and not shown: if file size forces a smaller hidden set, lower N
-   and keep the block. A reader who cannot tell that 18 more samples exist
-   has been told the card holds everything.
-   **Two views of one sample go side by side, always** — inside
-   `<figure><div class="pair"><img><img></div><figcaption>…` . Comparing
-   ground truth with prediction is the entire reason both are shown, and a
-   reader cannot compare what does not share a horizontal line of sight.
-   Never stack them vertically and never invent a wrapper class: stacked
+   screens). Both describe the same samples the count chip names. Pass raw
+   counts and values — the script computes widths and draws count labels.
+   Omit `contrast` if `population_metrics` lacks the column, and label its
+   baseline for what it is (a population mean is not a median — playbook:
+   "Compare like with like"). Each contrast entry's `metric` names the
+   metric AND carries its unit ("missed objects per image"); `group`/`all`
+   are bare numbers. Two metrics is the useful maximum.
+7. **Samples** (`grid`, `view_intro`, `samples`): each sample entry carries
+   a caption with sample id + worst metric, and either `images` (1–2 paths)
+   or `text`. **How many are visible follows the grid density** — big
+   figures earn fewer: the script shows the first **2** for `solo`, **4**
+   for `wide`, **6** for the default grid, and folds the rest (≤18) behind a
+   `Show <N> more samples` details block automatically — so ORDER the list
+   best-evidence-first, and cap it so a card never buries its action items.
+   `view_intro` is a half-sentence naming the view in domain terms
+   ("predicted boxes over the camera frame") so GT isn't mistaken for
+   prediction — orientation only, never selection rationale. **Never
+   truncate the list to the visible count** when more samples were fetched:
+   if file size forces a smaller hidden set, pass fewer hidden samples but
+   never zero. A reader who cannot tell that 18 more samples exist has been
+   told the card holds everything.
+   **Two views of one sample go side by side, always** — pass both paths in
+   ONE sample entry's `images` and the script renders them as a pair.
+   Comparing ground truth with prediction is the entire reason both are
+   shown, and a reader cannot compare what does not share a horizontal line
+   of sight. Never split the two views into two sample entries: stacked
    full-width views are the single worst layout the report can produce — two
    enormous images per sample, and the comparison destroyed.
 
@@ -187,13 +194,13 @@ color alone:
    insight's `asset_resolution.max_width` from `insights.json` as the source
    width per view; the grid itself is ~790 px wide:
 
-   | views per figure | source width per view | class | width per view |
+   | views per figure | source width per view | `grid` value | width per view |
    |---|---|---|---|
-   | 1 | under 200 px | `grid` (4-up) | ~190 px |
-   | 1 | 200–400 px | `grid wide` (2-up) | ~385 px |
-   | 1 | over 400 px | `grid solo` (1-up) | ~790 px |
-   | 2 | under 200 px | `grid wide` (2-up) | ~190 px |
-   | 2 | 200 px and up | `grid solo` (1-up) | ~390 px |
+   | 1 | under 200 px | `default` (4-up) | ~190 px |
+   | 1 | 200–400 px | `wide` (2-up) | ~385 px |
+   | 1 | over 400 px | `solo` (1-up) | ~790 px |
+   | 2 | under 200 px | `wide` (2-up) | ~190 px |
+   | 2 | 200 px and up | `solo` (1-up) | ~390 px |
 
    Thumbnail-scale data (MNIST, QuickDraw) stays 4-up — there is nothing
    more to see. Detection and segmentation frames land in `solo`. A dense
@@ -203,213 +210,94 @@ color alone:
    probative view (Step 5 picked it) rather than shrinking both.
    Watch total file size (`inline-html` prints it): aim under ~10 MB — on
    large-resolution datasets carry fewer hidden samples, never zero.
-8. **"What the samples show"** (`.observe`): the analyst's own observations
+8. **"What the samples show"** (`observe`): the analyst's own observations
    from viewing the samples, first-person ("Looking at the samples, …") so
    it can't be mistaken for platform output. "Nothing beyond the platform's
    story" is a real, useful result. Observations are about the **group**,
    never about the figures on the card — no "5 of the 6 images", no "all the
-   samples shown here". Numbers come from `samples.csv`, which covers every
-   member; a pattern only the eye can see is named without one.
-9. **"Do next"** (`.donext`): the strongest-looking block on the card — 1–3
+   samples shown here". Numbers come from the `summarize` output, which
+   covers every member; a pattern only the eye can see is named without one.
+9. **"Do next"** (`do_next`): the strongest-looking block on the card — 1–3
    concrete, quantified checklist items.
-10. **Explore in Tensorleap** (`<details class="explore">`): exactly two
-    sentences — the link ("Open version X's Insights panel and look for
+10. **Explore in Tensorleap** (`explore`): exactly two sentences — the link
+    (`link_text` "Open version X's Insights panel" + `text` "and look for
     insight #N — '<panel name>', severity S"; the link selects the version,
-    applies no filters) and a muted detail line (latent space · split
+    applies no filters) and a muted `detail` line (latent space · split
     counts · platform label/acquire counts). No filter JSON.
 
-## HTML skeleton
+## report.json schema
 
-Copy this shape; fill the `<article>`. Keep the CSS block as-is — colors are
-validated for light and dark modes.
+Write `<out-dir>/report.json` with this shape, then run
+`python3 tl_api.py build-report <out-dir>`. The script owns all layout and
+CSS (validated for light and dark modes), computes bar widths from your raw
+numbers, generates the severity chips and the "Show N more samples" fold,
+and exits 8 listing any image path that does not resolve — fix and re-run.
+It also writes `report.txt`, the text linearization you read for the final
+review pass.
 
-```html
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tensorleap analysis — PROJECT / VERSION</title>
-<style>
-:root {
-  color-scheme: light dark;
-  --bg: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --line: #e4e2dc;
-  --card: #f4f3f0; --sev3: #d03b3b; --sev2: #ec835a; --sev1: #fab219;
-  --st-train: #2a78d6; --st-val: #eb6834; --st-test: #1baf7a;
-  --st-unl: #eda100; --st-other: #52514e; --acc: #2a78d6;
+```json
+{
+  "project": "PROJECT", "version": "VERSION",
+  "meta": "VERSION evaluated DATE \u00b7 9 insights (6 top-level, 3 sub-insights)",
+  "insights_link": "LINKS.insights_panel from insights.json",
+  "tiles": [
+    {"value": "0.71", "label": "recall, all data"},
+    {"value": "6", "label": "Failure Mode insights"}
+  ],
+  "executive_summary": "3\u20135 sentences; impact priority lives here; link phrases to cards: \u2026a <a href=\"#insight-1\">gaussian-noise group</a>\u2026",
+  "overview": [
+    {"type": "Failure Mode", "rows": [
+      {"anchor": "insight-1", "num": "#1", "issue": "Heavy gaussian noise breaks the classifier",
+       "severity": "3 of 3", "samples": "314", "first_action": "Label 100 noisy samples"}
+    ]}
+  ],
+  "groups": [
+    {"type": "Failure Mode", "count": "3 of 6",
+     "meaning": "Groups of samples where the model underperforms. Root cause per card is the analysis's diagnosis, one of: data gap, label quality, split problem, model behavior.",
+     "cards": [
+       {"id": "insight-1", "severity": 3,
+        "heading": "Heavy gaussian noise breaks the classifier",
+        "chips": ["insight #1", "314 samples", "accuracy 0.42", "image-non-semantic space"],
+        "lede": "Every sample in this group carries heavy gaussian noise, none of them are training samples, and accuracy halves on them.",
+        "root_cause": {"family": "Data gap", "caption": "the corruption never appears in training; a coverage gap, not a model defect."},
+        "prose": ["\u2026paragraphs with evidence + latent-space translation\u2026"],
+        "split": [{"state": "training", "count": 0}, {"state": "test", "count": 221}, {"state": "unlabeled", "count": 93}],
+        "contrast": [{"metric": "accuracy", "group": 0.42, "all": 0.87},
+                     {"metric": "missed objects per image", "group": 57, "all": 11}],
+        "grid": "default",
+        "view_intro": "predicted boxes over the camera frame",
+        "samples": [
+          {"caption": "test_41 \u00b7 loss 4.2",
+           "images": ["insight_1_low_performance/samples/test_41/\u2026/image.jpg"]},
+          {"caption": "test_87 \u00b7 loss 3.9",
+           "images": ["\u2026/gt.jpg", "\u2026/pred.jpg"]},
+          {"caption": "test_12 \u00b7 loss 3.7", "text": "joined data.body tokens for text modalities"}
+        ],
+        "observe": "Looking at the samples, \u2026",
+        "do_next": ["\u2026 1\u20133 quantified checklist items \u2026"],
+        "explore": {"link": "DEEP_LINK",
+                    "link_text": "Open version VERSION's Insights panel",
+                    "text": "and look for insight #1 \u2014 \"low performance\", severity 3.",
+                    "detail": "Latent space: \u2026 \u00b7 221 test + 93 unlabeled samples \u00b7 88 samples pre-selected for labeling."}}
+     ]}
+  ]
 }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --line: #3a3936;
-          --card: #242320; --st-train: #3987e5; --st-val: #d95926;
-          --st-test: #199e70; --st-unl: #c98500; --st-other: #c3c2b7;
-          --acc: #3987e5; }
-}
-body { background: var(--bg); color: var(--ink); margin: 0;
-       font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
-article { max-width: 880px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
-h1 { font-size: 1.6rem; line-height: 1.25; margin-bottom: .3rem; }
-h2 { font-size: 1.3rem; margin-top: 3em; }
-h2 .count { font-size: .8rem; font-weight: 600; color: var(--ink-2);
-     border: 1px solid var(--line); border-radius: 999px;
-     padding: .1rem .6rem; vertical-align: 2px; margin-left: .5em; }
-h2 + .muted { margin-top: -.4rem; }
-h3 { font-size: 1.15rem; margin: 0 0 .5rem; }
-h4 { font-size: .95rem; margin: 0 0 .4rem; }
-.meta, figcaption, .muted { color: var(--ink-2); font-size: .85rem; }
-a { color: var(--acc); }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-     gap: .6rem; margin: 1.2rem 0; }
-.tile { background: var(--card); border-radius: 10px; padding: .8rem .9rem; }
-.tile b { display: block; font-size: 1.45rem; line-height: 1.2; }
-.tile span { font-size: .78rem; color: var(--ink-2); }
-.card { background: var(--card); border-radius: 12px;
-     padding: 1.2rem 1.3rem; margin: 1.2rem 0;
-     border-left: 5px solid var(--ink-2); scroll-margin-top: 1rem; }
-.card.sev3 { border-left-color: var(--sev3); }
-.card.sev2 { border-left-color: var(--sev2); }
-.card.sev1 { border-left-color: var(--sev1); }
-.lede { font-weight: 600; font-size: 1.02rem; margin: .6rem 0; }
-.rootcause { font-size: .9rem; color: var(--ink-2); margin: .4rem 0 1rem; }
-.rootcause b { color: var(--ink); }
-.chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0; }
-.chip { border: 1px solid var(--line); border-radius: 999px;
-        padding: .1rem .6rem; font-size: .8rem; color: var(--ink-2); }
-.chip.sev { color: var(--ink); font-weight: 600; }
-.chip.sev::before { content: ""; display: inline-block; width: .55em;
-        height: .55em; border-radius: 50%; margin-right: .4em;
-        background: var(--sev-color, var(--ink-2)); }
-.s3 { --sev-color: var(--sev3); } .s2 { --sev-color: var(--sev2); }
-.s1 { --sev-color: var(--sev1); }
-.facts { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: start;
-     margin: 1rem 0; }
-.facts > div { flex: 1 1 260px; }
-.splitbar { display: flex; gap: 2px; height: 14px; border-radius: 4px;
-            overflow: hidden; margin-bottom: .3rem; }
-.splitbar span { min-width: 3px; }
-.st-train { background: var(--st-train); } .st-val { background: var(--st-val); }
-.st-test { background: var(--st-test); } .st-unl { background: var(--st-unl); }
-.st-other { background: var(--st-other); }
-.legend { display: flex; flex-wrap: wrap; gap: .8rem; font-size: .78rem;
-          color: var(--ink-2); }
-.legend b::before { content: ""; display: inline-block; width: .6em; height: .6em;
-          border-radius: 2px; margin-right: .35em;
-          background: var(--dot, var(--st-other)); }
-.legend .train { --dot: var(--st-train); } .legend .val { --dot: var(--st-val); }
-.legend .test { --dot: var(--st-test); } .legend .unl { --dot: var(--st-unl); }
-.contrast { display: grid; grid-template-columns: 6.5rem 1fr max-content;
-            gap: .3rem .6rem; align-items: center; font-size: .82rem; }
-.contrast .cmetric { grid-column: 1 / -1; color: var(--ink-2); font-size: .78rem;
-            margin-top: .55rem; }
-.contrast .cmetric:first-child { margin-top: 0; }
-.contrast .track + span { white-space: nowrap; text-align: right; }
-.contrast .track { background: var(--line); border-radius: 3px; height: 10px; }
-.contrast .fill { display: block; background: var(--acc); height: 100%;
-                  border-radius: 3px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-        gap: .75rem; margin: 1rem 0; }
-.grid.wide { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
-.grid.solo { grid-template-columns: 1fr; }
-.pair { display: flex; gap: .4rem; }
-.pair img { flex: 1 1 0; min-width: 0; }
-.grid.solo > figure > img { width: auto; max-width: 100%; max-height: 62vh; }
-figure { margin: 0; }
-figure img { width: 100%; border-radius: 6px; display: block; }
-blockquote { border-left: 3px solid var(--line); margin: 1rem 0;
-             padding: .25rem 1rem; color: var(--ink-2); font-style: italic; }
-blockquote .muted { display: block; font-style: normal; margin-top: .35rem; }
-.tablewrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: .9rem; }
-th, td { text-align: left; padding: .45rem .6rem;
-         border-bottom: 1px solid var(--line); }
-tr.typerow td { font-weight: 700; padding-top: .9rem;
-         border-bottom: 2px solid var(--line); }
-ul.actions { list-style: none; padding: 0; margin: 0; }
-ul.actions li { padding: .3rem 0 .3rem 1.7rem; position: relative; }
-ul.actions li::before { content: "☐"; position: absolute; left: .2rem; }
-details { background: var(--bg); border: 1px solid var(--line);
-          border-radius: 8px; padding: .6rem 1rem; margin: 1rem 0; }
-summary { cursor: pointer; font-weight: 600; }
-details.explore { border: none; background: none; padding: .2rem 0 0; }
-details.explore summary { color: var(--acc); font-size: .9rem; }
-.observe { border-left: 3px solid var(--acc); padding: .1rem 1rem;
-           margin: 1rem 0; }
-.observe .tag, .donext h4 { font-size: .75rem; font-weight: 700;
-           letter-spacing: .04em; text-transform: uppercase; }
-.observe .tag { color: var(--acc); }
-.donext { background: color-mix(in srgb, var(--acc) 9%, var(--bg));
-          border-radius: 8px; padding: .8rem 1rem; margin: 1rem 0; }
-.donext h4 { color: var(--acc); margin-bottom: .5rem; }
-</style>
-</head>
-<body>
-<article>
-  <h1>Tensorleap analysis — PROJECT / VERSION</h1>
-  <p class="meta">VERSION evaluated DATE · N insights (P top-level, S sub-insights) ·
-     <a href="LINKS.insights_panel">open in Tensorleap</a></p>
-
-  <div class="tiles">
-    <div class="tile"><b>0.71</b><span>recall, all data</span></div>
-    <div class="tile"><b>0.80</b><span>precision, all data</span></div>
-    <div class="tile"><b>6</b><span>Failure Mode insights</span></div>
-    <div class="tile"><b>2</b><span>Duplication insights</span></div>
-  </div>
-
-  <h2>Executive summary</h2>
-  <p>…3–5 sentences; priority lives here…</p>
-  <div class="tablewrap"><table>
-    <tr><th>Insight</th><th>Issue</th><th>Severity</th><th>Samples</th><th>First action</th></tr>
-    <tr class="typerow"><td colspan="5">Failure Mode</td></tr>
-    <tr><td><a href="#insight-1">#1</a></td><td>…</td><td>3 of 3</td><td>314</td><td>…</td></tr>
-  </table></div>
-
-  <h2>Failure Mode <span class="count">3 of 6</span></h2>
-  <p class="muted">Groups of samples where the model underperforms. Root cause per card is
-     the analysis's diagnosis, one of: data gap, label quality, split problem, model behavior.</p>
-
-  <section class="card sev3" id="insight-1">
-    <h3>Heavy gaussian noise breaks the classifier</h3>
-    <div class="chips">
-      <span class="chip sev s3">Severity 3 of 3</span>
-      <span class="chip">insight #1</span>
-      <span class="chip">314 samples</span>
-      <span class="chip">accuracy 0.42</span>
-      <span class="chip">image-non-semantic space</span>
-    </div>
-    <p class="lede">Every sample in this group carries heavy gaussian noise, none of them are
-       training samples, and accuracy halves on them.</p>
-    <p class="rootcause"><b>Root cause — Data gap:</b> the corruption never appears in
-       training; a coverage gap, not a model defect.</p>
-    <p>…prose with evidence + latent-space translation…</p>
-    <div class="facts">
-      <div>
-        <div class="splitbar"><span class="st-test" style="width:70%"></span><span class="st-unl" style="width:30%"></span></div>
-        <div class="legend"><span class="train"><b></b>training 0</span> <span class="test"><b></b>test 221</span> <span class="unl"><b></b>unlabeled 93</span></div>
-      </div>
-      <div class="contrast">
-        <span class="cmetric">accuracy</span>
-        <span>this group</span><span class="track"><span class="fill" style="width:48%"></span></span><span>0.42</span>
-        <span>all data</span><span class="track"><span class="fill" style="width:100%"></span></span><span>0.87</span>
-        <span class="cmetric">missed objects per image</span>
-        <span>this group</span><span class="track"><span class="fill" style="width:100%"></span></span><span>57</span>
-        <span>all data</span><span class="track"><span class="fill" style="width:19%"></span></span><span>11</span>
-      </div>
-    </div>
-    <div class="grid">…6 figures…</div>
-    <details class="more"><summary>Show 18 more samples</summary><div class="grid">…</div></details>
-    <div class="observe"><span class="tag">What the samples show</span><p>…</p></div>
-    <div class="donext"><h4>Do next</h4><ul class="actions"><li>…</li></ul></div>
-    <details class="explore"><summary>Explore in Tensorleap</summary>
-      <p><a href="DEEP_LINK">Open version VERSION's Insights panel</a> and look for
-         insight #1 — "low performance", severity 3.</p>
-      <p class="muted">Latent space: … · 221 test + 93 unlabeled samples · 88 samples
-         pre-selected for labeling.</p>
-    </details>
-  </section>
-
-</article>
-</body>
-</html>
 ```
+
+Field notes:
+
+- `split` states map to bar colors by name (`training`/`train`, `validation`/
+  `val`, `test`, `unlabeled`; anything else gets the neutral color). Include
+  zero-count states you want in the legend ("training 0" is a finding).
+- `contrast.group`/`contrast.all` are numbers; the script scales both bars to
+  the larger one and prints the values verbatim.
+- `grid` is `default`, `wide`, or `solo` (density table above); it also fixes
+  how many samples are visible before the fold (6 / 4 / 2).
+- A sample entry has either `images` (1 path, or 2 for a side-by-side pair)
+  or `text` (rendered as a quote with the caption as its muted line).
+- Optional fields may be omitted (`tiles`, `root_cause`, `split`, `contrast`,
+  `view_intro`, `samples`, `observe`, `do_next`, `explore`); everything else
+  is required.
 
 ## report.md (the paste-into-a-ticket companion)
 

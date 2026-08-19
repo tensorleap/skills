@@ -21,6 +21,8 @@ servers only) signs storage URLs locally instead of asking the API for one
 signed URL per file — calibrated from a single API-issued URL and verified
 byte-for-byte before use, falling back to the API on any doubt.
   tl_api.py render-charts DIR
+  tl_api.py summarize DIR           # per-insight composition stats from samples.csv
+  tl_api.py build-report DIR        # assemble report.html + report.txt from DIR/report.json
   tl_api.py inline-html FILE.html   # embed <img src> files as data URIs, in place
 
 Exit codes:
@@ -31,6 +33,7 @@ Exit codes:
   5  version has no insights
   6  matplotlib unavailable (render-charts only — fall back to html tables)
   7  inline-html: some src paths did not resolve (listed on stderr)
+  8  build-report: report.json invalid or referenced images missing (listed on stderr)
 """
 import argparse
 import base64
@@ -536,28 +539,44 @@ def version_meta(project_id, version_id):
     return next((v for v in versions if v.get("cid") == version_id), None) or {}
 
 
-def population_metrics(project_id, version):
+def population_summary(project_id, version):
+    """All-data metric means plus a per-metadata-column baseline (numeric mean,
+    or top value shares) computed from the version's full csv."""
     csv_path = (version.get("resources") or {}).get("csv_blob_path")
     if not csv_path:
-        return {}
+        return {}, {}
     blob = download_blob(f"projects/{project_id}/{csv_path}", soft=True)
     if blob is None:
-        return {}
+        return {}, {}
     if csv_path.endswith(".zip"):
         with zipfile.ZipFile(io.BytesIO(blob)) as zf:
             inner = next((n for n in zf.namelist() if n.endswith(".csv")), None)
             blob = zf.read(inner) if inner else b""
-    sums, counts = {}, {}
+    sums, counts, nonnum, values, total = {}, {}, set(), {}, 0
     for row in csv.DictReader(io.StringIO(blob.decode(errors="replace"))):
+        total += 1
         for col, val in row.items():
-            if not col.startswith("metrics."):
+            if col == "sample_id" or val in (None, ""):
                 continue
             try:
                 sums[col] = sums.get(col, 0.0) + float(val)
                 counts[col] = counts.get(col, 0) + 1
             except (TypeError, ValueError):
-                pass
-    return {col: sums[col] / counts[col] for col in sums if counts.get(col)}
+                nonnum.add(col)
+            if not col.startswith("metrics."):
+                vc = values.setdefault(col, {})
+                if len(vc) < 5000 or val in vc:
+                    vc[val] = vc.get(val, 0) + 1
+    metrics = {col: sums[col] / counts[col] for col in sums
+               if col.startswith("metrics.") and counts.get(col)}
+    metadata = {}
+    for col, vc in values.items():
+        if col not in nonnum and counts.get(col) and len(vc) > 12:
+            metadata[col] = round(sums[col] / counts[col], 4)
+        else:
+            top = sorted(vc.items(), key=lambda kv: -kv[1])[:12]
+            metadata[col] = {v: round(c / total, 4) for v, c in top}
+    return metrics, metadata
 
 
 def code_snapshot(project_id, version):
@@ -789,11 +808,13 @@ def cmd_fetch(args):
     for d in parents:
         d["deep_link"] = version_link
 
+    pop_metrics, pop_metadata = population_summary(args.project, version)
     result = {
         "projectId": args.project,
         "versionId": args.version,
         "links": {"insights_panel": version_link},
-        "population_metrics": population_metrics(args.project, version),
+        "population_metrics": pop_metrics,
+        "population_metadata": pop_metadata,
         "prediction_labels": {p.get("name"): p["labels"]
                               for p in setup.get("prediction_types") or []
                               if p.get("labels")},
@@ -817,6 +838,90 @@ def cmd_fetch(args):
     out_path = os.path.join(args.out, "insights.json")
     open(out_path, "w").write(json.dumps(result, indent=2, default=str))
     print(out_path)
+
+
+def column_stats(rows, col):
+    vals = []
+    for r in rows:
+        v = r.get(col)
+        if v in (None, ""):
+            continue
+        try:
+            vals.append(float(v))
+        except ValueError:
+            vals = None
+            break
+    entry = {}
+    if vals:
+        entry.update(mean=round(sum(vals) / len(vals), 4),
+                     min=round(min(vals), 4), max=round(max(vals), 4))
+    if vals is None or len(set(vals)) <= 12:
+        counts = {}
+        for r in rows:
+            v = r.get(col, "")
+            counts[v] = counts.get(v, 0) + 1
+        entry["distinct"] = len(counts)
+        entry["top"] = [{"value": v, "count": c, "share": round(c / len(rows), 3)}
+                        for v, c in sorted(counts.items(), key=lambda kv: -kv[1])[:10]]
+    return entry
+
+
+def walk_insights(insights):
+    for d in insights:
+        yield d
+        yield from walk_insights(d.get("subinsights") or [])
+
+
+def cmd_summarize(args):
+    digest = json.load(open(os.path.join(args.dir, "insights.json")))
+    pop_metrics = digest.get("population_metrics") or {}
+    pop_meta = digest.get("population_metadata") or {}
+    out = []
+    for d in walk_insights(digest.get("insights") or []):
+        csv_path = os.path.join(args.dir, d["dir"], "samples.csv")
+        if not os.path.isfile(csv_path):
+            continue
+        with open(csv_path, newline="") as f:
+            rows = list(csv.DictReader(f))
+        if not rows:
+            continue
+        root = [r for r in rows
+                if str(r.get("is_low_perf_root_member")).lower() == "true"]
+        group = root or rows
+        split = {}
+        for r in group:
+            state = (r.get("sample_id") or "").rsplit("_", 1)[0] or "unknown"
+            split[state] = split.get(state, 0) + 1
+        metrics, metadata = {}, {}
+        for col in rows[0].keys():
+            if col in ("sample_id", "is_low_perf_root_member"):
+                continue
+            entry = column_stats(group, col)
+            if not entry:
+                continue
+            if col.startswith("metrics."):
+                if "mean" in entry:
+                    m = {"group_mean": entry["mean"]}
+                    if col in pop_metrics:
+                        m["all_data_mean"] = round(pop_metrics[col], 4)
+                    metrics[col] = m
+                continue
+            base = pop_meta.get(col)
+            if isinstance(base, dict) and entry.get("top"):
+                for t in entry["top"]:
+                    if t["value"] in base:
+                        t["all_data_share"] = base[t["value"]]
+            elif isinstance(base, (int, float)) and "mean" in entry:
+                entry["all_data_mean"] = base
+            metadata[col] = entry
+        out.append({"insight": d.get("index"), "type": d.get("type"),
+                    "parent_index": next(
+                        (p.get("index") for p in walk_insights(digest["insights"])
+                         if d in (p.get("subinsights") or [])), None),
+                    "csv_rows": len(rows), "group_rows": len(group),
+                    "group_is_root_members": bool(root),
+                    "split": split, "metrics": metrics, "metadata": metadata})
+    print(json.dumps(out, indent=1))
 
 
 def render_graph(data, dest, plt):
@@ -929,6 +1034,333 @@ def cmd_render_charts(args):
         raise SystemExit(6)
 
 
+REPORT_CSS = """\
+:root {
+  color-scheme: light dark;
+  --bg: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --line: #e4e2dc;
+  --card: #f4f3f0; --sev3: #d03b3b; --sev2: #ec835a; --sev1: #fab219;
+  --st-train: #2a78d6; --st-val: #eb6834; --st-test: #1baf7a;
+  --st-unl: #eda100; --st-other: #52514e; --acc: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --line: #3a3936;
+          --card: #242320; --st-train: #3987e5; --st-val: #d95926;
+          --st-test: #199e70; --st-unl: #c98500; --st-other: #c3c2b7;
+          --acc: #3987e5; }
+}
+body { background: var(--bg); color: var(--ink); margin: 0;
+       font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+article { max-width: 880px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+h1 { font-size: 1.6rem; line-height: 1.25; margin-bottom: .3rem; }
+h2 { font-size: 1.3rem; margin-top: 3em; }
+h2 .count { font-size: .8rem; font-weight: 600; color: var(--ink-2);
+     border: 1px solid var(--line); border-radius: 999px;
+     padding: .1rem .6rem; vertical-align: 2px; margin-left: .5em; }
+h2 + .muted { margin-top: -.4rem; }
+h3 { font-size: 1.15rem; margin: 0 0 .5rem; }
+h4 { font-size: .95rem; margin: 0 0 .4rem; }
+.meta, figcaption, .muted { color: var(--ink-2); font-size: .85rem; }
+a { color: var(--acc); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+     gap: .6rem; margin: 1.2rem 0; }
+.tile { background: var(--card); border-radius: 10px; padding: .8rem .9rem; }
+.tile b { display: block; font-size: 1.45rem; line-height: 1.2; }
+.tile span { font-size: .78rem; color: var(--ink-2); }
+.card { background: var(--card); border-radius: 12px;
+     padding: 1.2rem 1.3rem; margin: 1.2rem 0;
+     border-left: 5px solid var(--ink-2); scroll-margin-top: 1rem; }
+.card.sev3 { border-left-color: var(--sev3); }
+.card.sev2 { border-left-color: var(--sev2); }
+.card.sev1 { border-left-color: var(--sev1); }
+.lede { font-weight: 600; font-size: 1.02rem; margin: .6rem 0; }
+.rootcause { font-size: .9rem; color: var(--ink-2); margin: .4rem 0 1rem; }
+.rootcause b { color: var(--ink); }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0; }
+.chip { border: 1px solid var(--line); border-radius: 999px;
+        padding: .1rem .6rem; font-size: .8rem; color: var(--ink-2); }
+.chip.sev { color: var(--ink); font-weight: 600; }
+.chip.sev::before { content: ""; display: inline-block; width: .55em;
+        height: .55em; border-radius: 50%; margin-right: .4em;
+        background: var(--sev-color, var(--ink-2)); }
+.s3 { --sev-color: var(--sev3); } .s2 { --sev-color: var(--sev2); }
+.s1 { --sev-color: var(--sev1); }
+.facts { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: start;
+     margin: 1rem 0; }
+.facts > div { flex: 1 1 260px; }
+.splitbar { display: flex; gap: 2px; height: 14px; border-radius: 4px;
+            overflow: hidden; margin-bottom: .3rem; }
+.splitbar span { min-width: 3px; }
+.st-train { background: var(--st-train); } .st-val { background: var(--st-val); }
+.st-test { background: var(--st-test); } .st-unl { background: var(--st-unl); }
+.st-other { background: var(--st-other); }
+.legend { display: flex; flex-wrap: wrap; gap: .8rem; font-size: .78rem;
+          color: var(--ink-2); }
+.legend b::before { content: ""; display: inline-block; width: .6em; height: .6em;
+          border-radius: 2px; margin-right: .35em;
+          background: var(--dot, var(--st-other)); }
+.legend .train { --dot: var(--st-train); } .legend .val { --dot: var(--st-val); }
+.legend .test { --dot: var(--st-test); } .legend .unl { --dot: var(--st-unl); }
+.contrast { display: grid; grid-template-columns: 6.5rem 1fr max-content;
+            gap: .3rem .6rem; align-items: center; font-size: .82rem; }
+.contrast .cmetric { grid-column: 1 / -1; color: var(--ink-2); font-size: .78rem;
+            margin-top: .55rem; }
+.contrast .cmetric:first-child { margin-top: 0; }
+.contrast .track + span { white-space: nowrap; text-align: right; }
+.contrast .track { background: var(--line); border-radius: 3px; height: 10px; }
+.contrast .fill { display: block; background: var(--acc); height: 100%;
+                  border-radius: 3px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        gap: .75rem; margin: 1rem 0; }
+.grid.wide { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+.grid.solo { grid-template-columns: 1fr; }
+.pair { display: flex; gap: .4rem; }
+.pair img { flex: 1 1 0; min-width: 0; }
+.grid.solo > figure > img { width: auto; max-width: 100%; max-height: 62vh; }
+figure { margin: 0; }
+figure img { width: 100%; border-radius: 6px; display: block; }
+blockquote { border-left: 3px solid var(--line); margin: 1rem 0;
+             padding: .25rem 1rem; color: var(--ink-2); font-style: italic; }
+blockquote .muted { display: block; font-style: normal; margin-top: .35rem; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .45rem .6rem;
+         border-bottom: 1px solid var(--line); }
+tr.typerow td { font-weight: 700; padding-top: .9rem;
+         border-bottom: 2px solid var(--line); }
+ul.actions { list-style: none; padding: 0; margin: 0; }
+ul.actions li { padding: .3rem 0 .3rem 1.7rem; position: relative; }
+ul.actions li::before { content: "☐"; position: absolute; left: .2rem; }
+details { background: var(--bg); border: 1px solid var(--line);
+          border-radius: 8px; padding: .6rem 1rem; margin: 1rem 0; }
+summary { cursor: pointer; font-weight: 600; }
+details.explore { border: none; background: none; padding: .2rem 0 0; }
+details.explore summary { color: var(--acc); font-size: .9rem; }
+.observe { border-left: 3px solid var(--acc); padding: .1rem 1rem;
+           margin: 1rem 0; }
+.observe .tag, .donext h4 { font-size: .75rem; font-weight: 700;
+           letter-spacing: .04em; text-transform: uppercase; }
+.observe .tag { color: var(--acc); }
+.donext { background: color-mix(in srgb, var(--acc) 9%, var(--bg));
+          border-radius: 8px; padding: .8rem 1rem; margin: 1rem 0; }
+.donext h4 { color: var(--acc); margin-bottom: .5rem; }
+"""
+
+SPLIT_CLASS = {"training": "train", "train": "train", "validation": "val",
+               "val": "val", "test": "test", "unlabeled": "unl"}
+VISIBLE = {"solo": 2, "wide": 4, "default": 6}
+
+
+def _fmt(v):
+    return f"{v:g}" if isinstance(v, (int, float)) else str(v)
+
+
+def _para(text):
+    text = (text or "").strip()
+    return text if text.startswith("<") else f"<p>{text}</p>"
+
+
+def _splitbar_html(split):
+    total = sum(s["count"] for s in split) or 1
+    bar = "".join(
+        f'<span class="st-{SPLIT_CLASS.get(s["state"], "other")}"'
+        f' style="width:{100 * s["count"] / total:.1f}%"></span>'
+        for s in split if s["count"])
+    legend = " ".join(
+        f'<span class="{SPLIT_CLASS.get(s["state"], "")}"><b></b>'
+        f'{s["state"]} {s["count"]}</span>' for s in split)
+    return (f'<div><div class="splitbar">{bar}</div>'
+            f'<div class="legend">{legend}</div></div>')
+
+
+def _contrast_html(contrast):
+    rows = []
+    for c in contrast:
+        top = max(abs(c["group"]), abs(c["all"])) or 1
+        rows.append(f'<span class="cmetric">{c["metric"]}</span>')
+        for label, val in (("this group", c["group"]), ("all data", c["all"])):
+            rows.append(
+                f'<span>{label}</span><span class="track"><span class="fill"'
+                f' style="width:{100 * abs(val) / top:.0f}%"></span></span>'
+                f'<span>{_fmt(val)}</span>')
+    return f'<div><div class="contrast">{"".join(rows)}</div></div>'
+
+
+def _figure_html(sample, base, missing):
+    cap = sample.get("caption", "")
+    if "text" in sample:
+        note = f'<span class="muted">{cap}</span>' if cap else ""
+        return f'<blockquote>{sample["text"]}{note}</blockquote>'
+    imgs = []
+    for src in sample.get("images", []):
+        if not os.path.isfile(os.path.join(base, src)):
+            missing.append(src)
+        imgs.append(f'<img src="{src}">')
+    body = f'<div class="pair">{"".join(imgs)}</div>' if len(imgs) > 1 else "".join(imgs)
+    return f'<figure>{body}<figcaption>{cap}</figcaption></figure>'
+
+
+def _card_html(card, base, missing):
+    sev = int(card.get("severity", 1))
+    chips = [f'<span class="chip sev s{sev}">Severity {sev} of 3</span>']
+    chips += [f'<span class="chip">{c}</span>' for c in card.get("chips", [])]
+    parts = [f'<section class="card sev{sev}" id="{card["id"]}">',
+             f'<h3>{card["heading"]}</h3>',
+             f'<div class="chips">{"".join(chips)}</div>',
+             f'<p class="lede">{card["lede"]}</p>']
+    rc = card.get("root_cause")
+    if rc:
+        parts.append(f'<p class="rootcause"><b>Root cause — {rc["family"]}:</b>'
+                     f' {rc["caption"]}</p>')
+    parts.extend(_para(p) for p in card.get("prose", []))
+    facts = []
+    if card.get("split"):
+        facts.append(_splitbar_html(card["split"]))
+    if card.get("contrast"):
+        facts.append(_contrast_html(card["contrast"]))
+    if facts:
+        parts.append(f'<div class="facts">{"".join(facts)}</div>')
+    if card.get("view_intro"):
+        parts.append(f'<p class="muted">{card["view_intro"]}</p>')
+    grid = card.get("grid", "default")
+    cls = "grid" if grid == "default" else f"grid {grid}"
+    samples = card.get("samples", [])
+    n = VISIBLE.get(grid, 6)
+    if samples:
+        figs = [_figure_html(s, base, missing) for s in samples]
+        parts.append(f'<div class="{cls}">{"".join(figs[:n])}</div>')
+        if figs[n:]:
+            parts.append(f'<details class="more"><summary>Show {len(figs[n:])} '
+                         f'more samples</summary><div class="{cls}">'
+                         f'{"".join(figs[n:])}</div></details>')
+    if card.get("observe"):
+        parts.append(f'<div class="observe"><span class="tag">What the samples '
+                     f'show</span>{_para(card["observe"])}</div>')
+    if card.get("do_next"):
+        items = "".join(f"<li>{x}</li>" for x in card["do_next"])
+        parts.append(f'<div class="donext"><h4>Do next</h4>'
+                     f'<ul class="actions">{items}</ul></div>')
+    ex = card.get("explore")
+    if ex:
+        parts.append(
+            f'<details class="explore"><summary>Explore in Tensorleap</summary>'
+            f'<p><a href="{ex["link"]}">{ex["link_text"]}</a> {ex["text"]}</p>'
+            f'<p class="muted">{ex["detail"]}</p></details>')
+    parts.append("</section>")
+    return "".join(parts)
+
+
+def _report_html(spec, base, missing):
+    title = f'Tensorleap analysis — {spec["project"]} / {spec["version"]}'
+    parts = [f'<h1>{title}</h1>',
+             f'<p class="meta">{spec["meta"]} · '
+             f'<a href="{spec["insights_link"]}">open in Tensorleap</a></p>']
+    tiles = "".join(f'<div class="tile"><b>{t["value"]}</b><span>{t["label"]}'
+                    f'</span></div>' for t in spec.get("tiles", []))
+    if tiles:
+        parts.append(f'<div class="tiles">{tiles}</div>')
+    parts.append("<h2>Executive summary</h2>")
+    parts.append(_para(spec["executive_summary"]))
+    rows = ["<tr><th>Insight</th><th>Issue</th><th>Severity</th>"
+            "<th>Samples</th><th>First action</th></tr>"]
+    for group in spec.get("overview", []):
+        rows.append(f'<tr class="typerow"><td colspan="5">{group["type"]}</td></tr>')
+        for r in group["rows"]:
+            rows.append(f'<tr><td><a href="#{r["anchor"]}">{r["num"]}</a></td>'
+                        f'<td>{r["issue"]}</td><td>{r["severity"]}</td>'
+                        f'<td>{r["samples"]}</td><td>{r["first_action"]}</td></tr>')
+    parts.append(f'<div class="tablewrap"><table>{"".join(rows)}</table></div>')
+    for group in spec.get("groups", []):
+        parts.append(f'<h2>{group["type"]} <span class="count">{group["count"]}'
+                     f'</span></h2>')
+        parts.append(f'<p class="muted">{group["meaning"]}</p>')
+        parts.extend(_card_html(c, base, missing) for c in group["cards"])
+    body = "\n".join(parts)
+    return (f'<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+            f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+            f'<title>{title}</title>\n<style>\n{REPORT_CSS}</style>\n</head>\n'
+            f'<body>\n<article>\n{body}\n</article>\n</body>\n</html>\n')
+
+
+def _strip_tags(text):
+    import re
+    return re.sub(r"<[^>]+>", "", str(text or "")).strip()
+
+
+def _report_txt(spec):
+    lines = [f'Tensorleap analysis — {spec["project"]} / {spec["version"]}',
+             _strip_tags(spec["meta"]), ""]
+    lines += [f'[tile] {t["value"]} — {t["label"]}' for t in spec.get("tiles", [])]
+    lines += ["", "Executive summary",
+              _strip_tags(spec["executive_summary"]), "", "Overview table"]
+    for group in spec.get("overview", []):
+        lines.append(f'-- {group["type"]}')
+        lines += [f'{r["num"]} | {_strip_tags(r["issue"])} | sev {r["severity"]} | '
+                  f'{r["samples"]} samples | {_strip_tags(r["first_action"])}'
+                  for r in group["rows"]]
+    for group in spec.get("groups", []):
+        lines += ["", f'== {group["type"]} ({group["count"]}) — '
+                      f'{_strip_tags(group["meaning"])}']
+        for c in group["cards"]:
+            grid = c.get("grid", "default")
+            n = VISIBLE.get(grid, 6)
+            samples = c.get("samples", [])
+            lines += ["", f'### {_strip_tags(c["heading"])}  [#{c["id"]}]',
+                      "chips: " + " · ".join(
+                          [f'Severity {c.get("severity", 1)} of 3']
+                          + [_strip_tags(x) for x in c.get("chips", [])])]
+            rc = c.get("root_cause")
+            if rc:
+                lines.append(f'Root cause — {rc["family"]}: {_strip_tags(rc["caption"])}')
+            lines.append(f'Bottom line: {_strip_tags(c["lede"])}')
+            lines += [_strip_tags(p) for p in c.get("prose", [])]
+            if c.get("split"):
+                lines.append("split: " + ", ".join(
+                    f'{s["state"]} {s["count"]}' for s in c["split"]))
+            for x in c.get("contrast", []):
+                lines.append(f'{_strip_tags(x["metric"])}: this group '
+                             f'{_fmt(x["group"])} vs all data {_fmt(x["all"])}')
+            if c.get("view_intro"):
+                lines.append(f'view: {_strip_tags(c["view_intro"])}')
+            caps = [_strip_tags(s.get("caption", "")) for s in samples]
+            if caps:
+                lines.append(f'samples ({len(caps[:n])} visible, '
+                             f'{len(caps[n:])} behind "Show {len(caps[n:])} more '
+                             f'samples"): ' + " | ".join(caps))
+            if c.get("observe"):
+                lines.append(f'What the samples show: {_strip_tags(c["observe"])}')
+            lines += [f'Do next: {_strip_tags(x)}' for x in c.get("do_next", [])]
+            ex = c.get("explore")
+            if ex:
+                lines.append(f'Explore: {_strip_tags(ex["link_text"])} '
+                             f'{_strip_tags(ex["text"])} — {_strip_tags(ex["detail"])}')
+    return "\n".join(lines) + "\n"
+
+
+def cmd_build_report(args):
+    spec_path = os.path.join(args.dir, "report.json")
+    try:
+        spec = json.load(open(spec_path))
+    except Exception as e:
+        print(f"cannot read {spec_path}: {e}", file=sys.stderr)
+        raise SystemExit(8)
+    missing = []
+    try:
+        html = _report_html(spec, args.dir, missing)
+        txt = _report_txt(spec)
+    except (KeyError, TypeError, AttributeError) as e:
+        print(f"report.json invalid: missing/bad field {e}", file=sys.stderr)
+        raise SystemExit(8)
+    html_path = os.path.join(args.dir, "report.html")
+    open(html_path, "w", encoding="utf-8").write(html)
+    txt_path = os.path.join(args.dir, "report.txt")
+    open(txt_path, "w", encoding="utf-8").write(txt)
+    print(f"{html_path}\n{txt_path}")
+    if missing:
+        for src in missing:
+            print(f"missing image: {src}", file=sys.stderr)
+        raise SystemExit(8)
+
+
 def cmd_inline_html(args):
     import mimetypes
     import re
@@ -1001,13 +1433,18 @@ def main():
                     help="re-download everything, ignoring cache and existing files")
     rc = sub.add_parser("render-charts")
     rc.add_argument("dir")
+    sm = sub.add_parser("summarize")
+    sm.add_argument("dir")
+    br = sub.add_parser("build-report")
+    br.add_argument("dir")
     ih = sub.add_parser("inline-html")
     ih.add_argument("file")
     args = parser.parse_args()
-    if args.cmd not in ("render-charts", "inline-html"):
+    if args.cmd not in ("render-charts", "summarize", "build-report", "inline-html"):
         read_config()
     {"whoami": cmd_whoami, "list-versions": cmd_list_versions,
      "fetch": cmd_fetch, "render-charts": cmd_render_charts,
+     "summarize": cmd_summarize, "build-report": cmd_build_report,
      "inline-html": cmd_inline_html}[args.cmd](args)
 
 
