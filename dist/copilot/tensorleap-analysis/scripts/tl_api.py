@@ -430,6 +430,9 @@ def sample_ids_from_csv(csv_bytes, rank_by, ascending, k):
         return None, (rows[0].keys() if rows else []), rows
     if not rank_by:
         rank_by = next((c for c in rows[0]
+                        if c.endswith("aggressor_affinity_score")), None)
+    if not rank_by:
+        rank_by = next((c for c in rows[0]
                         if c.startswith("metrics.")
                         and ("loss" in c.lower() or "entropy" in c.lower())), None)
     if rank_by and rank_by in rows[0]:

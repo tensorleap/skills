@@ -81,8 +81,11 @@ version, and stop. On success the out dir contains:
   `top_panel.json`, and `samples/<sample_id>/<dataType>/<visualizer>/…` with
   `payload.json` and any image assets.
 
-Samples are ranked worst-first automatically by the first `metrics.*` CSV
-column containing `loss`/`entropy`; among equally-ranked candidates, samples
+Samples are ranked automatically by `aggressor_affinity_score` when the CSV
+has it (highest first — the samples most representative of the insight's
+population), else worst-first by the first `metrics.*` column containing
+`loss`/`entropy` (the tail, not the group's identity — weigh observations
+accordingly); among equally-ranked candidates, samples
 that have rendered visualizations are preferred. If the project's real
 quality metric is a different column (see `csv_columns` in the digest),
 re-run fetch with `--rank-by <column>` (add `--asc` for higher-is-better
