@@ -435,14 +435,19 @@ def sample_ids_from_csv(csv_bytes, rank_by, ascending, k):
         rank_by = next((c for c in rows[0]
                         if c.startswith("metrics.")
                         and ("loss" in c.lower() or "entropy" in c.lower())), None)
+    # A low_performance csv holds the failing group PLUS its latent neighbourhood,
+    # and the neighbours are frequently healthy. Rank only the rows that actually
+    # underperform, so the fetched samples belong to the group the report describes.
+    ranked = [r for r in rows
+              if str(r.get("is_low_perf_root_member")).lower() == "true"] or list(rows)
     if rank_by and rank_by in rows[0]:
         def keyf(r):
             try:
                 return float(r[rank_by])
             except (TypeError, ValueError):
                 return float("-inf")
-        rows.sort(key=keyf, reverse=not ascending)
-    return [r["sample_id"] for r in rows[:k]], list(rows[0].keys()), rows
+        ranked.sort(key=keyf, reverse=not ascending)
+    return [r["sample_id"] for r in ranked[:k]], list(rows[0].keys()), rows
 
 
 def sample_ids_from_cluster(cluster_json, k):

@@ -84,12 +84,17 @@ version, and stop. On success the out dir contains:
   `top_panel.json`, and `samples/<sample_id>/<dataType>/<visualizer>/…` with
   `payload.json` and any image assets.
 
-Samples are ranked automatically by `aggressor_affinity_score` when the CSV
-has it (highest first — the samples most representative of the insight's
-population), else worst-first by the first `metrics.*` column containing
-`loss`/`entropy` (the tail, not the group's identity — weigh observations
-accordingly); among equally-ranked candidates, samples
-that have rendered visualizations are preferred. If the project's real
+For a failure mode, only the rows that actually underperform
+(`is_low_perf_root_member`) are eligible — the latent neighbours the cluster
+also holds are often healthy, and a card must not illustrate a failure with a
+passing sample. Other insight types have no such split, so every row is
+eligible. The eligible rows are then ranked by `aggressor_affinity_score` when
+the CSV has it (highest first — the samples most representative of the
+insight's population, and the order the user sees in the Insights panel), else
+worst-first by the first `metrics.*` column containing `loss`/`entropy` (the
+tail, not the group's identity — weigh observations accordingly); among
+equally-ranked candidates, samples that have rendered visualizations are
+preferred. If the project's real
 quality metric is a different column (see `csv_columns` in the digest),
 re-run fetch with `--rank-by <column>` (add `--asc` for higher-is-better
 metrics).
@@ -185,10 +190,27 @@ Open the downloaded images (Read them) and text payloads. View the
 `.thumb.jpg` copy when one exists; open the full-resolution original only
 when the judgment hangs on fine detail — small objects, text inside the
 image, subtle artifacts, any mislabeled-sample check — or whenever the thumb
-leaves you unsure. **Coverage rule: before the card is final, you have
-viewed every sample that ships on it — visible and folded.** A reader can
-open the fold; a card whose own samples contradict its prose is the worst
-report you can produce. You are looking for what the platform cannot see:
+leaves you unsure. The fetched samples are the failing rows in affinity
+order — the order the user scrolls in the panel — so what you look at is what
+they will see. Viewing happens at two levels:
+
+- **Breadth, delegated.** Spawn one viewing agent per insight (they run in
+  parallel) over that insight's full set of fetched samples — more images
+  than a single context should hold, and their bulk does not belong in yours.
+  Give it the insight's claim, the visualizer one-liners, and the domain
+  lens; ask back for what recurs across the set versus what is occasional,
+  **roughly how many distinct scenes / settings / subjects the set
+  represents** (a plain visual judgment — no ids, no metadata), the best
+  candidates for the card with captions, and any content that contradicts a
+  human-readable label. What comes back is an input to your analysis, never
+  text you paste into the report.
+- **Proof, local.** **Coverage rule: before the card is final, you have
+  viewed every sample that ships on it — visible and folded.** A reader can
+  open the fold; a card whose own samples contradict its prose is the worst
+  report you can produce, and an observation nobody in this context ever
+  verified is exactly how that happens.
+
+You are looking for what the platform cannot see:
 
 - **Content contradicting a label/metadata value** — but ONLY when the value
   is human-interpretable (a word, not an opaque id) AND the contradiction is
@@ -209,15 +231,27 @@ report you can produce. You are looking for what the platform cannot see:
   it from the `summarize` output, which covers every member. A visual pattern the csv
   cannot count is still worth naming — unquantified — and it is exactly the
   case where you also propose the metadata field that would count it.
-  **Calibrate the claim to your coverage**: a universal ("every",
-  "overwhelmingly", "the failures are X") is earned only when the pattern
-  held in ALL the card's samples you viewed. A pattern that held in some is
-  a **recurring trait**, written as the discovery plus the step that
-  quantifies it ("steep high-altitude viewpoints recur across the failures;
-  an altitude metadata field would show how much of the group they
-  explain"). Say nothing about the samples that lack the trait — the group's
-  identity is its measured composition, and "the rest are mixed" is a
-  verdict on the insight, not a finding.
+  **Calibrate every claim to its SOURCE, never to a headcount of images.**
+  Affinity order is not a random draw — the top of a cluster's ranking is its
+  tightest knot, and a single scene can fill it — so "most of the images I
+  saw were X" establishes nothing about the group on its own. Which means:
+  - **A column measures the trait** (brightness, object count, box area, any
+    category): state it flat as a group property and carry the whole-group
+    number from `summarize`, which covers every member — "the failures are
+    night scenes; mean frame brightness 0.27 against 0.40 across all data".
+    A dozen images are plenty to NAME a pattern; the column is what measures
+    it, so a strong majority in the data earns a plain verdict even when the
+    images you saw are not unanimous.
+  - **Nothing measures it** (backlight, occlusion, pose, phrasing style):
+    the honest ceiling is the samples reviewed — "steep high-altitude
+    viewpoints recur across the samples reviewed" — always paired with the
+    metadata field that would turn it into a real share next run. When the
+    viewing agent reports few distinct scenes, hedge harder still: a trait of
+    two scenes is a trait of two scenes, whatever share of the images it fills.
+
+  Say nothing about the samples that lack the trait — the group's identity is
+  its measured composition, and "the rest are mixed" is a verdict on the
+  insight, not a finding.
 
 **Pick the evidence per insight** (playbook: "Pick the evidence"). State
 what the insight asserts is wrong, audition every primary-evidence

@@ -200,6 +200,16 @@ card shows a handful of them. Counts come from `samples.csv`, which covers
 every member; a visual pattern the csv cannot count gets named without a
 number, and that gap is the argument for the metadata field you propose.
 
+The samples you review arrive in affinity order, which is not a random draw:
+the top of a cluster's ranking is its tightest knot, and one scene or one
+capture session can fill it. So a trait's prevalence in what you viewed is
+never evidence of its prevalence in the group. Promote an observation to a
+plain group-level verdict ("the failures are night scenes") only on the
+strength of a column measured over every member — a strong majority there
+earns the verdict even when the images you saw are not unanimous. With no
+column behind it, the claim stays scoped to the samples reviewed and comes
+with the metadata field that would measure it next run.
+
 Present what you add on its own merits — the method and the insight
 ("profiling the metadata shows…", "comparing the group's object sizes to the
 full run…"), never as a gap report on the tool ("the platform didn't
@@ -223,7 +233,10 @@ card embeds the 1–2 that prove the insight's claim, chosen per insight:
    priors — latent-space granularity, metric signature, and metadata
    correlations only order which candidate you open first. The right
    visualizer is the one in which the samples' shared failure is visible
-   when they sit side by side.
+   when they sit side by side. This is image work, so it belongs in the same
+   viewing agent that covers the insight's breadth (skill Step 5) — ask it
+   which view makes the failure visible, then confirm on the samples you
+   view yourself.
 3. **Commit per insight.** One choice for every sample on the card —
    comparability across samples beats per-sample optimality. Supporting
    evidence (a confidence bar plot next to an instance crop) is a second
