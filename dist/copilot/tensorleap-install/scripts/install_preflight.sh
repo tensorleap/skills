@@ -107,7 +107,7 @@ elif command -v nvidia-smi >/dev/null 2>&1; then
     fail "nvidia-smi present but failing - driver not loaded (catalog #21)"
   fi
 else
-  ok "no nvidia-smi: CPU-only machine"
+  ok "no nvidia-smi: CPU-only machine - pass no GPU flags at all (not even --cpu)"
 fi
 
 if grep -qi microsoft /proc/version 2>/dev/null; then

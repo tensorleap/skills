@@ -288,6 +288,9 @@ is diagnosable months later.
 ### 21c. `GPU setup aborted` — the install stopped and nothing happened
 Not a crash: GPU detection failed, the installer asked `Do you want to continue without GPU?`
 with default **No**, and the default was accepted (Enter, or `--yes`).
+This prompt fires only when NVIDIA tooling is **present but broken** (driver not loaded,
+toolkit missing). On a machine with no NVIDIA hardware at all there is no prompt and no
+problem — do not pre-empt it with `--cpu`.
 **Fix:** fix the driver (#20/#21) and re-run, or answer **yes** to install CPU-only now and
 add GPUs later with `leap server reinstall`.
 
@@ -553,8 +556,10 @@ On `-d <new-path>` the installer asks about moving the data, and **`--yes` does 
   **yes permanently deletes whatever is already at the new path**;
 - otherwise → it runs an **uninstall first**, then moves the storage.
 
-**Fix:** read the prompt aloud to the user and decide deliberately; back up the destination
-first if it holds anything. `TL_DATA_DIR` disagreeing with the recorded `data_dir` fires this
+**Fix:** read the prompt aloud to the user and decide deliberately. If the destination holds
+anything at all, **ask outright whether it is backed up and get a yes before any command
+touches that disk** — "we'll mount it instead of overwriting it" is not a substitute for a
+backup, because the same run can still be answered the wrong way at the prompt. `TL_DATA_DIR` disagreeing with the recorded `data_dir` fires this
 same prompt from `install`/`run`/`stop` — prefer `--data-dir` and leave the env var unset.
 
 ### 49. Second user on a shared server can't use the CLI / kubectl against the install

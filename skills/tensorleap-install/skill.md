@@ -47,7 +47,7 @@ Hard rules:
 - **Never run `uninstall`, `reinstall`, or `upgrade` without explicit user confirmation.**
   Reinstall/upgrade stop all running jobs; `uninstall --purge`/`--clear-data` delete user data.
 - **Never blind-retry a failed install** before matching the error in
-  [troubleshooting.md]({{reference_dir}}/install-troubleshooting.md). Some errors are retry-safe (image-pull hiccups —
+  [install-troubleshooting.md]({{reference_dir}}/install-troubleshooting.md). Some errors are retry-safe (image-pull hiccups —
   re-running pulls only the diff), but three return the identical failure every time: the
   resource preflight gate, the WSL2 read-only data dir, and the Helm release lock.
 - Run **`leap server install` itself** from a clean shell: `conda deactivate` / leave any
@@ -128,7 +128,8 @@ reason an install call is wasted is that IT hasn't prepared the machine. Hand ov
 
 ## Step 2 — Preflight
 
-Quick path: `bash {{scripts_dir}}/install_preflight.sh` runs every read-only check in this
+Quick path: `bash <this skill's dir>/{{scripts_dir}}/install_preflight.sh` (use the skill's
+absolute path — your shell's cwd is the user's project, not the skill) runs every read-only check in this
 step and prints a report; the sections below explain how to read it and what to fix.
 
 Fix failures before installing — the installer's own checks happen late and some failures roll
@@ -154,7 +155,7 @@ Real-world guidance the team gives customers: **32 GB RAM minimum, 64 GB+ recomm
 ```bash
 docker info -f 'mem={{.MemTotal}} root={{.DockerRootDir}}'
 docker run --rm alpine:3.18.3 df -P /            # Docker's disk — same probe the installer uses
-df -h "${TL_DATA_DIR:-/var/lib/tensorleap}"      # the data-dir disk
+d=/var/lib/tensorleap/standalone; while [ ! -d "$d" ]; do d=$(dirname "$d"); done; df -h "$d"
 ```
 
 (On Linux `DockerRootDir` is a host path you can `df` directly; on macOS it lives inside the
@@ -230,7 +231,7 @@ before compacting to 50–150 GB.
   Windows drive mount (`/mnt/e/...`) — permission errors. Expect slow I/O
   (Windows→WSL→docker→k3d stacking) — that's normal.
 - **Cloud VMs** — see the platform notes in
-  [troubleshooting.md]({{reference_dir}}/install-troubleshooting.md#cloud-vms-ec2--sagemaker--azure): EC2 (tiny root
+  [install-troubleshooting.md]({{reference_dir}}/install-troubleshooting.md#cloud-vms-ec2--sagemaker--azure): EC2 (tiny root
   volume, put data-root + data-dir on the NVMe/EBS data disk, SSM/SSH port-forward), SageMaker
   (bootstrap re-run after every stop/start, UI via `/proxy/4589`), Azure ML (`/mnt` wiped on
   stop/start — prefer a plain Azure VM), ECS/Fargate (impossible — needs privileged
@@ -312,7 +313,7 @@ the day-to-day user can self-serve upgrades once IT has done the initial install
 | Default (localhost, online, CPU) | `leap server install` |
 | Custom data location (big disk / WSL2 / cloud) | `--data-dir /bigdisk/tensorleap` |
 | GPU (Linux) | `--gpus <n>` or `--gpu-devices 0,1` — **prompt defaults, not settings** (see below) |
-| Force CPU-only on a GPU host | `--cpu` (do **not** combine with `--gpus`/`--gpu-devices` — `--cpu` does not override them and you get a GPU cluster) |
+| Force CPU-only on a **GPU** host | `--cpu` (do **not** combine with `--gpus`/`--gpu-devices` — `--cpu` does not override them and you get a GPU cluster) |
 | Limit cluster CPUs | `--cpu-limit <int>` (integer only — a non-integer is fatal; silently clamped to the host's CPU count) |
 | Engine job memory budget | `--cluster-memory-gb <n>` (0 = auto-detect from Docker) |
 | Free disk after install | `--clear-images` (sticky — reused on later runs) |
@@ -327,6 +328,12 @@ the day-to-day user can self-serve upgrades once IT has done the initial install
 | Non-interactive | `--yes` (see gotchas) |
 | No auth (demo only) | `--disable-auth` |
 | No in-cluster metrics agent | `--disable-metrics` |
+
+**On a host with no NVIDIA hardware, pass no GPU flags at all — not even `--cpu`.** With no
+`nvidia-smi` the installer detects no GPU, asks nothing, and installs CPU-only; `--cpu` exists
+only to suppress the GPU prompt on a machine that *has* GPUs. Adding it on a CPU-only box is
+noise that later readers of `install-notes.md` will misread as "GPUs were deliberately
+disabled here".
 
 **GPU flags are prompt defaults, not declarative settings.** On any host where `nvidia-smi`
 lists GPUs the installer *always* asks `Select GPU option:` with `Use all` preselected —
@@ -363,6 +370,9 @@ openssl verify -CAfile chain.pem cert.pem                   # chain validates (i
   NAS/network data: either mount the network path itself as the volume or copy data in.
 - Keep the container path **identical** to the host path (`-v /data:/data`) so code paths work
   both inside and outside the platform.
+- **Never invent or assume a host path.** Confirm each one exists (`ls -d <path>`) before it
+  goes on the command line: a mount pointing at a non-existent or misspelled path is the
+  empty-folder trap, and it is sticky (changing it later needs a reinstall).
 - **De-duplicate the list** and don't re-add a path that's already mounted — a repeated path
   fails the install at cluster creation with `Duplicate mount point`, after the entire pull
   phase (catalog #43b).
@@ -372,7 +382,10 @@ openssl verify -CAfile chain.pem cert.pem                   # chain validates (i
   bigger the mounted tree, the longer upgrades/reinstalls spend scanning it (one customer's
   upgrade "was taking forever" for exactly this reason). Never accept the `$HOME` default the
   prompt suggests on a server with a data disk.
-- The mount is **read-only** inside the cluster — jobs read data, they never write back to it.
+- The mount is **read-write** by default — it is a plain docker bind mount, so a job can write
+  into the user's data tree. To protect a precious source tree, append `:ro` yourself
+  (`-v /data/sets:/data/sets:ro`). Caveat: if the installer corrects the path's capitalization
+  it re-suggests the mount **without** your `:ro` — re-check the value it proposes.
 - Data in S3/cloud storage: point the volume at the **local download/cache directory** the
   code writes to, so it doubles as a persistent cache across runs.
 - **No spaces in folder names**, and loose files need a labeled subfolder — the preprocess
@@ -432,6 +445,14 @@ explicit confirmation before running it.**
 
 ## Step 5 — Run and monitor
 
+**Before running, size-check out loud.** If the machine clears the gates but sits under the
+team's POC guidance — host RAM at or under 32 GB, or under ~150 GB for the data disk (every
+laptop, and most Macs on Docker Desktop) — say so explicitly rather than silently proceeding:
+it is fine for evaluation and demos, the POC guidance is 32 GB+ (64 GB recommended) and
+150–300 GB, and real workloads will likely need per-job memory and worker counts raised in
+the platform's Settings (see the catalog's post-install tuning entry). Passing the gate is
+not the same as being sized for the work.
+
 Run the composed command. Expectations to set:
 
 - Online install: typically 10–40 min, dominated by image pulls (~15GB; office networks and
@@ -486,7 +507,7 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
 
 ## Step 7 — When it fails
 
-Open [troubleshooting.md]({{reference_dir}}/install-troubleshooting.md) and match the error text — it catalogs every
+Open [install-troubleshooting.md]({{reference_dir}}/install-troubleshooting.md) and match the error text — it catalogs every
 failure mode observed in the field (installer telemetry and customer installation sessions),
 ranked by frequency, with root cause and the fix the team actually used. Triage order when
 the error is generic (`context deadline exceeded`, `connection refused`): **disk first
@@ -568,7 +589,9 @@ After every successful install / upgrade / reinstall (and after a failed attempt
 diagnosis is worth remembering), write or update `<data-dir>/install-notes.md`. It sits at the
 data-dir **root**, so it survives `uninstall` and even `--purge` (only a manual
 `rm -rf <data-dir>` removes it). Keep the "Current setup" section current and **append** to
-History — never rewrite it.
+History — never rewrite it. Copy the template below **in full**, including the version,
+data-dir and docker data-root lines: those are exactly what a later upgrade needs, and they
+are the first thing people drop when abbreviating.
 
 ```markdown
 # Tensorleap install notes — maintained by the tensorleap-install skill
