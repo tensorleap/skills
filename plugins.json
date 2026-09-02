@@ -15,6 +15,14 @@
       "skills": [
         "tensorleap-integration-creation"
       ]
+    },
+    {
+      "name": "installer",
+      "description": "Tensorleap's AI-assistant skill for installing, upgrading, and troubleshooting a Tensorleap server on your own machine.",
+      "version": "0.1.0",
+      "skills": [
+        "tensorleap-install"
+      ]
     }
   ]
 }
