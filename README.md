@@ -5,9 +5,15 @@ authored **once** in a canonical format; this repo generates thin, per-tool
 wrappers (GitHub Copilot, Claude Code, Cursor, Devin, `AGENTS.md`) from it and
 ships the shared scripts each skill needs.
 
-> **v1 ships one skill:** [`tensorleap-integration-creation`](skills/tensorleap-integration-creation/skill.md)
-> — authoring and debugging a Tensorleap integration (`leap_integration.py` +
-> `leap.yaml`, decorator style) through a progressive author → run → fix loop.
+> **Skills in this repo:**
+> - [`tensorleap-integration-creation`](skills/tensorleap-integration-creation/skill.md)
+>   — authoring and debugging a Tensorleap integration (`leap_integration.py` +
+>   `leap.yaml`, decorator style) through a progressive author → run → fix loop.
+> - [`tensorleap-install`](skills/tensorleap-install/skill.md) — installing,
+>   upgrading, or reinstalling a Tensorleap server on your own machine (Linux, macOS,
+>   WSL2, cloud VMs; online, proxy, or airgap; CPU or GPU): preflight checks, the right
+>   `leap server` command, first-login verification, a field-sourced failure catalog,
+>   and a per-machine `install-notes.md` so later upgrades start with context.
 
 **No clone needed** — every install command below fetches what it needs.
 
@@ -80,12 +86,13 @@ Native plugin-marketplace path (recommended):
 
 ```
 /plugin marketplace add tensorleap/skills
-/plugin install integration@tensorleap
+/plugin install integration@tensorleap   # authoring integrations
+/plugin install installer@tensorleap     # installing / upgrading a Tensorleap server
 ```
 
-`integration` is the plugin (a domain-scoped bundle) within the `tensorleap`
-marketplace; installing it gives you its skills, and Claude auto-loads the
-relevant one per task. Or use the installer:
+`integration` and `installer` are plugins (domain-scoped bundles) within the
+`tensorleap` marketplace; installing one gives you its skills, and Claude auto-loads
+the relevant one per task. Or use the installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh -s -- --tool claude /path/to/your-project
@@ -229,6 +236,10 @@ skills/                             # the atoms — author here
     skill.md                        # canonical: superset frontmatter + tool-neutral body
     reference/*.md                   # shared reference docs
     scripts/                         # shared, repo-agnostic (preflight / run / check)
+  tensorleap-install/
+    skill.md                        # install / upgrade / reinstall a Tensorleap server
+    reference/install-troubleshooting.md   # field-sourced failure catalog
+    scripts/install_preflight.sh    # read-only machine preflight
 plugins.json                         # which skills compose which Claude plugins (+ metadata/version)
 build/
   generate.py                        # skills + plugins.json -> wrappers   (--check for CI)
