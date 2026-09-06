@@ -737,6 +737,14 @@ evaluate + analysis usually means the machine itself is undersized.
 - `leap code push` **CLI wait times out** while the build continues server-side — cosmetic;
   follow the job in the UI.
 - First job after an upgrade **pends a couple of minutes** while images cache into k8s.
+- **The last lines of a successful run can be red `ERROR`s.** Installer telemetry POSTs after
+  the work is done, and that call failing (`POST request failed with status code: 500`,
+  `res body: 500 Internal Server Error`) is logged as an error at the very end of an otherwise
+  clean install/upgrade. The authoritative outcome is the `Successfully completed <command>`
+  line just above it. Likewise, counting `error`/`failed` matches in the log is meaningless —
+  a healthy run routinely contains hundreds of benign debug lines (e.g. `failed to get IP for
+  container /k3d-tensorleap-tools ...`). Read the *first* `Failed` line and the final
+  `Successfully completed` line, not the tail and not a match count.
 
 ### 58. Moving an install to another machine
 PoV box returns to the pool, the server was outgrown, or the VM is ephemeral.

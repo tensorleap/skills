@@ -59,7 +59,7 @@ Before asking the user anything, check whether this machine already has an insta
 this skill (or the installer) recorded about it:
 
 ```bash
-DATA_DIR=$(awk '/^data_dir:/{print $2}' ~/.config/tensorleap/config.yaml 2>/dev/null)
+DATA_DIR=$(sed -n 's/^data_dir:[[:space:]]*//p' ~/.config/tensorleap/config.yaml 2>/dev/null)
 DATA_DIR=${DATA_DIR:-/var/lib/tensorleap/standalone}
 cat "$DATA_DIR/install-notes.md" 2>/dev/null      # this skill's record — richest context
 cat "$DATA_DIR/manifests/params.yaml" 2>/dev/null # installer's own record of the last flags
@@ -73,8 +73,12 @@ but the embedded installer pin (`leap server --info`'s "Installer Version" line)
 the CLI vendors a specific helm-charts release, and the two version numbers are independent.
 `leap cli upgrade -s | bash` refreshes both together.
 
-(Don't `cat` the whole `config.yaml` — it contains API keys; the awk line extracts only
-`data_dir`.)
+(Don't `cat` the whole `config.yaml` — it contains API keys; the `sed` line extracts only
+`data_dir`. Keep this line `sed`-based and free of awk positional fields: a dollar-sign
+followed by a digit anywhere in this file is rewritten by slash-command argument
+substitution whenever the skill is invoked with arguments, which silently empties
+`DATA_DIR` and sends Step 0 to the default path on machines that use a custom
+`--data-dir`.)
 
 - **Notes found** → this is an upgrade, reinstall, or repair. Don't re-run triage from
   scratch: present the recorded setup back to the user ("last installed 2026-06 with
