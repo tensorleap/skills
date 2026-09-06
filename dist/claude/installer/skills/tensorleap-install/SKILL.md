@@ -557,6 +557,13 @@ means [reinstall](#reinstalling-leap-server-reinstall) instead. A specific versi
    (12–20 min).
 4. Run **on the server itself** (not from a client machine):
    `leap cli upgrade && leap server upgrade` — the team's rule is always both together.
+   **Needs a real terminal.** The reinstall confirmation is written to the TTY, so a
+   TTY-less invocation (`ssh host "leap server upgrade"`, CI, a script, any piped
+   invocation) does not fail cleanly — verified live: with stdin a pipe it dies
+   `Error: EOF` and prints usage; with stdin `/dev/null` it **hangs indefinitely** at a
+   prompt you cannot see. Use `ssh -t`, or pass `-y` to answer the prompts non-
+   interactively (for `upgrade`, `-y` auto-confirms the reinstall — jobs die, data
+   survives; it cannot change the version, since upgrade always resolves to latest).
 5. Expect the "reinstall is required" prompt — it is the **norm, not the exception**. It fires
    on any of: a stuck/failed helm release, an app-version change, a k3s image change, any
    infra-value change (GPU selection, airgap sync registries), any cluster-param change (ports,
@@ -575,6 +582,16 @@ means [reinstall](#reinstalling-leap-server-reinstall) instead. A specific versi
    `leap server info`, and check the UI's version indicator.
 8. Update `install-notes.md` (below).
 
+**What "latest" actually means here.** `upgrade` resolves against the repo's `manifest-*`
+GitHub releases, *not* the `tensorleap-*` chart releases — it scans releases newest-first and
+takes the first tag matching `manifest-<x.y.z>`. Only stable manifests are published, which is
+why upgrade lands on stable even though the chart repo also carries `-rc.N` builds. Two
+consequences worth knowing: a chart repo advertising e.g. `1.6.75-rc.0` while `leap server
+info` reports `1.6.74` is **expected, not a stale install**; and that rc-safety is a publishing
+convention, not a code guardrail — the resolver applies no prerelease filter and its pattern is
+unanchored, so a `manifest-*-rc.N` release would be picked up like any other. Pin with
+`install --tag <version>` whenever a run must not move at all.
+
 `leap server upgrade` is also a legitimate **recovery** move — it has revived a cluster that
 `stop`/`run` reported as down, and it regenerates a per-user kube context (without needing
 sudo, unlike install). Airgap installs upgrade by installing with a **newer airgap tar** (and
@@ -582,8 +599,10 @@ matching CLI) — plain `upgrade` has nothing to download.
 
 ## Reinstalling (`leap server reinstall`)
 
-Tears down the cluster and rebuilds it — **data survives, running jobs die, and it re-prompts
-every install question**. Fast (~5 min) because images are cached. Use it to: change ports /
+Tears down the cluster and rebuilds it — **data survives** (verified live: projects intact
+through a full teardown and rebuild), running jobs die, and it re-prompts every install
+question. Images are cached so nothing re-downloads, but budget more than a coffee break:
+**~5 min on a fast Linux box, ~15–20 min on macOS/Docker Desktop** (measured: 18.5 min). Use it to: change ports /
 TLS / domain, add or change dataset volumes, change GPU selection, recover from broken cluster
 state, or (with a purge first — catalog #39) switch online↔airgap. Moving the data dir is
 `install -d <new>` instead — the installer offers a migration.

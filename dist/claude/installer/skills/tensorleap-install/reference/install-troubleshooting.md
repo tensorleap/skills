@@ -726,8 +726,12 @@ cluster (CoreDNS restarts in seconds):
 ```
 kubectl -n kube-system patch deployment coredns -p '{"spec":{"template":{"spec":{"containers":[{"name":"coredns","resources":{"requests":{"cpu":"250m","memory":"512Mi"},"limits":{"cpu":"250m","memory":"512Mi"}}}]}}}}'
 ```
-Re-applied automatically once an installer release containing the fix lands; note a k3s
-version change can reset the manifest, so re-check after a major upgrade.
+**The manual patch does not survive a cluster rebuild.** Verified live: a `leap server
+reinstall` (and any `upgrade` that triggers the reinstall prompt — which is the norm, not the
+exception) recreates the cluster from the k3s manifest and puts CoreDNS straight back to
+`170Mi`/Burstable. Re-apply the patch and re-check the QoS class (`Guaranteed`) after every
+reinstall/upgrade until a released installer carries the fix, or the protection silently
+lapses exactly when the cluster is most disrupted.
 
 ### 56. Jobs OOM, insights stall, "unexplained errors" under load
 The install is fine; the platform's job resources are sized for a bigger machine than this
