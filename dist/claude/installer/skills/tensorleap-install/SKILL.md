@@ -64,7 +64,14 @@ DATA_DIR=${DATA_DIR:-/var/lib/tensorleap/standalone}
 cat "$DATA_DIR/install-notes.md" 2>/dev/null      # this skill's record — richest context
 cat "$DATA_DIR/manifests/params.yaml" 2>/dev/null # installer's own record of the last flags
 leap server info 2>/dev/null
+leap server --info 2>/dev/null   # "Installer Version:" — the embedded helm-charts pin,
+                                  # NOT the same number as `leap --version` (the CLI binary)
 ```
+
+A stale-looking fix or a flag that shouldn't exist yet can mean `leap --version` is current
+but the embedded installer pin (`leap server --info`'s "Installer Version" line) is older —
+the CLI vendors a specific helm-charts release, and the two version numbers are independent.
+`leap cli upgrade -s | bash` refreshes both together.
 
 (Don't `cat` the whole `config.yaml` — it contains API keys; the awk line extracts only
 `data_dir`.)
@@ -185,9 +192,11 @@ moved before installing:
    moved in its Settings UI, not here.
 2. Tensorleap: install with `--data-dir /bigdisk/tensorleap` (separate folder from docker's).
 
-Known CLI bug: after relocating data-root the preflight may still measure the old path and
-falsely report low storage — answer "yes" to continue, or set `DISABLE_DOCKER_CHECKS=true`
-(it only skips the check; no side effects).
+**Fixed on current CLIs** (the storage probe reads the live daemon's actual data-root, not a
+cached path) — a low-storage report right after a data-root move is real on today's CLI, not
+a stale reading. If you still suspect a false negative, run `leap cli upgrade -s | bash`
+first; only fall back to `DISABLE_DOCKER_CHECKS=true` (skips the check only, no side
+effects) once you've confirmed the CLI is current and the number is still wrong.
 
 **Eviction floor — bigger than one number.** The installer sets
 `eviction-hard=nodefs.available<30G,imagefs.available<30G`, but eviction also fires on
@@ -407,8 +416,11 @@ Gotchas that regularly burn users:
   on top of continuing past the resource gate it will: **auto-confirm a destructive reinstall**
   (tears down the cluster, kills running jobs) on an existing install, **take all GPUs**, and
   **mount `$HOME/tensorleap/data`** as the dataset volume. It also *keeps* the current version
-  on an existing install — moving forward requires `leap server upgrade`. Use it only on a
-  fresh machine with every other flag stated explicitly.
+  on an existing install — moving forward requires `leap server upgrade`. (`install`/`reinstall`
+  without `--tag` may separately ask "Do you want to use latest version (latest: X, current:
+  Y)?" if a previous install is found — pin explicitly with `--tag <version>` for any scripted
+  run that must not silently change versions; `upgrade` never asks this, it always takes
+  latest.) Use `--yes` only on a fresh machine with every other flag stated explicitly.
 - **Changing `--data-dir` on an existing install triggers a migration prompt that is
   destructive either way**, and `--yes` does **not** bypass it: one answer runs an uninstall
   first and moves the storage; the other **deletes whatever already exists at the new path**.
@@ -490,13 +502,21 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    the URL **must** include the scheme (`http://…`). On a local install edit the copied line to
    `http://localhost:4589`. Multiple servers coexist as saved environments; `leap auth select`
    switches between them (no need to re-login when moving between a local and a remote install).
-6. `df -h` both disks again — confirm >30G free remains, or the first training job will
+   If the CLI reports x509/certificate-verify errors talking to a self-signed or private-CA
+   server, set `LEAP_SKIP_SSL_VERIFY=true` in the CLI's own environment — there is no way to
+   add a custom CA to the CLI's trust store otherwise.
+6. Confirm the per-job memory budget actually deployed (silent-fail-open, no other
+   visible symptom otherwise): grep the install log for
+   `Memory budget deployed: total_memory_bytes=`; a warning that it's empty instead means
+   job-memory admission is disabled — re-run with an explicit `--cluster-memory-gb <n>` or
+   confirm Docker's memory is being read correctly.
+7. `df -h` both disks again — confirm >30G free remains, or the first training job will
    trigger eviction.
-7. **Prove it end to end** (the acceptance check the team actually uses): `git lfs install &&
+8. **Prove it end to end** (the acceptance check the team actually uses): `git lfs install &&
    git lfs pull` in the example repo — **without git-lfs the model file is a 134-byte pointer
    and the push fails** — then `leap project push` the MNIST example, run validate + evaluate,
    and watch `nvidia-smi`/`nvtop` during evaluate to confirm the GPU is really in play.
-8. Record the setup in `install-notes.md` — see
+9. Record the setup in `install-notes.md` — see
    [After every action](#after-every-action--record-the-state).
 
 ## Step 7 — When it fails

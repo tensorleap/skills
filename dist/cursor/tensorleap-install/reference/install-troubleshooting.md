@@ -52,12 +52,15 @@ then `sudo systemctl restart docker` (or `stop` + `start`), verify `docker info`
 root, and re-run the GPU pre-check if this is a GPU box. Keep Tensorleap's `--data-dir` a
 *separate* folder on the same big disk.
 
-### 3. False "not enough resources" AFTER moving the data-root
-Known CLI bug: the storage preflight can still measure the old location after data-root was
-relocated, reporting ~a few GB free despite hundreds available.
-**Fix:** verify the move with `docker info` yourself, then either answer "yes" at the
-"continue anyway?" prompt or run with `DISABLE_DOCKER_CHECKS=true` (skips the check only, no
-side effects).
+### 3. "Not enough resources" right after moving the data-root
+**Fixed in installer v0.9.11 (2026-04-12)** — the storage probe now reads the live Docker
+daemon's actual configured root (`dockerInfo.DockerRootDir`) instead of a stale filesystem-type
+match, so on a current CLI this number is real, not a cached artifact of the old path.
+**Fix:** if you see it, don't reflexively bypass it — verify with `docker info` that the move
+actually landed and docker actually restarted; if the daemon is confirmed pointed at the new
+disk and the number is still wrong, upgrade the CLI (`leap cli upgrade -s | bash`) before
+reaching for `DISABLE_DOCKER_CHECKS=true` (skips the check only, no side effects) — that flag
+is a last resort, not the default response to this message.
 
 ### 4. WSL2: "read-only file system"
 `mkdir /var/lib/tensorleap: read-only file system` when creating the registry or server node.
@@ -294,6 +297,16 @@ problem — do not pre-empt it with `--cpu`.
 **Fix:** fix the driver (#20/#21) and re-run, or answer **yes** to install CPU-only now and
 add GPUs later with `leap server reinstall`.
 
+### 21d. GPU worked at install time, then jobs start failing with `nvml error: unknown error`
+`nvidia-container-cli: detection error: nvml error: unknown error` mid-session, on a GPU that
+passed the install-time pre-check and had been working. Restarting individual pods does not
+clear it. **Unresolved in the field** — the one documented incident correlated with a
+`leap server upgrade` having run and with a concurrent pippin dependency-build, but neither was
+confirmed as the trigger, and the thread ended without a confirmed fix (reinstall was the
+last resort discussed, not verified to work). If you hit this: capture `nvidia-smi` and
+`leap server info` before trying anything, since the team has no repro yet. `leap server
+reinstall` is the documented next step to try, in that order — not a confirmed cure.
+
 ### 22. `open /run/nvidia-persistenced/socket: no such file or directory`
 **Fix:** `sudo systemctl enable --now nvidia-persistenced`, retry.
 
@@ -334,6 +347,13 @@ mounts; Docker and `/var/lib/tensorleap` land on root and choke.
 **Fix:** move Docker data-root (item 2) AND install with `-d /data1/tensorleap` before
 anything else. Access: see item 51 — SSM port-forward, SSH `-L`, or a security-group
 allowlist that already permits `:4589`.
+
+### 26b. EC2: after stop/start, ingress-nginx can't find files under the mounted volume
+Looks like an SSM/permission problem but usually isn't — a boot-ordering race where the EBS
+data volume mounts *after* Docker/k3d/containerd already started against it.
+**Fix:** confirm the volume actually mounted first (`df -h`, `lsblk`) before touching
+permissions; if it raced, `docker restart` (or reboot) once the volume is confirmed mounted
+resolves it — don't chase a permissions theory before ruling this out.
 
 ### 27. EC2/VM: install "disappeared" after stop/start
 The data dir (or docker root) was on an ephemeral disk that the stop wiped.
@@ -562,6 +582,15 @@ touches that disk** — "we'll mount it instead of overwriting it" is not a subs
 backup, because the same run can still be answered the wrong way at the prompt. `TL_DATA_DIR` disagreeing with the recorded `data_dir` fires this
 same prompt from `install`/`run`/`stop` — prefer `--data-dir` and leave the env var unset.
 
+### 48c. Installing with `--local`/`--local-dir` fails on `no matches for kind "Elasticsearch"`
+`--local`/`--local-dir` installs from a helm-charts checkout instead of the published chart —
+a dev/support path, not the normal one. It bypasses the published chart repo, so the checkout's
+subchart dependencies (including the `eck-operator` that registers the `Elasticsearch` CRD)
+must already be vendored in.
+**Fix:** run `make build-helm` in the checkout before `--local`/`--local-dir` — skipping it
+reproduces the CRD-ordering race (catalog #16) even on a healthy machine, because the CRD
+chart was never pulled in the first place.
+
 ### 49. Second user on a shared server can't use the CLI / kubectl against the install
 Install lives in a non-default data dir recorded only in the installer user's config; other
 users' CLIs can't find it, and kube contexts are per-user.
@@ -569,6 +598,14 @@ users' CLIs can't find it, and kube contexts are per-user.
 `leap server upgrade` from the new user regenerates their kube context (no sudo needed).
 Best practice from field IT: install under a faceless/service account, not a personal one —
 a closed employee account has broken installs before.
+
+**Security note, not just a convenience one:** current installers write this kubeconfig to
+`<data-dir>/manifests/kubeconfig.yaml` **world-readable**, and on Linux also source it into
+every login shell via `/etc/profile.d/tensorleap-kubeconfig.sh`. That kubeconfig carries
+cluster-admin credentials — **any local user on a shared install machine gets cluster-admin
+Kubernetes access automatically**, not just the ability to run `leap` commands. On a
+genuinely multi-tenant machine this is a real exposure to flag to the customer, not only a
+convenience feature.
 
 ---
 
@@ -663,6 +700,22 @@ and confirm with `leap server info` — see the uninstall reference in the skill
 purge from a project directory is how the user's own `storage/` folder gets deleted.
 
 ## After the install — expected behaviour, and tuning
+
+### 55b. A long evaluate dies with `socket.gaierror`/`MaxRetryError` reaching minio, mid-run
+Not job sizing (#56) — a cluster-wide DNS outage. k3s ships CoreDNS at a tiny 170Mi
+limit/Burstable QoS by default; a burst of DNS lookups during heavy engine load (streaming-PCA
+against minio) can OOM-kill it, and RabbitMQ/other pods fail the same way at the same moment —
+several unrelated-looking failures that are actually one cause.
+**Confirm:**
+```
+kubectl -n kube-system describe pod -l k8s-app=kube-dns | grep -A5 -E "Restart Count|Last State"
+```
+`Restart Count >= 1` with `Last State: OOMKilled` around the failure time confirms it.
+**Fixed in the installer (2026-08-13):** every install/upgrade now patches CoreDNS to
+Guaranteed QoS (requests==limits, 512Mi/250m), so this shouldn't recur on a current install.
+If it does, verify the patch actually applied —
+`kubectl -n kube-system get deployment coredns -o jsonpath='{.spec.template.spec.containers[0].resources}'` should show `512Mi`/`250m` on both requests and limits; if it shows the k3s
+default instead, upgrade the CLI and reinstall/upgrade to re-apply the patch.
 
 ### 56. Jobs OOM, insights stall, "unexplained errors" under load
 The install is fine; the platform's job resources are sized for a bigger machine than this
