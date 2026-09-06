@@ -353,7 +353,8 @@ subcommand at startup with a fatal error. Use `-v` instead.
 install completes, and fixing either forces a full reinstall:
 
 ```bash
-getent hosts tl.corp.com                                   # must resolve to THIS machine's IP
+getent hosts tl.corp.com || dig +short tl.corp.com          # must resolve to THIS machine's IP
+                                                            # (getent is Linux-only; dig covers macOS)
 openssl x509 -in cert.pem -noout -dates -ext subjectAltName # not expired; SAN covers the domain
 diff <(openssl x509 -in cert.pem -noout -pubkey) <(openssl pkey -in key.pem -pubout)  # cert↔key match
 openssl verify -CAfile chain.pem cert.pem                   # chain validates (if a chain was given)
@@ -361,9 +362,15 @@ openssl verify -CAfile chain.pem cert.pem                   # chain validates (i
 
 **Dataset volumes — get this right the first time:**
 
-- The data must **physically live** under the mounted host path. Symlinks inside the mount do
-  NOT resolve in the container (docker bind-mount semantics) — the folder shows up empty.
-  NAS/network data: either mount the network path itself as the volume or copy data in.
+- The data must **physically live** under the mounted host path. A **symlink inside the
+  mounted tree that points outside it** is the real field trap: the container follows the
+  link to a path that was never mounted, so the folder reads as empty. NAS/network data:
+  mount the network path itself as a volume, or copy the data in.
+- Passing a symlink *as* the volume path is a subtler risk, not an instant failure: Docker
+  resolves it at mount time (verified), but the installer stores the path **verbatim** — its
+  path normalizer only fixes capitalization, it does not resolve symlinks — so the recorded
+  `params.yaml`/notes keep pointing at the link, and the install silently breaks the day the
+  link is repointed or removed. Pass the resolved target (`readlink -f <path>`) instead.
 - Keep the container path **identical** to the host path (`-v /data:/data`) so code paths work
   both inside and outside the platform.
 - **Never invent or assume a host path.** Confirm each one exists (`ls -d <path>`) before it

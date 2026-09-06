@@ -1,7 +1,7 @@
 {
   "name": "installer",
   "description": "Tensorleap's AI-assistant skill for installing, upgrading, and troubleshooting a Tensorleap server on your own machine.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Tensorleap",
     "email": "support@tensorleap.ai"

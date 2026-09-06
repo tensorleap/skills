@@ -711,11 +711,23 @@ several unrelated-looking failures that are actually one cause.
 kubectl -n kube-system describe pod -l k8s-app=kube-dns | grep -A5 -E "Restart Count|Last State"
 ```
 `Restart Count >= 1` with `Last State: OOMKilled` around the failure time confirms it.
-**Fixed in the installer (2026-08-13):** every install/upgrade now patches CoreDNS to
-Guaranteed QoS (requests==limits, 512Mi/250m), so this shouldn't recur on a current install.
-If it does, verify the patch actually applied —
-`kubectl -n kube-system get deployment coredns -o jsonpath='{.spec.template.spec.containers[0].resources}'` should show `512Mi`/`250m` on both requests and limits; if it shows the k3s
-default instead, upgrade the CLI and reinstall/upgrade to re-apply the patch.
+**Fix merged to helm-charts master 2026-08-13 — but not yet in any released installer.**
+The installer patches CoreDNS to Guaranteed QoS (requests==limits, 512Mi/250m) on every
+install/upgrade, but as of installer pin `v0.10.15` (shipped in the latest CLI, `v0.0.161`)
+**no released version carries it** — verified on a live install, which still shows the k3s
+default. Do not assume a current install is protected; check:
+```
+kubectl -n kube-system get deployment coredns -o jsonpath='{.spec.template.spec.containers[0].resources}'
+```
+`{"limits":{"memory":"170Mi"},"requests":{"cpu":"100m","memory":"70Mi"}}` = unpatched (the
+k3s default, Burstable). `512Mi`/`250m` on both requests and limits = patched.
+**Apply it yourself today** — same patch the installer will apply, safe to run on a live
+cluster (CoreDNS restarts in seconds):
+```
+kubectl -n kube-system patch deployment coredns -p '{"spec":{"template":{"spec":{"containers":[{"name":"coredns","resources":{"requests":{"cpu":"250m","memory":"512Mi"},"limits":{"cpu":"250m","memory":"512Mi"}}}]}}}}'
+```
+Re-applied automatically once an installer release containing the fix lands; note a k3s
+version change can reset the manifest, so re-check after a major upgrade.
 
 ### 56. Jobs OOM, insights stall, "unexplained errors" under load
 The install is fine; the platform's job resources are sized for a bigger machine than this
