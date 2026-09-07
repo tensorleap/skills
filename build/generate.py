@@ -59,6 +59,7 @@ import tempfile
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILLS_DIR = os.path.join(REPO_ROOT, "skills")
+SHARED_SCRIPTS_DIR = os.path.join(SKILLS_DIR, "_shared", "scripts")
 GOLDEN_DIR = os.path.join(REPO_ROOT, "build", "golden")
 PLUGINS_JSON = os.path.join(REPO_ROOT, "plugins.json")
 
@@ -75,7 +76,7 @@ MARKER_END = "<!-- END TENSORLEAP SKILL: %s -->"
 
 
 def stamp(name, version):
-    return ("<!-- Tensorleap skill '%s' v%s — generated from skills/%s/skill.md; "
+    return ("<!-- Tensorleap skill '%s' v%s, generated from skills/%s/skill.md; "
             "do not edit here. -->" % (name, version, name))
 
 
@@ -235,6 +236,18 @@ def _copytree(src, dst):
     )
 
 
+def _copy_assets(name, skill_out):
+    """scripts/ + reference/ of the skill, plus skills/_shared/scripts (the
+    self-updater every skill folder carries). Shell scripts made executable."""
+    src = os.path.join(SKILLS_DIR, name)
+    _copytree(os.path.join(src, "scripts"), os.path.join(skill_out, "scripts"))
+    _copytree(SHARED_SCRIPTS_DIR, os.path.join(skill_out, "scripts"))
+    _copytree(os.path.join(src, "reference"), os.path.join(skill_out, "reference"))
+    for fname in os.listdir(os.path.join(skill_out, "scripts")):
+        if fname.endswith(".sh"):
+            os.chmod(os.path.join(skill_out, "scripts", fname), 0o755)
+
+
 def emit_claude(catalog, skills, root):
     owner = catalog["owner"]
     for p in catalog["plugins"]:
@@ -255,18 +268,13 @@ def emit_claude(catalog, skills, root):
                 continue
             skill_out = os.path.join(plugin_dir, "skills", skill_name)
             _write(os.path.join(skill_out, "SKILL.md"), render_claude_skill_md(canon))
-            src = os.path.join(SKILLS_DIR, skill_name)
-            _copytree(os.path.join(src, "scripts"), os.path.join(skill_out, "scripts"))
-            _copytree(os.path.join(src, "reference"), os.path.join(skill_out, "reference"))
-            for name in os.listdir(os.path.join(skill_out, "scripts")):
-                if name.endswith(".sh"):
-                    os.chmod(os.path.join(skill_out, "scripts", name), 0o755)
+            _copy_assets(skill_name, skill_out)
 
 
 def emit_skill_folders(skills, root, tool):
     """Copilot / Cursor: one self-contained Agent Skill folder per skill
     (native discovery). The VERSION file (enables the self-update check in
-    preflight.sh) ships with both folder tools but NEVER with Claude — Claude
+    scripts/self_update.sh) ships with both folder tools but NEVER with Claude — Claude
     updates come through the plugin marketplace and its copy stays inert."""
     for name, canon in skills.items():
         if tool not in canon.tools():
@@ -274,12 +282,7 @@ def emit_skill_folders(skills, root, tool):
         skill_out = os.path.join(root, DIST_REL, tool, name)
         _write(os.path.join(skill_out, "SKILL.md"), render_native_skill_md(canon))
         _write(os.path.join(skill_out, "VERSION"), canon.version() + "\n")
-        src = os.path.join(SKILLS_DIR, name)
-        _copytree(os.path.join(src, "scripts"), os.path.join(skill_out, "scripts"))
-        _copytree(os.path.join(src, "reference"), os.path.join(skill_out, "reference"))
-        for fname in os.listdir(os.path.join(skill_out, "scripts")):
-            if fname.endswith(".sh"):
-                os.chmod(os.path.join(skill_out, "scripts", fname), 0o755)
+        _copy_assets(name, skill_out)
 
 
 def emit_flat(skills, root):
