@@ -170,9 +170,14 @@ Helm timed out waiting for workloads — resource starvation or very slow pulls.
 pod. If the machine is simply slow, re-running continues from cache.
 
 ### 12. k8s API unreachable — "connection refused" or `: EOF` on 127.0.0.1:&lt;port&gt;
-The k3d server container died mid-install or Docker restarted; the random local API port
-stopped answering. Usually downstream of disk/memory pressure or a Docker Desktop update.
-**Fix:** `docker ps -a | grep k3d-tensorleap`; if dead, `docker logs k3d-tensorleap-server-0`
+The random local API port stopped answering. **Check the cheap explanation first — the cluster
+may simply be stopped.** A plain `leap server stop` (or a `docker stop`) produces this exact
+error from `leap server tools kubectl`, verified live; `docker ps -a --filter
+name=k3d-tensorleap` showing `Exited` means nothing is broken — `leap server run` brings it
+back (~30s to all pods Running). Only if it died *unexpectedly* is this the k3d server
+container crashing mid-install or Docker restarting, usually downstream of disk/memory
+pressure or a Docker Desktop update.
+**Fix:** `docker ps -a | grep k3d-tensorleap`; if `Exited` on purpose → `leap server run`; if dead unexpectedly, `docker logs k3d-tensorleap-server-0`
 for OOM/disk, fix the cause, then `leap server run` or re-run the install. On a shared server
 also ask whether someone updated Docker that week.
 
@@ -711,11 +716,27 @@ several unrelated-looking failures that are actually one cause.
 kubectl -n kube-system describe pod -l k8s-app=kube-dns | grep -A5 -E "Restart Count|Last State"
 ```
 `Restart Count >= 1` with `Last State: OOMKilled` around the failure time confirms it.
-**Fixed in the installer (2026-08-13):** every install/upgrade now patches CoreDNS to
-Guaranteed QoS (requests==limits, 512Mi/250m), so this shouldn't recur on a current install.
-If it does, verify the patch actually applied —
-`kubectl -n kube-system get deployment coredns -o jsonpath='{.spec.template.spec.containers[0].resources}'` should show `512Mi`/`250m` on both requests and limits; if it shows the k3s
-default instead, upgrade the CLI and reinstall/upgrade to re-apply the patch.
+**Fix merged to helm-charts master 2026-08-13 — but not yet in any released installer.**
+The installer patches CoreDNS to Guaranteed QoS (requests==limits, 512Mi/250m) on every
+install/upgrade, but as of installer pin `v0.10.15` (shipped in the latest CLI, `v0.0.161`)
+**no released version carries it** — verified on a live install, which still shows the k3s
+default. Do not assume a current install is protected; check:
+```
+kubectl -n kube-system get deployment coredns -o jsonpath='{.spec.template.spec.containers[0].resources}'
+```
+`{"limits":{"memory":"170Mi"},"requests":{"cpu":"100m","memory":"70Mi"}}` = unpatched (the
+k3s default, Burstable). `512Mi`/`250m` on both requests and limits = patched.
+**Apply it yourself today** — same patch the installer will apply, safe to run on a live
+cluster (CoreDNS restarts in seconds):
+```
+kubectl -n kube-system patch deployment coredns -p '{"spec":{"template":{"spec":{"containers":[{"name":"coredns","resources":{"requests":{"cpu":"250m","memory":"512Mi"},"limits":{"cpu":"250m","memory":"512Mi"}}}]}}}}'
+```
+**The manual patch does not survive a cluster rebuild.** Verified live: a `leap server
+reinstall` (and any `upgrade` that triggers the reinstall prompt — which is the norm, not the
+exception) recreates the cluster from the k3s manifest and puts CoreDNS straight back to
+`170Mi`/Burstable. Re-apply the patch and re-check the QoS class (`Guaranteed`) after every
+reinstall/upgrade until a released installer carries the fix, or the protection silently
+lapses exactly when the cluster is most disrupted.
 
 ### 56. Jobs OOM, insights stall, "unexplained errors" under load
 The install is fine; the platform's job resources are sized for a bigger machine than this

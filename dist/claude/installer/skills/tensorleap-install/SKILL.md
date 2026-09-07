@@ -48,7 +48,10 @@ Hard rules:
   virtualenv first — active Python environments have broken the installer. (This applies to
   the installer only — the CLI installs fine inside a virtualenv, and conda is a perfectly
   good home for the user's *integration* code environment.)
-- `leap server check` is a no-op stub. Never suggest it as a diagnostic.
+- **`leap server check` does not exist.** Verified on the shipped CLI (v0.0.161): it is not a
+  registered subcommand — it silently prints the `leap server` help and **exits 0**, so a
+  script would read it as success. Never suggest it as a diagnostic. The registered
+  subcommands are exactly: `info install reinstall run stop tools uninstall upgrade`.
 
 The failure catalog ships alongside this skill as `reference/install-troubleshooting.md`;
 a read-only preflight script lives at `scripts/install_preflight.sh`.
@@ -256,9 +259,19 @@ or have an admin pre-create and `chown` them.
 
 **Ports** — `4589` (HTTP), `5699` (registry), `443` (only with TLS) must be free. The
 installer does **not** check; a conflict surfaces as a late cluster-creation failure with full
-rollback. `lsof -i :4589 -i :5699` first — but read the output: if the listener is
-`com.docker`/k3d (lsof shows it truncated as `com.docke`), that IS an existing Tensorleap install → go back to Step 0 (upgrade or
-reinstall), don't treat it as a conflict. A foreign listener that must keep running → install
+rollback. `lsof -i :4589 -i :5699` first — but **`lsof` cannot tell you whose port it is**: Docker
+Desktop publishes every container's ports under the same `com.docker` process (truncated to
+`com.docke`), so that name means "some container", not "your Tensorleap install". Identify the
+real owner before deciding:
+
+```bash
+docker ps --filter publish=4589 --filter publish=5699 --format '{{.Names}}\t{{.Ports}}'
+```
+
+A `k3d-tensorleap-*` container = an existing install → go back to Step 0 (upgrade or
+reinstall), not a conflict. Any other container (a `kind` cluster, another dev stack) is a
+genuine conflict — verified in the field on a machine where an unrelated `kind` control-plane
+held `:443`, which would have failed a TLS install at cluster creation. A foreign listener that must keep running → install
 with `--port <free>` (and/or `--registry-port`) after the user approves — the port becomes
 their permanent URL and changing it later forces a reinstall; substitute it everywhere 4589
 appears below, including the `leap auth` URL. A leftover local install also collides with an
@@ -364,17 +377,38 @@ subcommand at startup with a fatal error. Use `-v` instead.
 install completes, and fixing either forces a full reinstall:
 
 ```bash
-getent hosts tl.corp.com                                   # must resolve to THIS machine's IP
+getent hosts tl.corp.com || dig +short tl.corp.com          # must resolve to THIS machine's IP
+                                                            # (getent is Linux-only; dig covers macOS)
 openssl x509 -in cert.pem -noout -dates -ext subjectAltName # not expired; SAN covers the domain
 diff <(openssl x509 -in cert.pem -noout -pubkey) <(openssl pkey -in key.pem -pubout)  # cert↔key match
 openssl verify -CAfile chain.pem cert.pem                   # chain validates (if a chain was given)
 ```
 
+**TLS: two things to tell the customer before you install.**
+- The private key is **persisted world-readable**. Verified on a live install: the installer
+  writes the full cert *and key* inline into `<data-dir>/manifests/params.yaml` as
+  `-rwxr-xr-x`, inside a `0777` data dir — so **any local user on the machine can read the
+  server's TLS private key**. On a single-owner box that's tolerable; on a shared or
+  multi-tenant machine it is a real exposure (same class as the world-readable cluster-admin
+  kubeconfig — see the catalog's shared-server entry). Use a certificate issued specifically
+  for this service so its key isn't reusable elsewhere, and say this out loud rather than
+  letting the customer discover it.
+- **The plain HTTP port stays open.** A TLS install still serves `http://<host>:<--port>`
+  alongside `https://<domain>:<--tls-port>` — verified, both returned 200 on the same install.
+  TLS adds an HTTPS entrypoint; it does not disable the HTTP one. If plaintext access must be
+  impossible, block the HTTP port at the firewall.
+
 **Dataset volumes — get this right the first time:**
 
-- The data must **physically live** under the mounted host path. Symlinks inside the mount do
-  NOT resolve in the container (docker bind-mount semantics) — the folder shows up empty.
-  NAS/network data: either mount the network path itself as the volume or copy data in.
+- The data must **physically live** under the mounted host path. A **symlink inside the
+  mounted tree that points outside it** is the real field trap: the container follows the
+  link to a path that was never mounted, so the folder reads as empty. NAS/network data:
+  mount the network path itself as a volume, or copy the data in.
+- Passing a symlink *as* the volume path is a subtler risk, not an instant failure: Docker
+  resolves it at mount time (verified), but the installer stores the path **verbatim** — its
+  path normalizer only fixes capitalization, it does not resolve symlinks — so the recorded
+  `params.yaml`/notes keep pointing at the link, and the install silently breaks the day the
+  link is repointed or removed. Pass the resolved target (`readlink -f <path>`) instead.
 - Keep the container path **identical** to the host path (`-v /data:/data`) so code paths work
   both inside and outside the platform.
 - **Never invent or assume a host path.** Confirm each one exists (`ls -d <path>`) before it
@@ -432,8 +466,11 @@ Gotchas that regularly burn users:
 - Shared/CI egress IPs hit GitHub API rate limits — export `GITHUB_TOKEN` to fix.
 
 **Airgap flow**: on a connected machine, download the pack from
-`https://helm.tensorleap.ai/latest_airgap_versions.html` (or build one:
-`leap server pack-installation -o pack.tar --tag <version>`). Transfer only the `leap` binary
+`https://helm.tensorleap.ai/latest_airgap_versions.html`. **A customer cannot build their own
+pack** — `pack-installation` and `create-manifest` exist in the helm-charts repo but are not
+registered on the shipped CLI (verified: `leap server pack-installation` is an unknown
+command), so building one needs a repo checkout: `go run . pack-installation -o pack.tar
+--tag <version>`. Transfer only the `leap` binary
 (matching the pack's version) + the tar. Install with `--airgap <tar>`; telemetry is disabled
 automatically and all images load from the tar into the local registry. **Switching an
 existing online install to airgap**: purge state first (`leap server uninstall --purge`) or
@@ -550,6 +587,13 @@ means [reinstall](#reinstalling-leap-server-reinstall) instead. A specific versi
    (12–20 min).
 4. Run **on the server itself** (not from a client machine):
    `leap cli upgrade && leap server upgrade` — the team's rule is always both together.
+   **Needs a real terminal.** The reinstall confirmation is written to the TTY, so a
+   TTY-less invocation (`ssh host "leap server upgrade"`, CI, a script, any piped
+   invocation) does not fail cleanly — verified live: with stdin a pipe it dies
+   `Error: EOF` and prints usage; with stdin `/dev/null` it **hangs indefinitely** at a
+   prompt you cannot see. Use `ssh -t`, or pass `-y` to answer the prompts non-
+   interactively (for `upgrade`, `-y` auto-confirms the reinstall — jobs die, data
+   survives; it cannot change the version, since upgrade always resolves to latest).
 5. Expect the "reinstall is required" prompt — it is the **norm, not the exception**. It fires
    on any of: a stuck/failed helm release, an app-version change, a k3s image change, any
    infra-value change (GPU selection, airgap sync registries), any cluster-param change (ports,
@@ -568,6 +612,16 @@ means [reinstall](#reinstalling-leap-server-reinstall) instead. A specific versi
    `leap server info`, and check the UI's version indicator.
 8. Update `install-notes.md` (below).
 
+**What "latest" actually means here.** `upgrade` resolves against the repo's `manifest-*`
+GitHub releases, *not* the `tensorleap-*` chart releases — it scans releases newest-first and
+takes the first tag matching `manifest-<x.y.z>`. Only stable manifests are published, which is
+why upgrade lands on stable even though the chart repo also carries `-rc.N` builds. Two
+consequences worth knowing: a chart repo advertising e.g. `1.6.75-rc.0` while `leap server
+info` reports `1.6.74` is **expected, not a stale install**; and that rc-safety is a publishing
+convention, not a code guardrail — the resolver applies no prerelease filter and its pattern is
+unanchored, so a `manifest-*-rc.N` release would be picked up like any other. Pin with
+`install --tag <version>` whenever a run must not move at all.
+
 `leap server upgrade` is also a legitimate **recovery** move — it has revived a cluster that
 `stop`/`run` reported as down, and it regenerates a per-user kube context (without needing
 sudo, unlike install). Airgap installs upgrade by installing with a **newer airgap tar** (and
@@ -575,8 +629,10 @@ matching CLI) — plain `upgrade` has nothing to download.
 
 ## Reinstalling (`leap server reinstall`)
 
-Tears down the cluster and rebuilds it — **data survives, running jobs die, and it re-prompts
-every install question**. Fast (~5 min) because images are cached. Use it to: change ports /
+Tears down the cluster and rebuilds it — **data survives** (verified live: projects intact
+through a full teardown and rebuild), running jobs die, and it re-prompts every install
+question. Images are cached so nothing re-downloads, but budget more than a coffee break:
+**~5 min on a fast Linux box, ~15–20 min on macOS/Docker Desktop** (measured: 18.5 min). Use it to: change ports /
 TLS / domain, add or change dataset volumes, change GPU selection, recover from broken cluster
 state, or (with a purge first — catalog #39) switch online↔airgap. Moving the data dir is
 `install -d <new>` instead — the installer offers a migration.
@@ -591,7 +647,8 @@ state, or (with a purge first — catalog #39) switch online↔airgap. Moving th
 ## Start / stop / reboot
 
 - **After a host reboot or a Docker restart the cluster comes back on its own** (its
-  containers carry `restart: unless-stopped`) — typically ready a couple of minutes after
+  **server node** carries `restart: unless-stopped` — the ephemeral `k3d-tensorleap-tools`
+  container does not, and does not need to) — typically ready a couple of minutes after
   boot. No wake-up command is needed on current versions; don't tell users to re-install.
 - After an explicit `leap server stop` it stays down until `leap server run`.
 - Both commands print `Cluster 'tensorleap' not found` and exit 0 when there is no cluster —
