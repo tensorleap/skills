@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-install -->
-<!-- Tensorleap skill 'tensorleap-install' v0.1.1 — generated from skills/tensorleap-install/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-install' v0.1.1, generated from skills/tensorleap-install/skill.md; do not edit here. -->
 # Install Tensorleap
 
 `leap server install` creates a single-node k3d Kubernetes cluster inside Docker, then installs

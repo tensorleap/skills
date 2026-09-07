@@ -23,6 +23,14 @@
       "skills": [
         "tensorleap-install"
       ]
+    },
+    {
+      "name": "analysis",
+      "description": "Tensorleap's AI-assistant skills for analyzing platform results: insights reports with evidence, sample visualizations, and action items.",
+      "version": "0.1.0",
+      "skills": [
+        "tensorleap-analysis"
+      ]
     }
   ]
 }
