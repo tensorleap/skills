@@ -592,6 +592,11 @@ Add these one at a time, running after each:
   See `reference/visualizer-types.md` for the catalog (type -> return class +
   shape rules) and how to read the original sample (tokens, paths, ids) via a
   `SamplePreprocessResponse` argument.
+  Also decide per visualizer whether it needs a `heatmap_function`: any
+  visualizer that changes the input's shape or orientation (resize, crop, flip,
+  transpose, channel pick) or takes more than one input needs one, or the
+  platform's heatmap overlay misaligns or the heatmap path fails outright. See
+  the same reference for the argument-name rule and an example.
 - **Metadata** — `@tensorleap_metadata("name", DatasetMetadataType.<string|float|int|boolean>)`,
   returning a scalar, `None`, or a flat dict of scalars (never arrays/nested).
   One function can emit several typed fields: pass a

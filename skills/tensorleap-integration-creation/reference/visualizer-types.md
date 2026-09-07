@@ -88,3 +88,83 @@ def viz(prediction: np.ndarray, spr: SamplePreprocessResponse) -> LeapTextMask:
 - Lets you avoid bundling/loading heavy assets at runtime (e.g. a tokenizer) just
   to recover strings already computed in preprocess.
 - A visualizer whose only argument is a `SamplePreprocessResponse` is valid.
+
+## Heatmap alignment (`heatmap_function`)
+
+The platform computes a gradient/saliency heatmap over the **raw model input
+tensor** and overlays it on whatever the visualizer returned. If the visualizer
+changed the data's shape or orientation — unbatching, flipping, resizing,
+cropping, transposing, picking a channel — the overlay lands on the wrong pixels
+unless you tell the platform how to transform the heatmap the same way. That is
+what `heatmap_function` is for:
+
+```python
+@tensorleap_custom_visualizer("input_image", LeapDataType.Image,
+                              heatmap_function=heatmap_image)
+def visualize_input(features: np.ndarray) -> LeapImage:
+    ...
+```
+
+Decide per visualizer:
+
+- **Returns the input essentially unchanged** (same H, W, orientation; only a
+  dtype/scale change like `(x * 255).astype(np.uint8)`): skip it.
+- **Changes spatial layout, or takes more than one input**: write one.
+
+### The two rules code-loader enforces
+
+1. **Argument names must match the visualizer's exactly.** The heatmap function
+   is called with the same argument names as the visualizer, so mismatched names
+   raise `The argument names of the heatmap visualizer callback must match the
+   visualizer callback [...]` at registration. Exactly one *extra* argument is
+   allowed, and only if it is annotated `RawInputsForHeatmap` (a dataclass
+   holding `raw_input_by_vizualizer_arg_name`) — use it when the transform
+   depends on the original input values, not just their shape.
+2. **A multi-input visualizer needs one.** Without a `heatmap_function`,
+   code-loader's heatmap path asserts there is exactly one input tensor, so a
+   visualizer taking image + boxes (or image + logits) fails there. The heatmap
+   function is where you say which input the heatmap belongs to.
+
+Note what the arguments carry: the values passed in are the **heatmaps** for
+those inputs, not the raw inputs. A heatmap function is a shape transform on
+heatmap data; arguments it does not need are simply ignored.
+
+### Example
+
+An object-detection visualizer set where every image goes through the same
+unbatch + vertical-flip transform. One shared helper, one thin wrapper per
+visualizer so the argument names line up:
+
+```python
+def to_heatmap(array: np.ndarray) -> np.ndarray:
+    if array.ndim == 4:
+        array = array[0]
+    if array.ndim == 3:
+        array = array[0]
+    if FLIP_VERTICAL:
+        array = np.flipud(array)
+    return np.ascontiguousarray(array.astype(np.float32))
+
+
+def heatmap_image(features: np.ndarray) -> np.ndarray:
+    return to_heatmap(features)
+
+
+# names match visualize_predictions' arguments; only `features` is used
+def heatmap_predictions(features: np.ndarray, pred_logits: np.ndarray,
+                        pred_boxes: np.ndarray) -> np.ndarray:
+    return to_heatmap(features)
+
+
+@tensorleap_custom_visualizer("input_image", LeapDataType.Image,
+                              heatmap_function=heatmap_image)
+def visualize_input(features: np.ndarray) -> LeapImage:
+    return LeapImage(to_image(features))
+
+
+@tensorleap_custom_visualizer("predicted_boxes", LeapDataType.ImageWithBBox,
+                              heatmap_function=heatmap_predictions)
+def visualize_predictions(features: np.ndarray, pred_logits: np.ndarray,
+                          pred_boxes: np.ndarray) -> LeapImageWithBBox:
+    ...
+```
