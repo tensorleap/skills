@@ -245,9 +245,19 @@ or have an admin pre-create and `chown` them.
 
 **Ports** — `4589` (HTTP), `5699` (registry), `443` (only with TLS) must be free. The
 installer does **not** check; a conflict surfaces as a late cluster-creation failure with full
-rollback. `lsof -i :4589 -i :5699` first — but read the output: if the listener is
-`com.docker`/k3d (lsof shows it truncated as `com.docke`), that IS an existing Tensorleap install → go back to Step 0 (upgrade or
-reinstall), don't treat it as a conflict. A foreign listener that must keep running → install
+rollback. `lsof -i :4589 -i :5699` first — but **`lsof` cannot tell you whose port it is**: Docker
+Desktop publishes every container's ports under the same `com.docker` process (truncated to
+`com.docke`), so that name means "some container", not "your Tensorleap install". Identify the
+real owner before deciding:
+
+```bash
+docker ps --filter publish=4589 --filter publish=5699 --format '{{.Names}}\t{{.Ports}}'
+```
+
+A `k3d-tensorleap-*` container = an existing install → go back to Step 0 (upgrade or
+reinstall), not a conflict. Any other container (a `kind` cluster, another dev stack) is a
+genuine conflict — verified in the field on a machine where an unrelated `kind` control-plane
+held `:443`, which would have failed a TLS install at cluster creation. A foreign listener that must keep running → install
 with `--port <free>` (and/or `--registry-port`) after the user approves — the port becomes
 their permanent URL and changing it later forces a reinstall; substitute it everywhere 4589
 appears below, including the `leap auth` URL. A leftover local install also collides with an
@@ -359,6 +369,20 @@ openssl x509 -in cert.pem -noout -dates -ext subjectAltName # not expired; SAN c
 diff <(openssl x509 -in cert.pem -noout -pubkey) <(openssl pkey -in key.pem -pubout)  # cert↔key match
 openssl verify -CAfile chain.pem cert.pem                   # chain validates (if a chain was given)
 ```
+
+**TLS: two things to tell the customer before you install.**
+- The private key is **persisted world-readable**. Verified on a live install: the installer
+  writes the full cert *and key* inline into `<data-dir>/manifests/params.yaml` as
+  `-rwxr-xr-x`, inside a `0777` data dir — so **any local user on the machine can read the
+  server's TLS private key**. On a single-owner box that's tolerable; on a shared or
+  multi-tenant machine it is a real exposure (same class as the world-readable cluster-admin
+  kubeconfig — see the catalog's shared-server entry). Use a certificate issued specifically
+  for this service so its key isn't reusable elsewhere, and say this out loud rather than
+  letting the customer discover it.
+- **The plain HTTP port stays open.** A TLS install still serves `http://<host>:<--port>`
+  alongside `https://<domain>:<--tls-port>` — verified, both returned 200 on the same install.
+  TLS adds an HTTPS entrypoint; it does not disable the HTTP one. If plaintext access must be
+  impossible, block the HTTP port at the firewall.
 
 **Dataset volumes — get this right the first time:**
 
