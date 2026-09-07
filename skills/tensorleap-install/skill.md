@@ -54,7 +54,10 @@ Hard rules:
   virtualenv first — active Python environments have broken the installer. (This applies to
   the installer only — the CLI installs fine inside a virtualenv, and conda is a perfectly
   good home for the user's *integration* code environment.)
-- `leap server check` is a no-op stub. Never suggest it as a diagnostic.
+- **`leap server check` does not exist.** Verified on the shipped CLI (v0.0.161): it is not a
+  registered subcommand — it silently prints the `leap server` help and **exits 0**, so a
+  script would read it as success. Never suggest it as a diagnostic. The registered
+  subcommands are exactly: `info install reinstall run stop tools uninstall upgrade`.
 
 The failure catalog ships alongside this skill as `{{reference_dir}}/install-troubleshooting.md`;
 a read-only preflight script lives at `{{scripts_dir}}/install_preflight.sh`.
@@ -469,8 +472,11 @@ Gotchas that regularly burn users:
 - Shared/CI egress IPs hit GitHub API rate limits — export `GITHUB_TOKEN` to fix.
 
 **Airgap flow**: on a connected machine, download the pack from
-`https://helm.tensorleap.ai/latest_airgap_versions.html` (or build one:
-`leap server pack-installation -o pack.tar --tag <version>`). Transfer only the `leap` binary
+`https://helm.tensorleap.ai/latest_airgap_versions.html`. **A customer cannot build their own
+pack** — `pack-installation` and `create-manifest` exist in the helm-charts repo but are not
+registered on the shipped CLI (verified: `leap server pack-installation` is an unknown
+command), so building one needs a repo checkout: `go run . pack-installation -o pack.tar
+--tag <version>`. Transfer only the `leap` binary
 (matching the pack's version) + the tar. Install with `--airgap <tar>`; telemetry is disabled
 automatically and all images load from the tar into the local registry. **Switching an
 existing online install to airgap**: purge state first (`leap server uninstall --purge`) or
@@ -647,7 +653,8 @@ state, or (with a purge first — catalog #39) switch online↔airgap. Moving th
 ## Start / stop / reboot
 
 - **After a host reboot or a Docker restart the cluster comes back on its own** (its
-  containers carry `restart: unless-stopped`) — typically ready a couple of minutes after
+  **server node** carries `restart: unless-stopped` — the ephemeral `k3d-tensorleap-tools`
+  container does not, and does not need to) — typically ready a couple of minutes after
   boot. No wake-up command is needed on current versions; don't tell users to re-install.
 - After an explicit `leap server stop` it stays down until `leap server run`.
 - Both commands print `Cluster 'tensorleap' not found` and exit 0 when there is no cluster —

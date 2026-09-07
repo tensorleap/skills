@@ -170,9 +170,14 @@ Helm timed out waiting for workloads — resource starvation or very slow pulls.
 pod. If the machine is simply slow, re-running continues from cache.
 
 ### 12. k8s API unreachable — "connection refused" or `: EOF` on 127.0.0.1:&lt;port&gt;
-The k3d server container died mid-install or Docker restarted; the random local API port
-stopped answering. Usually downstream of disk/memory pressure or a Docker Desktop update.
-**Fix:** `docker ps -a | grep k3d-tensorleap`; if dead, `docker logs k3d-tensorleap-server-0`
+The random local API port stopped answering. **Check the cheap explanation first — the cluster
+may simply be stopped.** A plain `leap server stop` (or a `docker stop`) produces this exact
+error from `leap server tools kubectl`, verified live; `docker ps -a --filter
+name=k3d-tensorleap` showing `Exited` means nothing is broken — `leap server run` brings it
+back (~30s to all pods Running). Only if it died *unexpectedly* is this the k3d server
+container crashing mid-install or Docker restarting, usually downstream of disk/memory
+pressure or a Docker Desktop update.
+**Fix:** `docker ps -a | grep k3d-tensorleap`; if `Exited` on purpose → `leap server run`; if dead unexpectedly, `docker logs k3d-tensorleap-server-0`
 for OOM/disk, fix the cause, then `leap server run` or re-run the install. On a shared server
 also ask whether someone updated Docker that week.
 
