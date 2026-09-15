@@ -124,6 +124,9 @@ bash verify.sh --fixture cifar10_resnet
 
 # 3. Drive the agent to author + push + evaluate, then write the report.
 bash run.sh --fixture cifar10_resnet
+#    Optional: EVAL_SAMPLE_LIMIT_PER_SPLIT=250 bash run.sh ... asks the agent for a
+#    capped evaluate (sample_limit_per_split in project_config.yaml) — for runs that
+#    grade metadata/metric quality rather than full-dataset coverage. Unset = full.
 
 # → eval/reports/cifar10_resnet.md + .json   (push/eval, tokens, cost, pass/fail)
 ```

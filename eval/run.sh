@@ -317,6 +317,18 @@ if [[ -n "${STAGED_DATA}" ]]; then
 This fixture's data is already staged at ${STAGED_DATA} — read it from there. Do
 not download or fetch datasets or model weights yourself."
 fi
+# Optional capped evaluation. The skill evaluates the full dataset unless the user
+# asks for a cap, so a benchmark that only cares about metadata/metric quality
+# (not full-dataset coverage) requests one through the prompt. Unset => full run.
+LIMIT_RULE=""
+if [[ -n "${EVAL_SAMPLE_LIMIT_PER_SPLIT:-}" ]]; then
+  [[ "${EVAL_SAMPLE_LIMIT_PER_SPLIT}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "EVAL_SAMPLE_LIMIT_PER_SPLIT must be a positive integer, got '${EVAL_SAMPLE_LIMIT_PER_SPLIT}'"
+  LIMIT_RULE="
+- The user requests a CAPPED evaluation: set \`sample_limit_per_split: ${EVAL_SAMPLE_LIMIT_PER_SPLIT}\`
+  in \`project_config.yaml\` (balanced per split, as the skill describes) and push
+  with that cap in place."
+fi
 read -r -d '' MSG <<EOF || true
 Use the tensorleap-integration-creation skill to create a complete Tensorleap
 integration for THIS repository and get a CONFIRMED evaluate.
@@ -337,7 +349,7 @@ Rules:
 - Use \`leap\` for every Tensorleap command (it is shimmed to the dev server).
 - Follow the skill's deploy steps to push and get the evaluation running, then
   track the Evaluate job to a terminal state as the skill describes.
-- Keep a NOTES.md logging what you did and the push/eval job ids. Don't commit.
+- Keep a NOTES.md logging what you did and the push/eval job ids. Don't commit.${LIMIT_RULE}
 EOF
 # The prompt is part of what was tested: guidance edits change fixture
 # difficulty, so the hash lets a delta reader see "same prompt or not".
