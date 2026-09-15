@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.2.0, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.3.0 — generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -90,7 +90,8 @@ needs:
   lists/loads data → informs the Data delivery row;
 - the **preprocessing / transforms**, **label handling**, and any existing
   **metrics / metadata / loss** logic → reuse these in the decorated components
-  rather than reinventing them;
+  rather than reinventing them (existing per-sample attributes are the first
+  metadata source; see `.tensorleap/reference/metadata.md`);
 - the **dependencies** (`requirements.txt` / `pyproject.toml` / imports) → the
   starting point for the integration's environment.
 
@@ -444,7 +445,9 @@ order:
 8. GT encoder(s) — call directly, then via `integration_test`.
 9. Expand from one sample to several in training AND validation; then add
    optional metadata / visualizers / metrics / custom loss **one at a time**,
-   running between each.
+   running between each. For metadata, sweep the four sources in
+   `.tensorleap/reference/metadata.md` (documents, directory, GT-derived, domain
+   knowledge) rather than adding generic statistics.
 
 `load_model()` alone validates only model type and declared outputs. Useful
 validation starts when a real encoded sample flows into the model.
@@ -593,7 +596,19 @@ Add these one at a time, running after each:
   returning a scalar, `None`, or a flat dict of scalars (never arrays/nested).
   One function can emit several typed fields: pass a
   `Dict[str, DatasetMetadataType]` and return a matching dict (each surfaces as
-  `<name>_<key>`).
+  `<name>_<key>`). Metadata is domain-specific, not generic image statistics.
+  See `.tensorleap/reference/metadata.md` for the source taxonomy, few-shot
+  examples per task, and the missing-value policy. Non-negotiable:
+    1. **Sweep all four sources** (documents, directory structure, GT-derived,
+       domain knowledge) before writing a field; reuse per-sample logic the repo
+       already has.
+    2. **Missing = `None`, decided per field.** Never fabricate `0`/`-1` for an
+       absent value; a genuine empty count is a real `0`. Declare
+       `metadata_type` explicitly (per key) so a `None` never fails the parse. If
+       a field comes from user code and "absent vs zero" is unclear, ask.
+    3. **Cap on concepts:** roughly 10-15 metadata functions, every one
+       something a user would slice by; per-class fan-out counts as one concept
+       and is restricted to top-K classes when the class count is large.
 - **Metrics / custom loss** — return a **batch-aligned 1D array (one value per
   sample)**, not a single scalar. Give a metric its `direction`
   (`MetricDirection.Upward`/`Downward`). A metric/loss must **discriminate
