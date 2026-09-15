@@ -158,7 +158,12 @@ env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t Evaluate >/dev/null 2>&1 \
 # facts, not a parsed skill listing. The concern is a local COPY shadowing the
 # plugin's copy of the SAME skill, which would silently test the wrong one.
 # Other unrelated Tensorleap skills (e.g. tensorleap-migration) are fine.
-CLAUDE_LAUNCH="claude --dangerously-skip-permissions"
+# Pin the model and effort: the CLI otherwise inherits the user's current default,
+# which can change between fixtures and silently make two runs incomparable (one
+# corpus run mixed Fable 5.1/high and Sonnet 5/medium). Override per run if needed.
+EVAL_MODEL="${EVAL_MODEL:-claude-fable-5-1}"
+EVAL_EFFORT="${EVAL_EFFORT:-high}"
+CLAUDE_LAUNCH="claude --dangerously-skip-permissions --model $(printf '%q' "${EVAL_MODEL}") --effort $(printf '%q' "${EVAL_EFFORT}")"
 SKILL_NAME="tensorleap-integration-creation"
 PLUGIN_PKG="integration@tensorleap"
 LOCAL_COPY="${HOME}/.claude/skills/${SKILL_NAME}"
@@ -445,23 +450,39 @@ dump_pane "ready"
 # Paste the prompt as one message (send-keys would submit at the first newline).
 PROMPT_FILE="$(mktemp)"; printf '%s' "${MSG}" > "${PROMPT_FILE}"
 tmux load-buffer -t "${SESS}" "${PROMPT_FILE}"
-tmux paste-buffer -t "${SESS}"
+# -p = bracketed paste. Without it tmux replays the text as keystrokes (LF -> CR),
+# and the REPL's own paste-burst detection splits a long prompt: only the tail
+# survived one run and its CR submitted it. Bracketed, the REPL takes it whole.
+tmux paste-buffer -p -t "${SESS}"
 rm -f "${PROMPT_FILE}"
 
-# The REPL ingests a bracketed paste asynchronously. An Enter sent immediately
-# lands mid-paste, is swallowed, and the prompt sits in the composer forever while
-# this script happily polls for an Evaluate that will never be created. So: let the
-# paste settle, submit, then CONFIRM the agent actually started before moving on.
+# The REPL ingests a bracketed paste asynchronously. An Enter sent while the paste
+# is still streaming submits whatever has arrived so far and the rest is lost — a
+# 665-byte guidance block once reached the agent as its last 40 characters. A fixed
+# sleep cannot know when the paste is done, so WAIT until the composer visibly holds
+# the prompt (its opening words, or the REPL's "[Pasted text …]" placeholder for a
+# long paste) and the screen has stopped changing; only then submit, then CONFIRM
+# the agent actually started before moving on.
 log "Submitting the prompt…"
+PROMPT_HEAD='Use the tensorleap-integration-creation skill'
+landed=0; prev=""
+for _ in $(seq 1 30); do          # up to ~60s for the paste to land
+  sleep 2
+  pane="$(tmux capture-pane -t "${SESS}" -p 2>/dev/null || true)"
+  if [[ "${pane}" == "${prev}" ]] && grep -qE "${PROMPT_HEAD}|Pasted text" <<<"${pane}"; then landed=1; break; fi
+  prev="${pane}"
+done
+[[ "${landed}" -eq 1 ]] \
+  || { dump_pane "paste not landed"; fail "prompt never appeared in the composer (inspect: tmux attach -t ${SESS})"; }
 SUBMIT_EPOCH="$(date +%s)"   # platform jobs created at/after this belong to THIS run
 submitted=0
 for _ in $(seq 1 10); do
-  sleep 2
   tmux send-keys -t "${SESS}" Enter
   sleep 3
   pane="$(tmux capture-pane -t "${SESS}" -p 2>/dev/null || true)"
   # "esc to interrupt" only renders while the agent is working on a submitted turn.
   if grep -qiE 'esc to interrupt' <<<"${pane}"; then submitted=1; break; fi
+  sleep 2
 done
 [[ "${submitted}" -eq 1 ]] \
   || { dump_pane "not submitted"; fail "prompt never submitted — it is probably still sitting in the composer (inspect: tmux attach -t ${SESS})"; }
