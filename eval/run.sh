@@ -407,18 +407,40 @@ log "Waiting for the REPL to be ready…"
 ready=0
 for _ in $(seq 1 150); do          # up to ~5 min
   pane="$(tmux capture-pane -t "${SESS}" -p 2>/dev/null || true)"
-  # '❯' is the current composer prompt; '│ >' the older boxed one. Matching only
-  # the transient Welcome banner would race against it scrolling away.
-  if grep -qE 'Welcome|│ >|❯|> $' <<<"${pane}"; then ready=1; break; fi
+  # Startup dialogs draw their selection cursor as '❯' too, so they must be
+  # recognised BEFORE the readiness match below — otherwise the prompt is pasted
+  # into the dialog, discarded, and the composer is submitted empty.
+  # Folder-trust dialog ("Quick safety check: Is this a project you created or one
+  # you trust?"): a freshly prepared fixture dir is never trusted yet. "No, exit"
+  # is PRESELECTED, so a bare Enter would quit — move to "Yes, I trust this folder".
+  if grep -qiE 'trust this folder|Quick safety check|Accessing workspace' <<<"${pane}"; then
+    log "  dismissing folder-trust dialog"
+    tmux send-keys -t "${SESS}" Down; sleep 0.5
+    tmux send-keys -t "${SESS}" Enter; sleep 3
+    continue
+  fi
   # First-run bypass-permissions acceptance: select "Yes, I accept" and confirm.
   if grep -qiE 'Bypass Permissions mode|Yes, I accept|accept all responsibility' <<<"${pane}"; then
     log "  dismissing bypass-permissions acceptance prompt"
     tmux send-keys -t "${SESS}" Down; sleep 0.5
     tmux send-keys -t "${SESS}" Enter; sleep 2
+    continue
   fi
+  # Ready = the REPL composer is on screen. An EMPTY composer line ('❯' alone, or
+  # the older boxed '│ >'), or the REPL footer hints. A bare '❯' anywhere is NOT
+  # enough: shell prompts (starship, p10k) print one too, so that matched the
+  # user's shell before claude had even started. Matching only the transient
+  # Welcome banner would race against it scrolling away.
+  if grep -qE '^[[:space:]]*(❯|│ >)[[:space:]]*$|for shortcuts|bypass permissions on|^Welcome' <<<"${pane}"; then ready=1; break; fi
   sleep 2
 done
-[[ "${ready}" -eq 1 ]] || fail "REPL never became ready (inspect: tmux attach -t ${SESS})"
+dump_pane() {   # $1 = label; the screen at a decision point (stdout is tee'd to the run log)
+  log "  --- pane (${1}) ---"
+  tmux capture-pane -t "${SESS}" -p 2>/dev/null | grep -v '^[[:space:]]*$' | tail -30 | sed 's/^/[run]   | /'
+  log "  --- end pane ---"
+}
+[[ "${ready}" -eq 1 ]] || { dump_pane "not ready"; fail "REPL never became ready (inspect: tmux attach -t ${SESS})"; }
+dump_pane "ready"
 
 # Paste the prompt as one message (send-keys would submit at the first newline).
 PROMPT_FILE="$(mktemp)"; printf '%s' "${MSG}" > "${PROMPT_FILE}"
@@ -442,7 +464,7 @@ for _ in $(seq 1 10); do
   if grep -qiE 'esc to interrupt' <<<"${pane}"; then submitted=1; break; fi
 done
 [[ "${submitted}" -eq 1 ]] \
-  || fail "prompt never submitted — it is probably still sitting in the composer (inspect: tmux attach -t ${SESS})"
+  || { dump_pane "not submitted"; fail "prompt never submitted — it is probably still sitting in the composer (inspect: tmux attach -t ${SESS})"; }
 log "Prompt submitted. Tracking Evaluate to a terminal state…"
 
 cancel_eval() {
