@@ -4,7 +4,9 @@ Reference for the optional metadata surface. Metadata is a per-sample scalar the
 user filters, slices, and correlates against loss/metrics on the platform. A field
 earns its place only if it answers a question a user would plausibly slice by
 ("do fish-eye-edge objects fail more?", "does accuracy drop on long inputs?").
-Generic image statistics and identifiers are not that. The API shape:
+Prefer domain-specific fields; a generic statistic such as brightness earns its
+place only when it answers a real slicing question (e.g. camera quality), and
+identifiers never do. The API shape:
 
 ```python
 from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_metadata

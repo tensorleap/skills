@@ -599,9 +599,10 @@ Add these one at a time, running after each:
   returning a scalar, `None`, or a flat dict of scalars (never arrays/nested).
   One function can emit several typed fields: pass a
   `Dict[str, DatasetMetadataType]` and return a matching dict (each surfaces as
-  `<name>_<key>`). Metadata is domain-specific, not generic image statistics.
-  See `reference/metadata.md` for the source taxonomy, few-shot
-  examples per task, and the missing-value policy. Non-negotiable:
+  `<name>_<key>`). Prefer domain-specific fields; generic image statistics
+  only when they answer a real slicing question. See
+  `reference/metadata.md` for the source taxonomy, few-shot examples
+  per task, and the missing-value policy. Non-negotiable:
     1. **Sweep all four sources** (documents, directory structure, GT-derived,
        domain knowledge) before writing a field; reuse per-sample logic the repo
        already has.
