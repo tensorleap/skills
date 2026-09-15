@@ -45,14 +45,10 @@ once in preprocess (into `PreprocessResponse.data`) and read them in the metadat
 function; do not re-open files per call.
 
 ```python
-# preprocess: attach the annotation record to each sample once
-records = {r["image_id"]: r for r in json.load(open(ann_path))["images"]}
-PreprocessResponse(sample_ids=ids, data={"records": records, ...}, state=...)
-
 @tensorleap_metadata("annot", {"occluded_frac": DatasetMetadataType.float,
                                "source_camera": DatasetMetadataType.string})
 def annot_metadata(sample_id, preprocess):
-    rec = preprocess.data["records"][sample_id]
+    rec = preprocess.data["records"][sample_id]       # annotation JSON, loaded once in preprocess
     boxes = rec["objects"]
     occluded = sum(b["occlusion"] > 0 for b in boxes) / len(boxes) if boxes else None
     return {"occluded_frac": occluded, "source_camera": rec.get("camera")}
@@ -64,13 +60,11 @@ Path segments are categoricals the dataset author already chose to separate by.
 Parse them, do not hard-code a mapping you can derive.
 
 ```python
-@tensorleap_metadata("path", {"weather": DatasetMetadataType.string,
-                              "town": DatasetMetadataType.string})
+@tensorleap_metadata("path", {"weather": DatasetMetadataType.string, "town": DatasetMetadataType.string})
 def path_metadata(sample_id, preprocess):
     parts = Path(preprocess.data["paths"][sample_id]).parts
-    weather = next((p for p in parts if p.startswith("weather-")), None)
-    town = next((p for p in parts if p.startswith("town")), None)
-    return {"weather": weather, "town": town}
+    return {"weather": next((p for p in parts if p.startswith("weather-")), None),
+            "town": next((p for p in parts if p.startswith("town")), None)}
 ```
 
 ### GT-derived
@@ -82,20 +76,15 @@ needs the prediction as well (e.g. per-sample count of predicted vs GT boxes) an
 should be shown but not treated as a quality signal in insights.
 
 ```python
-@tensorleap_metadata("gt", {"num_boxes": DatasetMetadataType.int,
-                            "mean_box_area": DatasetMetadataType.float,
-                            "has_small_object": DatasetMetadataType.boolean})
+@tensorleap_metadata("gt", {"num_boxes": DatasetMetadataType.int, "mean_box_area": DatasetMetadataType.float})
 def gt_metadata(sample_id, preprocess):
     boxes = decode_gt(preprocess, sample_id)          # reuse the GT encoder's decode path
     if len(boxes) == 0:
-        return {"num_boxes": 0, "mean_box_area": None, "has_small_object": False}
-    areas = boxes[:, 2] * boxes[:, 3]
-    return {"num_boxes": int(len(boxes)), "mean_box_area": float(areas.mean()),
-            "has_small_object": bool((areas < 0.01).any())}
+        return {"num_boxes": 0, "mean_box_area": None}   # real zero count, undefined mean
+    return {"num_boxes": int(len(boxes)), "mean_box_area": float((boxes[:, 2] * boxes[:, 3]).mean())}
 
-# time-series GT example: signal-level facts the model may be sensitive to
-@tensorleap_metadata("signal", {"duration_s": DatasetMetadataType.float,
-                                "n_events": DatasetMetadataType.int})
+# time-series GT: signal-level facts the model may be sensitive to
+@tensorleap_metadata("signal", {"duration_s": DatasetMetadataType.float, "n_events": DatasetMetadataType.int})
 def signal_metadata(sample_id, preprocess):
     y = load_label_series(preprocess, sample_id)
     return {"duration_s": len(y) / SAMPLE_RATE, "n_events": int(np.count_nonzero(np.diff(y)))}
@@ -114,10 +103,8 @@ failures should correlate with it.
                                  "objects_in_edge_ring": DatasetMetadataType.int})
 def fisheye_metadata(sample_id, preprocess):
     boxes = decode_gt(preprocess, sample_id)          # relative cx, cy, w, h
-    if len(boxes) == 0:
-        return {"max_radial_dist": None, "objects_in_edge_ring": 0}
-    r = np.hypot(boxes[:, 0] - 0.5, boxes[:, 1] - 0.5) / np.hypot(0.5, 0.5)
-    return {"max_radial_dist": float(r.max()), "objects_in_edge_ring": int((r > 0.7).sum())}
+    r = np.hypot(boxes[:, 0] - 0.5, boxes[:, 1] - 0.5) / np.hypot(0.5, 0.5)   # 0 = center, 1 = corner
+    return {"max_radial_dist": float(r.max()) if len(r) else None, "objects_in_edge_ring": int((r > 0.7).sum())}
 ```
 
 Other domain-knowledge shapes: acquisition condition (night / rain / sensor gain)
