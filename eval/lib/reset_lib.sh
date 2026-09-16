@@ -84,6 +84,10 @@ fixture_strip_pre_variant_files() {
   for rel_path in "${strip_files[@]}"; do
     rm -rf -- "${repo_dir:?}/${rel_path}"
   done
+  # Stripping files can leave their (now empty) parent dirs behind — an empty
+  # `tensorleap/` at the repo root is itself a giveaway. Git never tracks empty
+  # dirs, so pruning them changes nothing about the committed blind tree.
+  find "${repo_dir}" -mindepth 1 -type d -empty -not -path "*/.git/*" -delete 2>/dev/null || true
 
   local stripped_py_basenames=()
   while IFS= read -r base_name; do
