@@ -1,0 +1,11 @@
+{
+  "sources": [
+    "GT",
+    "generic image stats"
+  ],
+  "sliceable": "6 of 10",
+  "nan_policy": "explicit types; no None paths",
+  "domain_fields": "none (the staged subset ships YOLO labels only - class + xywh - so annotation occlusion/truncation fields were NOT available; a geometric truncation proxy was possible but not attempted)",
+  "noise": "resolution duplicates width x height; mean_brightness generic",
+  "friction": "CLI rewrote malformed leap.yaml; platform build pulled torch 2.14 + CUDA (~8 min); eval FAILED on ES disk watermark, re-run FINISHED"
+}

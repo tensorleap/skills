@@ -1,0 +1,19 @@
+data_root: /Users/orram/data
+cifar_dirname: cifar-10-batches-py
+cifar_origin: https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz
+sample_limit_per_split: 250   # balanced cap per split; set to null/0 to evaluate the full dataset
+val_fraction: 0.2
+split_seed: 42
+model_path: model/resnet.h5
+upscale_factor: 7
+labels:
+  - airplane
+  - automobile
+  - bird
+  - cat
+  - deer
+  - dog
+  - frog
+  - horse
+  - ship
+  - truck

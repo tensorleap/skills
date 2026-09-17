@@ -1,0 +1,16 @@
+projectId: 6aaa64e52f329df70cd36e9e
+secretId: ""
+entryFile: leap_integration.py
+include:
+    - leap.yaml
+    - leap_integration.py
+    - requirements.txt
+    - project_config.yaml
+    - infineon/**
+    - tensorleap/**
+exclude:
+    - .git/**
+    - .venv/**
+    - model/**
+    - notebooks/**
+pythonVersion: py310

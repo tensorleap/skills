@@ -1,0 +1,14 @@
+projectId: 6aa933262f329df70cd36e60
+secretId: ""
+entryFile: leap_integration.py
+include:
+    - leap.yaml
+    - leap_integration.py
+    - requirements.txt
+    - tensorleap/**
+    - data/VisDrone.yaml
+exclude:
+    - .git/**
+    - .venv/**
+    - weights/**
+pythonVersion: py310

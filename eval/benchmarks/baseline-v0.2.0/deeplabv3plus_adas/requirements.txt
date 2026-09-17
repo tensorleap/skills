@@ -1,0 +1,6 @@
+# Runtime deps of the Tensorleap integration (installed by the platform build). The Keras
+# model is loaded by the platform's own TensorFlow; tensorflow is only imported locally inside
+# load_model() for the integration test.
+numpy
+Pillow~=12.3.0
+PyYAML~=6.0

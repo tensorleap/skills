@@ -1,0 +1,29 @@
+# Config read by the Tensorleap integration code (tensorleap/*.py). No secrets here.
+data_root: /Users/orram/Tensorleap/data/eval/yolov5_visdrone/VisDrone   # mounted data volume
+dataset_yaml: data/VisDrone.yaml           # repo file: class names + split dirs (relative to repo root)
+splits:                                    # DataStateType -> key in dataset_yaml
+  training: train
+  validation: val
+  test: test
+labels_dirname: labels                     # sibling of the 'images' dir in each split
+sample_limit_per_split: 250                # balanced cap per split; remove or set to 0/null for the full dataset
+image_size: 640                            # letterbox target (square)
+max_boxes: 500                             # fixed GT slots per image; padded rows have class -1
+conf_threshold: 0.25                       # NMS: min objectness*class score
+iou_threshold: 0.45                        # NMS IoU
+max_det: 300
+loss:                                      # from yolov5s-visdrone.pt model.hyp / Detect()
+  box: 0.05
+  obj: 2.56
+  cls: 0.0625
+  cls_pw: 1.0
+  obj_pw: 1.0
+  anchor_t: 4.0
+  fl_gamma: 0.0
+  label_smoothing: 0.0
+  strides: [8, 16, 32]
+  anchors_px:
+    - [[10, 13], [16, 30], [33, 23]]
+    - [[30, 61], [62, 45], [59, 119]]
+    - [[116, 90], [156, 198], [373, 326]]
+model_path: weights/yolov5s-visdrone.onnx  # local-run only; the platform gets the model via `leap push -m`

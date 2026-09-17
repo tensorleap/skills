@@ -1,0 +1,13 @@
+{
+  "sources": [
+    "directory (sequence_id parsed from the VisDrone filename)",
+    "GT-derived (counts, sizes, dominant class, per-class counts)",
+    "domain knowledge (gt_border_fraction as a truncation proxy; boxes_per_megapixel; letterbox_scale; mean_box_side_model_px = object size at model resolution)",
+    "generic image stats (mean_brightness)"
+  ],
+  "sliceable": "~13 of 14 (+ per-class counts)",
+  "nan_policy": "explicit types on all concepts; None for undefined size stats and dominant_class on images without boxes (correct); per-class counts are real zeros",
+  "domain_fields": "gt_border_fraction (truncation proxy from box geometry), boxes_per_megapixel (density), mean_box_side_model_px (size the detector actually sees after letterboxing)",
+  "noise": "mean_brightness generic; width/height legitimately vary across VisDrone images",
+  "friction": "leap projects create overwrote leap.yaml with a blank template (rewrote by hand); push queued behind a foreign project's Evaluate on the shared cluster"
+}

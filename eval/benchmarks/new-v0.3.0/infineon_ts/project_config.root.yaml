@@ -1,0 +1,218 @@
+# Data Configuration
+data:
+  # Path to preprocessed parquet file (5% sample or full dataset)
+  experiment_name: "test_unlabeled"
+  data_path: "/Users/orram/Tensorleap/data/eval/infineon_ts/ts/combined_training_data_sample_5pct.parquet"
+  data_unlabeled:
+    use_unlabeled: true
+    folder_name: "/Users/orram/Tensorleap/data/eval/infineon_ts/ts/unlabeled"
+    # List of unlabeled parquet names to merge | 'all' for all files in unlabeled folder | <file index> : int for all files from the folder starting from <file index>
+    files_to_use: 'all' #'["/Users/yamtawachi/tensorleap/datasets/infineon_dataset_folder/unlabeled/W00165844_WB-31.pq", "/Users/yamtawachi/tensorleap/datasets/infineon_dataset_folder/unlabeled/dummy_unlabeled.parquet"
+    #]
+    start_index: 0
+    num_samples: 2000    # use 'all' if you want all the samples in the files
+
+  # Outlier filter range for ShearValue
+  outlier_min: 350
+  outlier_max: 2000
+  max_seq_len: 94
+  # Tensorleap: cap on samples per split (training / validation / unlabeled), applied balanced across
+  # splits by tensorleap/preprocess.py. Set to null or 0 to evaluate the full dataset.
+  sample_limit_per_split: 250
+
+
+
+# Model Configuration
+model:
+  model_path: "model/enhanced_trial_19_full_model_complete.onnx"
+  input_names:
+    - "current_trace"
+    - "deformation_trace"
+  output_name: "vst_prediction"
+  hidden_dim: 12
+  regressor_dropout: 0.2
+  lambda_grl: 1.
+  output_dim: 94
+  latent_dim: 16 # or 8 ?
+
+
+# Latent Space Configuration
+latent_space_and_outputs:
+  # Tensorleap: pre-computed per-sample sidecars (aligned to the WirebondDataset train/val/unlabeled order).
+  # tensorleap/preprocess.py reads <folder>/<file_prefix><*_filename>.
+  folder: "/Users/orram/Tensorleap/data/eval/infineon_ts/ts/derived"
+  file_prefix: "test_unlabeled_9af990a3_"
+  latent_space:
+    train_filename: "latent_space_train.npy"
+    val_filename: "latent_space_val.npy"
+    unlabeled_filename: "latent_space_unlabeled.npy"
+  discriminator_output:
+    train_filename: "discriminator_output_train.npy"
+    val_filename: "discriminator_output_val.npy"
+    unlabeled_filename: "discriminator_output_unlabeled.npy"
+  reconstruction_output:
+    train_filename: "reconstruction_output_train.npy"
+    val_filename: "reconstruction_output_val.npy"
+    unlabeled_filename: "reconstruction_output_unlabeled.npy"
+
+
+# Surface Type Configuration
+surface_types:
+  IGBT:
+    code: 0
+    normalization_factor: 1550
+    target_sequence_length: 101
+    model_input_length: 94  # Truncate from 101 to 94
+  DCB:
+    code: 1
+    normalization_factor: 1300
+    target_sequence_length: 94
+    model_input_length: 94
+  DIODE:
+    code: 2
+    normalization_factor: 1400
+    target_sequence_length: 94
+    model_input_length: 94
+  NETZDIODE:
+    code: 3
+    normalization_factor: 1400
+    target_sequence_length: 94
+    model_input_length: 94
+
+# Train/Test Split Configuration
+split:
+  method: "equipment_based"  # Split by equipment ID, not by samples
+  train_ratio: 0.8
+  test_size: 0.2
+  use_unlabeled: false
+  random_state: 42
+
+# Column Mappings
+columns:
+  current_trace: "CurrentCurveArray"
+  deformation_trace: "DeformationCurveArray"
+  shear_value: "ShearValue"
+  surface_type: "Surface Type"
+  equipment_id: "DCB_EQ"
+  package: "Package"
+  wire_bond: "Wire_Bond"
+  recipe: "Recipe"
+  bau_no: "BauNo"
+  lot_id: "LotID"
+  sample_id: "SAMPLE_ID"
+  timestamp: "Timestamp"
+  shear_sequence_no: "ShearSequenceNo"
+
+COLUMNS_TO_METADATA: ['ShearValue_normed'] #'wire_number','bond_number', 'surface_from_type', 'eq_id', 'dcb_class'
+
+
+tl_metadata:
+  fs: 1000
+  cutoff_hz: 100
+
+
+UNIQUE_COLUMNS_POOL: [
+    "A_BASEPLATE_ID",
+    "A_BASEPLATE_POS",
+    "A_BOND_HEAD_ID",
+    "A_CARRIER",
+    "A_CONSUMABLE1_ID",
+    "A_CONSUMABLE2_ID",
+    "A_DESIGN",
+    "A_DEVICE",
+    "A_INFO",
+    "A_INFO2",
+    "A_LOGISTICS",
+    "A_LOT_TYPE",
+    "A_MAGAZINE_ID",
+    "A_MES_ENTITY",
+    "A_MID",
+    "A_PACKAGE",
+    "A_PPID",
+    "A_PRODUCT_TYPE",
+    "A_RETICLE",
+    "A_RETICLEID",
+    "A_RETICLEID2",
+    "A_SLOT",
+    "A_SLOT2",
+    "A_TECHNOLOGY",
+    "A_TOOL",
+    "A_TOOLSET",
+    "A_TOOLSET2",
+    "A_WAFER_ID",
+    "A_WIRE_BATCH_ID",
+    "A_WIRE_SPOOL_TYPE",
+    "B1B2",
+    "Bond",
+    "BauNo",
+    "Current",
+    "CurrentCurve",
+    "CurrentCurveArray",
+    "CurrentInterval",
+    "CurrentTrace_interp",
+    "CurrentTrace_z",
+    "CurrentTraceNormed_scale",
+    "DCB_EQ",
+    "DCB_ID_ShearTest",
+    "DCBIt",
+    "Deformation",
+    "DeformationCurve",
+    "DeformationCurveArray",
+    "DeformationCurve_Resampled",
+    "DeformationInterval",
+    "DeformationInterval_Resampled",
+    "DeformationTrace_interp",
+    "DeformationTrace_z",
+    "DeformationTraceNormed_scale",
+    "Equipment",
+    "Filename",
+    "Filenamepath",
+    "Frequency",
+    "FrequencyCurve",
+    "FrequencyCurveArray",
+    "FrequencyInterval",
+    "FrequencyTrace_interp",
+    "FrequencyTraceNormed_scale",
+    "I1US_Voltage_First_Element",
+    "LOGISTIC",
+    "LOGISTIC_ID",
+    "LotID",
+    "NormShear",
+    "Package",
+    "ParameterName",
+    "Phase1CurrentNorm",
+    "Phase1VoltageNorm",
+    "Phase1Volate",
+    "Recipe",
+    "ReferenceSystem",
+    "ReferenceSystemName",
+    "SAMPLE_ID",
+    "SensorCurve",
+    "SensorInterval",
+    "ShearGrade",
+    "ShearSequenceNo",
+    "ShearValue",
+    "Surface",
+    "Surface Type",
+    "Timestamp",
+    "UI-Phase-Curve",
+    "VoltageCurve",
+    "VoltageCurveArray",
+    "VoltageInterval",
+    "Wire",
+    "Wire_Bond",
+    "bond_number",
+    "wire_number",
+    "I1US_Voltage",
+    'ShearValue_normed',
+    'unique_id'
+]
+
+UNIQUE_COLUMNS_MAPPING:
+  CurrentCurveArray: ["current_curve","current_trace"]
+  DeformationCurveArray: ["deformation_curve","deformation_trace"]
+  FrequencyCurveArray: ["frequency_curve"]
+  VoltageCurve: ["Voltage-Curve"]   # last one only if you decide it's acceptable
+  SensorCurve: ["Sensor-Curve"]
+  Timestamp: ["Time"]
+  Surface Type: ["surface_type"]

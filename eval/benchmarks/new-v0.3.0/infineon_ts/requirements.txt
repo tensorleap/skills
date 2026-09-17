@@ -1,0 +1,5 @@
+numpy>=1.23.0,<2.1.1
+pandas>=1.1.4
+pyarrow
+PyYAML
+onnxruntime>=1.14,<1.17

@@ -1,0 +1,23 @@
+data_root: /Users/orram/data/cifar-10-batches-py
+train_batches:
+  - data_batch_1
+  - data_batch_2
+  - data_batch_3
+  - data_batch_4
+  - data_batch_5
+validation_fraction: 0.2
+split_seed: 42
+sample_limit_per_split: 250
+image_size: 32
+upscale_factor: 7
+labels:
+  - airplane
+  - automobile
+  - bird
+  - cat
+  - deer
+  - dog
+  - frog
+  - horse
+  - ship
+  - truck

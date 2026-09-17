@@ -1,0 +1,13 @@
+{
+  "sources": [
+    "directory (route/town/weather)",
+    "documents (measurements JSON)",
+    "GT-derived",
+    "domain knowledge (path length, lateral offset, lidar occupancy)"
+  ],
+  "sliceable": "~21 of 25",
+  "nan_policy": "VIOLATION: -1 sentinels for missing town/weather_id (fabricated default)",
+  "domain_fields": "occupied_traffic_cells, num_valid_waypoints, gt_path_length, gt_final_lateral_offset, target_point_distance, lidar_occupancy",
+  "noise": "frame_idx, route_idx identifiers; rgb_mean_brightness generic; all 25 keys under ONE concept",
+  "friction": "none reported"
+}

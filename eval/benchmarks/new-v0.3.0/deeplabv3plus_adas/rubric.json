@@ -1,0 +1,15 @@
+{
+  "sources": [
+    "documents (split-recipe JSON: selection_reason, kitti_drive, vegetation; Cityscapes vehicle JSON: 6 fields)",
+    "directory (dataset, city, subset_folder)",
+    "GT (19 per-class pixel fractions as ONE fanned-out concept + labeled_fraction, num_classes_present, dominant_class)",
+    "domain knowledge (small_object_fraction over a reasoned small-class set; has_gt for the labeled/unlabeled domain split)",
+    "generic image stats (9)",
+    "domain knowledge (small_object_fraction over a reasoned small-class set)"
+  ],
+  "sliceable": "~34 of 45 (revised: has_gt/subset_folder reclassified as noise - they duplicate the platform's own labeled/unlabeled sample state, not new information)",
+  "nan_policy": "explicit types on all 4 concepts; every gt key -> None on unlabeled KITTI samples (absent, correct); dominant_class None when no valid pixels",
+  "domain_fields": "small_object_fraction; full per-class fractions. (has_gt/subset_folder do NOT count as domain knowledge - Tensorleap already integrates no-GT samples as their own unlabeled state natively.)",
+  "noise": "9 generic image stats (grew from 8: +aspect_ratio, +saturation); original_width/height vary only between the two datasets; file_name identifier removed; has_gt/subset_folder redundant with the platform's native labeled/unlabeled split",
+  "friction": "none reported; ~25 min to push"
+}

@@ -1,0 +1,34 @@
+# Config read by the Tensorleap integration code (tensorleap/*.py). No secrets here.
+# Local server: the staged VisDrone subset lives on a configured dataset volume
+# (/Users/orram/Tensorleap/data is mounted at the same path on the platform), so it
+# is read in place — nothing is copied. Mirrors `path` in data/VisDrone.yaml.
+data_root: /Users/orram/Tensorleap/data/eval/yolov5_visdrone/VisDrone
+
+# Repo-relative dataset descriptor (split sub-dirs + class names), bundled via leap.yaml.
+dataset_yaml: data/VisDrone.yaml
+
+# Which VisDrone.yaml split key feeds each Tensorleap state.
+splits:
+  training: train
+  validation: val
+  test: test
+
+# Per-split cap on samples (balanced: same count for every split). Requested by the
+# user for a capped first evaluation. Set to null / 0 or delete to evaluate everything.
+sample_limit_per_split: 250
+
+# Model input: letterboxed square of this size (YOLOv5 val default), stride 32.
+image_size: 640
+
+# GT encoder pads/truncates to this many boxes per image (max in staged subset: 306).
+max_boxes: 500
+
+# Legacy YOLOv5 loss: ComputeLoss reads hyp/anchors from this checkpoint (under data_root).
+loss_weights_file: yolov5s-visdrone.pt
+
+# Post-processing used by prediction visualizers/metrics (YOLOv5 val defaults).
+conf_thres: 0.25
+iou_thres: 0.45
+max_det: 300
+# Boxes smaller than this many pixels^2 (in the original image) count as "small" (COCO convention).
+small_object_area: 1024

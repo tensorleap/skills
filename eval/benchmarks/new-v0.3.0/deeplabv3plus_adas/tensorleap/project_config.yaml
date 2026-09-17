@@ -1,0 +1,22 @@
+# Integration-only settings read by the tensorleap/ component modules.
+# Data root, IMAGE_SIZE, NUM_CLASSES and normalization constants come from the
+# repo's own domain_gap/utils/project_config.yaml (LOCAL_BASE_PATH, USE_LOCAL: True).
+
+# Balanced per-split cap on the number of samples preprocess() returns.
+# Set to null (or remove) to evaluate the full dataset.
+sample_limit_per_split: 250
+
+# Split recipes (relative to the repo root) that define the subsets.
+splits:
+  training: domain_gap/data/splits/original_csv_subset/train.json
+  validation: domain_gap/data/splits/original_csv_subset/val.json
+  unlabeled: domain_gap/data/splits/unlabeled_subset/manifest.json
+
+# Train id used for "ignore" pixels (void classes) in the GT.
+ignore_label: 19
+
+# Alpha used when overlaying masks on images in visualizers.
+overlay_alpha: 0.5
+
+# Integer factor by which visualizer images/masks are downscaled (1 = full 2048x1024).
+viz_downscale: 2

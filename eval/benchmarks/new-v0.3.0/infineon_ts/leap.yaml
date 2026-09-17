@@ -1,0 +1,16 @@
+projectId: 6aaaafe02f329df70cd36ff9
+secretId: ""
+entryFile: leap_integration.py
+include:
+    - leap.yaml
+    - leap_integration.py
+    - requirements.txt
+    - project_config.yaml
+    - tensorleap/**
+exclude:
+    - tensorleap/__pycache__/**
+    - .git/**
+    - .venv/**
+    - model/**
+    - notebooks/**
+pythonVersion: py310
