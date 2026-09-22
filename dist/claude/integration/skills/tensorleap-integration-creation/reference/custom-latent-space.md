@@ -208,9 +208,11 @@ straight through. **Nothing flags a model-computed latent space the test never
 calls** — it simply never binds and never appears on the platform — so the call
 in the test body is the wiring, not an optional check.
 
-## Few-shot grounding
+## Worked pooling functions
 
-Reason the same way for any other task; these show the shape, not a catalog.
+The detection and segmentation rows of the selection table, as code — the two
+cases where the pooling needs the GT and so cannot live in the graph. The other
+rows reduce to `return z.astype(np.float32)` or a `reduce=` argument.
 
 Detection, stride-8 neck map exposed as the 5th output, channel-first ONNX
 layout, pooled at the GT boxes (normalized `cx, cy, w, h, class`, NaN-padded):
@@ -234,16 +236,6 @@ def object_features(p3: np.ndarray, gt_boxes: np.ndarray) -> np.ndarray:
     return out
 ```
 
-Classification, last conv block before global pooling exposed as the 2nd output
-(Keras, channel-last); the platform pools it:
-
-```python
-@tensorleap_custom_latent_space(name="texture_features", use_ls_for_analysis=True,
-                                reduce=LatentSpaceReduction.MEAN_POOL, channel_axis=-1)
-def texture_features(block4: np.ndarray) -> np.ndarray:
-    return block4.astype(np.float32)                      # (B, H, W, C) -> platform pools to (B, C)
-```
-
 Segmentation, decoder map before the classifier exposed as the 2nd output,
 masked-mean over the GT foreground (one-hot GT at input resolution, class 0 =
 background):
@@ -258,15 +250,6 @@ def foreground_features(decoder: np.ndarray, gt_mask: np.ndarray) -> np.ndarray:
     weight = fg[..., None].astype(np.float32)
     pooled = (decoder * weight).sum(axis=(1, 2)) / np.maximum(weight.sum(axis=(1, 2)), 1.0)
     return pooled.astype(np.float32)
-```
-
-Time series autoencoder, the bottleneck exposed as the 2nd output — already a
-vector, nothing to pool:
-
-```python
-@tensorleap_custom_latent_space(name="bottleneck", use_ls_for_analysis=True)
-def bottleneck(z: np.ndarray) -> np.ndarray:
-    return z.astype(np.float32)                           # (B, d)
 ```
 
 ## Guardrails
