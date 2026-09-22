@@ -635,7 +635,9 @@ Add these one at a time, running after each:
     3. **Call it in `integration_test` on the raw output slot** (and the GT/input
        encoder returns it needs) — that call *is* the binding; an uncalled
        model-computed latent space never reaches the platform.
-    4. Width ≤ 4096 per sample (warn > 1024); reduce with `reduce=`, not by hand.
+    4. Width ≤ 4096 per sample (warn > 1024); reduce with any **stateless**
+       pooling or projection — in code, or `reduce=` for the built-in mean-pool /
+       random-projection — never a fitted one (PCA) inside the function.
 - **Metrics / custom loss** — return a **batch-aligned 1D array (one value per
   sample)**, not a single scalar. Give a metric its `direction`
   (`MetricDirection.Upward`/`Downward`). A metric/loss must **discriminate

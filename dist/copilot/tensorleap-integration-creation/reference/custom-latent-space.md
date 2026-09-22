@@ -45,11 +45,15 @@ Contract, enforced by code-loader:
 - Return `np.ndarray`; model-computed needs `ndim >= 2` with the batch axis first
   and matching the batch size. `float32` by convention.
 - **Width per sample ≤ 4096** (hard error), **> 1024 warns**. Wide spaces are slow
-  to store and cluster; reduce them with the platform's own reducer rather than a
-  hand-rolled projection: `reduce=LatentSpaceReduction.RANDOM_PROJECTION`
-  (`n_components`, default 512) or `reduce=LatentSpaceReduction.MEAN_POOL`
-  (`channel_axis`, averages the non-channel axes — return the raw map and let it
-  pool).
+  to store and cluster. Two stateless reductions ship with the decorator as a
+  convenience — `reduce=LatentSpaceReduction.RANDOM_PROJECTION` (`n_components`,
+  default 512) and `reduce=LatentSpaceReduction.MEAN_POOL` (`channel_axis`,
+  averages the non-channel axes of the raw map you return) — but any **stateless
+  per-sample** reduction is equally fine in your own code when it suits the task
+  better: max or strided pooling, attention pooling, a fixed-seed projection.
+  What must not happen inside the function is a *fitted* reduction (PCA and the
+  like): it sees one batch at a time, so a per-batch fit changes basis between
+  batches and the space is meaningless.
 - **≤ 10 custom latent spaces per project**, unique names. This skill adds one.
 - `use_ls_for_analysis=True` on **at most one** latent space in the project: the
   Out-Of-Distribution, Domain-Gap and mislabeling insights run in that space.
@@ -143,8 +147,9 @@ space deliberately departs from the platform: **pooling is chosen per layer**
 The concatenated width still has to respect the caps.
 
 Post-processing here means *semantic* pooling — box-guided, mask-guided,
-attention-weighted, per-class means. Dimensionality reduction is not your job:
-pass `reduce=` and let the platform do it.
+attention-weighted, per-class means — plus whatever stateless reduction brings
+the width under the cap. `reduce=` is the zero-code version of the two commonest
+ones, not a requirement.
 
 ## Wiring it in `integration_test`
 
@@ -238,8 +243,9 @@ def bottleneck(z: np.ndarray) -> np.ndarray:
   output and point the config at it.
 - **One `PredictionTypeHandler` per model output**, the new one appended last.
 - `use_ls_for_analysis=True` on the custom space (and on nothing else).
-- Respect the width caps; prefer `reduce=` over hand-rolled reduction; keep
-  post-processing semantic (box-, mask-, attention-guided pooling).
+- Respect the width caps with stateless reductions — in your code or via
+  `reduce=` — never a fitted one; keep post-processing semantic (box-, mask-,
+  attention-guided pooling).
 - The call in `integration_test` **is** the wiring — an uncalled model-computed
   latent space silently does not exist on the platform.
 - Write the *why* in `integration-report.md`: profile evidence → tensor → pooling
