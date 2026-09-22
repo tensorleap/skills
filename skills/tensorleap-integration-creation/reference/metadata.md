@@ -153,6 +153,16 @@ from a real value and pollutes every correlation that touches the field.
 - Never let `NaN` or `±inf` leak as "a number": they are treated as missing the
   same way `None` is, so return `None` deliberately instead.
 
+```python
+@tensorleap_metadata("car", {"car_size": DatasetMetadataType.float})
+def car_metadata(sample_id, preprocess):
+    boxes = decode_gt(preprocess, sample_id)
+    car_boxes = boxes[boxes[:, 4] == CAR_CLASS_ID]
+    if len(car_boxes) == 0:
+        return {"car_size": None}   # no car in this image -> absent, not 0.0
+    return {"car_size": float((car_boxes[:, 2] * car_boxes[:, 3]).mean())}
+```
+
 ### The same policy for `@tensorleap_custom_metric` outputs
 
 A metric that is undefined for a sample (e.g. IoU on an image with no GT and no
