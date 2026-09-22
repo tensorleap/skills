@@ -57,7 +57,10 @@ Contract, enforced by code-loader:
 - **≤ 10 custom latent spaces per project**, unique names. This skill adds one.
 - `use_ls_for_analysis=True` on **at most one** latent space in the project: the
   Out-Of-Distribution, Domain-Gap and mislabeling insights run in that space.
-  Set it on the custom one — that is what makes its insights attributable.
+  Set it on the space you add — that is what makes its insights attributable —
+  **unless the repo already has a custom latent space carrying it**: that flag
+  is the user's choice, so leave theirs in place and add yours without it
+  (code-loader rejects a second one).
 
 ## Selecting the layer: two jobs, both before any inference
 
@@ -262,7 +265,8 @@ def foreground_features(decoder: np.ndarray, gt_mask: np.ndarray) -> np.ndarray:
 - **Never overwrite the user's model file.** Write a sibling with the extra
   output and point the config at it.
 - **One `PredictionTypeHandler` per model output**, the new one appended last.
-- `use_ls_for_analysis=True` on the custom space (and on nothing else).
+- `use_ls_for_analysis=True` on the space you add — unless a user-defined custom
+  latent space already carries it; then leave theirs and add yours without it.
 - Respect the width caps with stateless reductions — in your code or via
   `reduce=` — never a fitted one; keep post-processing semantic (box-, mask-,
   attention-guided pooling).
