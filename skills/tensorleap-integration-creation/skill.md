@@ -8,7 +8,7 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.3.0
+version: 0.4.0
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents, devin]
@@ -149,6 +149,9 @@ clutter the customer's repo:
   per file. **`metrics.py` holds the custom loss** (`@tensorleap_custom_loss`) as
   well as custom metrics — loss and metrics are the same shape of per-sample
   function, so they live together.
+- **`tensorleap/latent_space.py`** — the one custom latent space, when it is
+  added (see **Optional surfaces**), plus the small script that writes the
+  sibling model file exposing its layer.
 
 The `tensorleap/` component files must be covered by `leap.yaml`'s `include` (e.g.
 `tensorleap/**`), along with `leap_integration.py` and `requirements.txt` at root.
@@ -463,7 +466,9 @@ order:
    optional metadata / visualizers / metrics / custom loss **one at a time**,
    running between each. For metadata, sweep the four sources in
    `{{reference_dir}}/metadata.md` (documents, directory, GT-derived, domain
-   knowledge) rather than adding generic statistics.
+   knowledge) rather than adding generic statistics. Last, add **one custom
+   latent space** chosen for the task (`{{reference_dir}}/custom-latent-space.md`);
+   it changes the model file, so do it after everything else is green.
 
 `load_model()` alone validates only model type and declared outputs. Useful
 validation starts when a real encoded sample flows into the model.
@@ -626,6 +631,24 @@ Add these one at a time, running after each:
     3. **Cap on concepts:** roughly 10-15 metadata functions, every one
        something a user would slice by; per-class fan-out counts as one concept
        and is restricted to top-K classes when the class count is large.
+- **Custom latent space** — `@tensorleap_custom_latent_space("name",
+  use_ls_for_analysis=True)` on a function that takes model outputs and/or
+  encoder outputs and returns `(batch, d)`. The platform extracts its own latent
+  spaces with model-agnostic heuristics; you add **exactly one** more, the
+  tensor most informative for *this* task, exposed as an extra model output in
+  a **sibling model file** (never the original). See
+  `{{reference_dir}}/custom-latent-space.md` for the API contract, the
+  selection procedure, the ONNX/Keras recipes, and worked examples.
+  Non-negotiable:
+    1. **Choose before inference, from materialized metadata and the model
+       graph** (object scale, class balance, sequence length …). Never iterate
+       the dataset to decide.
+    2. **Append the new output last and give it a `PredictionTypeHandler`**;
+       there is no latent-only output.
+    3. **Call it in `integration_test` on the raw output slot** (and the GT/input
+       encoder returns it needs) — that call *is* the binding; an uncalled
+       model-computed latent space never reaches the platform.
+    4. Width ≤ 4096 per sample (warn > 1024); reduce with `reduce=`, not by hand.
 - **Metrics / custom loss** — return a **batch-aligned 1D array (one value per
   sample)**, not a single scalar. Give a metric its `direction`
   (`MetricDirection.Upward`/`Downward`). A metric/loss must **discriminate
