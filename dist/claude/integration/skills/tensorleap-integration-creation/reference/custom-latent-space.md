@@ -132,10 +132,12 @@ the new output (`labels` = channel names if meaningful, else `[f"c{i}" ...]`;
 existing prediction indices in `integration_test`, metrics and visualizers do
 not shift.
 
-Pooling can be baked into the graph (a `ReduceMean` over the spatial axes) or
-done in NumPy inside the latent-space function. Prefer NumPy: it keeps the model
-edit to one appended output and keeps GT-guided pooling possible. Bake it into
-the graph only when the raw map alone would exceed the width cap in transit.
+For a **single layer**, pooling can be baked into the graph (a `ReduceMean`
+over the spatial axes) or done in NumPy inside the latent-space function. NumPy
+is fine here and is the only option for GT-guided pooling (the graph never sees
+the GT); bake it into the graph when the raw map alone would exceed the width
+cap in transit. For **several layers**, see the next section: pool and
+concatenate in the graph so the model still gains exactly one output.
 
 ## Combining layers and pooling
 
@@ -147,6 +149,38 @@ spatial size concatenable — no resizing), then concatenate. Where the custom
 space deliberately departs from the platform: **pooling is chosen per layer**
 (mean, max, GT-box crop-and-pool), and **cropping before pooling is allowed**.
 The concatenated width still has to respect the caps.
+
+**Guideline: do the per-layer pooling and the concat inside the graph, so the
+model gains one new output, not one per layer.** Several appended outputs each
+need a `PredictionTypeHandler`, each ride through the platform as a full
+prediction tensor, and the decorator function ends up re-implementing the
+engine's concat. One in-graph vector avoids all three. Not a hard block — when a
+layer needs GT-guided pooling, that one stays a raw map and is pooled in the
+function — but the default is a single combined output.
+
+ONNX (`ReduceMean` takes `axes` as an attribute up to opset 12 and as a second
+input from opset 13 — check `m.opset_import`):
+
+```python
+pooled = []
+for t in LAYER_TENSORS:                                   # each (N, C_i, H_i, W_i)
+    m.graph.node.append(helper.make_node("ReduceMean", [t], [f"{t}_pooled"], axes=[2, 3], keepdims=0))
+    pooled.append(f"{t}_pooled")
+m.graph.node.append(helper.make_node("Concat", pooled, ["custom_ls"], axis=1))
+m.graph.output.append(helper.make_tensor_value_info("custom_ls", TensorProto.FLOAT, ["N", TOTAL_CHANNELS]))
+onnx.save(m, LS_MODEL_PATH)
+```
+
+Keras:
+
+```python
+pooled = [tf.keras.layers.GlobalAveragePooling2D()(base.get_layer(n).output) for n in LAYER_NAMES]
+ls_out = tf.keras.layers.Concatenate(name="custom_ls")(pooled)
+ls_model = tf.keras.Model(base.inputs, base.outputs + [ls_out])
+```
+
+Swap `ReduceMean` / `GlobalAveragePooling2D` for the max variants per layer as
+the profile dictates; the concat is the same.
 
 Post-processing here means *semantic* pooling — box-guided, mask-guided,
 attention-weighted, per-class means — plus whatever stateless reduction brings
