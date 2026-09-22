@@ -69,10 +69,12 @@ it. What can: the dataset's already-materialized metadata and the model graph.
 sweep (`metadata.md`) already surfaced: object-size and class distributions from
 the annotation files, sequence/duration stats, class balance, acquisition
 domains. Read the annotation JSON/CSV/manifest and the repo's own dataset
-statistics. **Hard constraint: never iterate the dataset here** — no loading
-images or signals sample by sample to derive a statistic. If the statistic you
-want is not already materialized, that is a gap in the metadata surface, not a
-reason to loop over the data in this step.
+statistics. **Budget guardrail:** materialized metadata first. A pass over the
+data is fine when it is cheap and the statistic is worth it — a few minutes on a
+random subsample of some hundreds of samples — but the layer choice must not
+cost a decode of the whole dataset (a million HD images to pick one tensor).
+If you scan, cap it, and record the sample count and wall-clock in
+`integration-report.md`.
 
 **Job 2 — map task profile + architecture to a layer.** Inspect the graph:
 `onnx.load` + `onnx.shape_inference.infer_shapes` and walk `graph.node` /
@@ -237,8 +239,9 @@ def bottleneck(z: np.ndarray) -> np.ndarray:
 
 - **Exactly one** custom latent space from this skill, added after the core path
   is green; the built-in spaces stay.
-- **Never iterate the dataset to choose the layer.** Decide from materialized
-  metadata and the model graph; the decision is made before the model runs.
+- **Choose the layer from materialized metadata and the model graph**, before the
+  model runs. A capped, minutes-long scan of a subsample is allowed when it earns
+  its cost; a full-dataset decode to pick a tensor is not.
 - **Never overwrite the user's model file.** Write a sibling with the extra
   output and point the config at it.
 - **One `PredictionTypeHandler` per model output**, the new one appended last.

@@ -635,8 +635,9 @@ Add these one at a time, running after each:
   selection procedure, the ONNX/Keras recipes, and worked examples.
   Non-negotiable:
     1. **Choose before inference, from materialized metadata and the model
-       graph** (object scale, class balance, sequence length …). Never iterate
-       the dataset to decide.
+       graph** (object scale, class balance, sequence length …). A capped,
+       minutes-long scan of a subsample is fine when it earns its cost; never
+       decode the whole dataset just to pick a tensor.
     2. **Append the new output last and give it a `PredictionTypeHandler`**;
        there is no latent-only output.
     3. **Call it in `integration_test` on the raw output slot** (and the GT/input
