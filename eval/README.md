@@ -131,6 +131,28 @@ bash run.sh --fixture cifar10_resnet
 Or run the whole corpus at once with `bash run_all.sh` (see below), which also
 writes the run roll-up `reports/REPORT_V<n>.md`.
 
+### Extend mode — grade one addition to a finished integration
+
+`run.sh --extend` grades an *addition* to an integration the blind flow already
+authored and evaluated — currently the custom latent space surface — instead of
+authoring from scratch. The fixture tree is *meant* to hold the finished
+integration, so the blindness gate is replaced by its inverse: `leap_integration.py`
+and a `leap.yaml` with a `projectId` must exist, so the new version lands on the
+same project as the baseline. The agent gets an extend prompt, and the report
+goes to `reports/extend/` so the blind roll-up (which sweeps `reports/*.json`)
+never counts it. Server-locality check, single-skill check, creation-time job
+attribution and Push/Evaluate tracking are the blind flow's, unchanged.
+
+```bash
+bash run.sh --fixture yolov5_visdrone --extend --model opus --plugin-dir ../dist/claude/integration
+```
+
+`--model` pins the agent's Claude model (any `claude --model` value) and works in
+both modes; without it the CLI's configured default runs, and either way the
+report records the model actually used. The before/after is then two versions of
+one project — the baseline and the extended one — compared on the platform (e.g.
+which latent space each insight was found in).
+
 `cifar10_resnet` is the recommended first run: it is a **public** fixture (CIFAR
 downloads at runtime), so it needs no private creds and proves the loop.
 

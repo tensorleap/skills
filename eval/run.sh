@@ -30,6 +30,8 @@ FIXTURES_ROOT="${EVAL_ROOT}/.fixtures"
 
 FIXTURE=""
 PLUGIN_DIR=""
+EXTEND=0
+MODEL=""               # empty: the claude CLI's own default
 LEAP_CMD=""            # default resolved below: leapdev if installed, else leap
 IDLE_STUCK_TICKS="${IDLE_STUCK_TICKS:-40}"   # ~40 * 30s = 20 min of no pane change & no eval
 POLL_SECS="${POLL_SECS:-30}"
@@ -44,9 +46,15 @@ EVAL_MAX_SECS="${EVAL_MAX_SECS:-7200}"       # max wait for a detected Evaluate 
 
 usage() {
   cat <<'EOF'
-Usage: run.sh --fixture <id> [--plugin-dir <dir>] [--leap-cmd <cmd>]
+Usage: run.sh --fixture <id> [--extend] [--model <id>] [--plugin-dir <dir>] [--leap-cmd <cmd>]
 
   --fixture ID       Fixture id from manifest.json (must be prepared + verified).
+  --extend           Build on the FINISHED integration already in the fixture tree
+                     instead of authoring blind: the agent adds one custom latent
+                     space and pushes a new version of the same project. Skips the
+                     blindness gate; reports go to reports/extend/. Optional.
+  --model ID         Pin the Claude model for the agent session (passed to
+                     `claude --model`). Default: the CLI's configured default.
   --plugin-dir DIR   Run the skill from a built dist dir (e.g. dist/claude/integration)
                      instead of the installed marketplace plugin. Optional.
   --leap-cmd CMD     The Tensorleap CLI the `leap` shim forwards to. Default:
@@ -61,6 +69,8 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --fixture)    FIXTURE="$2"; shift 2 ;;
+    --extend)     EXTEND=1; shift ;;
+    --model)      MODEL="$2"; shift 2 ;;
     --plugin-dir) PLUGIN_DIR="$2"; shift 2 ;;
     --leap-cmd)   LEAP_CMD="$2"; shift 2 ;;
     -h|--help)    usage; exit 0 ;;
@@ -68,6 +78,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "${FIXTURE}" ]] || { echo "error: --fixture is required" >&2; usage; exit 2; }
+MODE="blind"; [[ "${EXTEND}" -eq 1 ]] && MODE="extend"
 
 fail() { echo "error: $*" >&2; exit 1; }
 log()  { echo "[run] $*"; }
@@ -80,12 +91,16 @@ log()  { echo "[run] $*"; }
 # attempt that dies leaves a log and NO report, instead of a stale PASS from an
 # earlier run (which run_all's skip-if-report-exists resume would then trust).
 REPORTS_DIR="${EVAL_ROOT}/reports"
+# Extend runs live in their own dir: the blind roll-up sweeps reports/*.json, and
+# an extend report must neither replace the fixture's blind baseline nor be
+# graded as one.
+[[ "${EXTEND}" -eq 1 ]] && REPORTS_DIR="${REPORTS_DIR}/extend"
 RUN_LOG="${REPORTS_DIR}/${FIXTURE}.run.log"
 mkdir -p "${REPORTS_DIR}"
 rm -f "${REPORTS_DIR}/${FIXTURE}.md" "${REPORTS_DIR}/${FIXTURE}.json"
 : >"${RUN_LOG}"
 exec > >(tee -a "${RUN_LOG}") 2>&1
-log "run.sh --fixture ${FIXTURE} — $(date '+%Y-%m-%dT%H:%M:%S') (log: ${RUN_LOG})"
+log "run.sh --fixture ${FIXTURE} (${MODE}${MODEL:+, model ${MODEL}}) — $(date '+%Y-%m-%dT%H:%M:%S') (log: ${RUN_LOG})"
 
 require_cmd() { command -v "$1" >/dev/null 2>&1 || fail "required command '$1' not found"; }
 require_cmd tmux
@@ -132,14 +147,28 @@ for _pat in '/.venv/' '/.claude/'; do
   grep -qxF "${_pat}" "${PRE_DIR}/.git/info/exclude" 2>/dev/null \
     || echo "${_pat}" >>"${PRE_DIR}/.git/info/exclude"
 done
-git -C "${PRE_DIR}" rev-parse --verify --quiet HEAD^ >/dev/null 2>&1 \
-  && fail "fixture '${FIXTURE}' has git history — not a scrubbed blind tree. Re-run prepare.sh + verify.sh."
-[[ -z "$(git -C "${PRE_DIR}" status --porcelain)" ]] \
-  || fail "fixture '${FIXTURE}' is dirty — a previous run's leftovers (git -C ${PRE_DIR} status). Re-run prepare.sh + verify.sh to rebuild it blind."
-leftovers="$(find "${PRE_DIR}" -maxdepth 1 \( -name 'leap*' -o -name 'NOTES.md' \) 2>/dev/null | head -5)"
-[[ -z "${leftovers}" ]] \
-  || fail "fixture '${FIXTURE}' already contains integration artifacts: ${leftovers} — re-run prepare.sh + verify.sh."
-log "Preflight: fixture tree is clean and blind"
+if [[ "${EXTEND}" -eq 1 ]]; then
+  # Extend mode inverts the gate: the tree MUST hold the finished integration a
+  # blind run produced and evaluated, because the run grades one addition on top
+  # of it as a new version of the same project (the before/after baseline).
+  for _f in leap_integration.py leap.yaml; do
+    [[ -f "${PRE_DIR}/${_f}" ]] \
+      || fail "fixture '${FIXTURE}' has no ${_f} — --extend builds on a finished integration; run the blind flow first."
+  done
+  PROJECT_ID="$(awk '/^projectId:/ {print $2; exit}' "${PRE_DIR}/leap.yaml")"
+  [[ "${PROJECT_ID}" =~ ^[0-9a-f]{24}$ ]] \
+    || fail "fixture '${FIXTURE}': leap.yaml has no projectId — the extended version must land on the project the baseline evaluated in."
+  log "Preflight: extend mode — building on the existing integration (project ${PROJECT_ID})"
+else
+  git -C "${PRE_DIR}" rev-parse --verify --quiet HEAD^ >/dev/null 2>&1 \
+    && fail "fixture '${FIXTURE}' has git history — not a scrubbed blind tree. Re-run prepare.sh + verify.sh."
+  [[ -z "$(git -C "${PRE_DIR}" status --porcelain)" ]] \
+    || fail "fixture '${FIXTURE}' is dirty — a previous run's leftovers (git -C ${PRE_DIR} status). Re-run prepare.sh + verify.sh to rebuild it blind."
+  leftovers="$(find "${PRE_DIR}" -maxdepth 1 \( -name 'leap*' -o -name 'NOTES.md' \) 2>/dev/null | head -5)"
+  [[ -z "${leftovers}" ]] \
+    || fail "fixture '${FIXTURE}' already contains integration artifacts: ${leftovers} — re-run prepare.sh + verify.sh."
+  log "Preflight: fixture tree is clean and blind"
+fi
 
 # --- leap -> dev-CLI shim, first on PATH (so a bare `leap` never hits prod) -- #
 SHIM_DIR="${EVAL_ROOT}/.shim"
@@ -159,6 +188,7 @@ env PATH="${RUN_PATH}" "${LEAP_CMD}" run list -t Evaluate >/dev/null 2>&1 \
 # plugin's copy of the SAME skill, which would silently test the wrong one.
 # Other unrelated Tensorleap skills (e.g. tensorleap-migration) are fine.
 CLAUDE_LAUNCH="claude --dangerously-skip-permissions"
+[[ -n "${MODEL}" ]] && CLAUDE_LAUNCH+=" --model $(printf '%q' "${MODEL}")"
 SKILL_NAME="tensorleap-integration-creation"
 PLUGIN_PKG="integration@tensorleap"
 LOCAL_COPY="${HOME}/.claude/skills/${SKILL_NAME}"
@@ -317,6 +347,41 @@ if [[ -n "${STAGED_DATA}" ]]; then
 This fixture's data is already staged at ${STAGED_DATA} — read it from there. Do
 not download or fetch datasets or model weights yourself."
 fi
+if [[ "${EXTEND}" -eq 1 ]]; then
+read -r -d '' MSG <<EOF || true
+Use the tensorleap-integration-creation skill to ADD ONE CUSTOM LATENT SPACE to
+the existing Tensorleap integration in THIS repository and get a CONFIRMED
+evaluate of the new version.
+
+Your FIRST action must be invoking tensorleap-integration-creation via the
+Skill tool. Do NOT read the skill's files off disk as a substitute for
+invoking it — a run where the Skill tool was never called is VOID and grades
+nothing, no matter how well the work went.
+
+This repository already holds a complete, validated integration
+(leap_integration.py, leap.yaml with its projectId, tensorleap/) that was pushed
+and evaluated. Keep it: do not rewrite preprocess, encoders, metrics, metadata
+or visualizers. Follow the skill's "Custom latent space" optional surface and
+its reference doc: choose the tensor for this task, expose it in a sibling model
+file, register the latent space, wire it in integration_test, re-run the run
+loop until clean, then push a NEW version of the SAME project (the projectId in
+leap.yaml) with the sibling model and --eval, and track the Evaluate to a
+terminal state.
+
+Operator guidance for this fixture:
+${GUIDANCE}
+${STAGED_NOTE}
+
+Rules:
+- Work only from THIS repository, its dependencies, the installed code-loader,
+  and the skill. Do NOT read any other repo/project on this machine, and do NOT
+  rely on your memory of other Tensorleap integrations.
+- Use \`leap\` for every Tensorleap command (it is shimmed to the dev server).
+- Append a "Custom latent space" section to NOTES.md: the task-profile evidence,
+  the tensor chosen (name, shape, stride), the pooling, the width, the sibling
+  model path, and the push/eval job ids. Don't commit.
+EOF
+else
 read -r -d '' MSG <<EOF || true
 Use the tensorleap-integration-creation skill to create a complete Tensorleap
 integration for THIS repository and get a CONFIRMED evaluate.
@@ -339,6 +404,7 @@ Rules:
   track the Evaluate job to a terminal state as the skill describes.
 - Keep a NOTES.md logging what you did and the push/eval job ids. Don't commit.
 EOF
+fi
 # The prompt is part of what was tested: guidance edits change fixture
 # difficulty, so the hash lets a delta reader see "same prompt or not".
 PROMPT_SHA="$(printf '%s' "${MSG}" | shasum -a 256 | cut -c1-12)"
@@ -525,7 +591,7 @@ if [[ -f "${EVAL_ROOT}/report.py" ]]; then
     --duration "${SECONDS}" \
     --skill-fingerprint "${SKILL_FINGERPRINT}" --skill-git "${SKILL_GIT}" \
     --fixture-sha "${FIXTURE_SHA}" --prompt-sha "${PROMPT_SHA}" \
-    --notes "${PRE_DIR}/NOTES.md" \
+    --mode "${MODE}" --notes "${PRE_DIR}/NOTES.md" \
     --note "${NOTE}" --skill-source "${sources[0]}" \
     --out "${REPORTS_DIR}/${FIXTURE}.md" || true
 else
