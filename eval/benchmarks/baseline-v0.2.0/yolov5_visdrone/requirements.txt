@@ -1,5 +1,0 @@
-pyyaml
-numpy~=1.26
-opencv-python-headless~=4.11
-onnxruntime~=1.19
-torch>=2.1
