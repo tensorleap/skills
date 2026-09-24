@@ -38,6 +38,9 @@ optimization is only real if it helps **there**. Read
 - **Visualizers** run later, one sample at a time, in a process where nothing else ran
   first → they must be efficient on their own; they never see caches from encoders,
   metadata or metrics.
+- **Metrics and loss** run on batches in their own process, fed the batch's tensors → a
+  cache warmed by encoders or metadata does not help them; a metric that reloads source
+  data should compute from the tensors it is given instead.
 - **Samples are not processed in your preprocess order** → per-file caches over a flat
   sample list mostly miss; group samples by file instead.
 - **Preprocess** runs again in every worker process → keep it light.
@@ -210,7 +213,8 @@ equivalence check only covers branches the sampled data executes.
 3. CHANGE   one fix from the catalog / reference/perf-levers.md. It must respect
             the execution model: rely on a cache ONLY where Tensorleap shares it (within
             one sample's encoders + metadata, or within one process across samples),
-            never across processes, never from a visualizer.
+            never across processes, never from a visualizer, never from a metric or loss
+            to what generation computed.
 4. MEASURE  tl_perf profile   then   tl_perf compare
 5. DECIDE   exit 0  -> keep: commit ("perf(<component>): <change> — X -> Y ms/sample,
                        outputs equivalent"), log it, `tl_perf score`, go to 1.

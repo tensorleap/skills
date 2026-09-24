@@ -73,15 +73,26 @@ class ProfileDetectsPlantedPathologies(unittest.TestCase):
         self.assertEqual(set(self.profile["visualizers"]["handlers"]), {"visualizer:bar"})
 
     def test_visualizers_do_not_inherit_metric_caches(self):
-        """The metric fills the post-processing cache in the generation worker; the
-        visualizer process must still compute it for every visualized sample."""
+        """The metric fills the post-processing cache in its own process; the visualizer
+        process must still compute it for every visualized sample."""
         vis_pid = latest(self.synth, "worker-visualize.json")["pid"]
-        gen_pid = latest(self.synth, "worker-generate.json")["pid"]
+        metrics_pid = self.profile["metrics"]["process"]["pid"]
         with open(self.post_log) as fh:
             pids = [int(line) for line in fh if line.strip()]
         n_vis = len(self.profile["visualizers"] and latest(self.synth, "plan-visualize.json")["vis_samples"])
-        self.assertIn(gen_pid, pids)
+        self.assertIn(metrics_pid, pids)
         self.assertEqual(pids.count(vis_pid), n_vis)
+
+    def test_metrics_run_apart_from_generation(self):
+        """A batch's metrics need not run in the process that generated its samples: no
+        metric work happens in the generation worker, all of it in one metrics process."""
+        gen_pid = latest(self.synth, "worker-generate.json")["pid"]
+        metrics_pid = self.profile["metrics"]["process"]["pid"]
+        self.assertNotEqual(gen_pid, metrics_pid)
+        with open(self.post_log) as fh:
+            pids = [int(line) for line in fh if line.strip()]
+        self.assertNotIn(gen_pid, pids)
+        self.assertEqual(set(self.profile["metrics"]["handlers"]), {"metric:confidence", "loss:mse"})
 
 
 class CompareVerdicts(unittest.TestCase):

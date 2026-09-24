@@ -1549,9 +1549,84 @@ def _run_scored_handlers(integ, handlers, state, rows, inputs, gts, preds, recor
             on_output(kind, name, out)
 
 
+def _metrics_child_main(conn, plan):
+    """Metrics and loss in their own long-lived process, fed each batch's tensors — the way
+    the platform computes them: a batch's metrics need not run in the process that
+    generated its samples, so caches filled during generation are not warm here."""
+    result = {}
+    try:
+        integ = _load_worker(plan, result)
+        recorder = Recorder()
+        instrument_registry(recorder)
+        _model_inputs, handlers = mapping_info()
+        unsupported = {}
+        conn.send({"ready": True})
+        while True:
+            msg = conn.recv()
+            if msg[0] == "batch":
+                _, state, row_ids, inputs, gts, preds = msg
+                _run_scored_handlers(integ, handlers, state, [(r,) for r in row_ids],
+                                     inputs, gts, preds, recorder, unsupported)
+                conn.send({"ok": True})
+            else:
+                _, n_rows, exclude = msg
+                conn.send({"handlers": handler_stats(recorder, ("metric", "loss"), n_rows, set(exclude)),
+                           "unsupported": unsupported, "pid": result["pid"],
+                           "startup_seconds": result["startup_seconds"],
+                           "peak_rss_gb": peak_rss_gb()})
+                return
+    except Exception:
+        conn.send({"error": traceback.format_exc()[-6000:]})
+
+
+class MetricsProcess:
+    """Parent side of _metrics_child_main: one fresh process per generation worker. Each
+    batch is sent and awaited before generation continues, so timings never overlap."""
+
+    def __init__(self, plan):
+        import multiprocessing
+        ctx = multiprocessing.get_context("spawn")
+        self._conn, child = ctx.Pipe()
+        self._proc = ctx.Process(target=_metrics_child_main, args=(child, plan), daemon=True)
+        self._proc.start()
+        self._reply()
+
+    def _reply(self):
+        try:
+            msg = self._conn.recv()
+        except EOFError:
+            raise RuntimeError("the metrics process exited unexpectedly")
+        if "error" in msg:
+            raise RuntimeError("metrics process failed:\n" + msg["error"])
+        return msg
+
+    def run(self, state, row_ids, inputs, gts, preds):
+        self._conn.send(("batch", state, list(row_ids), inputs, gts, preds))
+        self._reply()
+
+    def finish(self, n_rows, exclude):
+        self._conn.send(("finish", n_rows, sorted(exclude)))
+        return self._reply()
+
+    def close(self):
+        if self._proc.is_alive():
+            self._proc.terminate()
+        self._proc.join(timeout=10)
+
+
 def worker_generate(plan, result):
-    """Generation (+ inference, metrics, loss) in one worker process, caches warm across
-    samples — the way one Tensorleap worker processes its share of the dataset."""
+    """Generation (+ inference) in one worker process, caches warm across samples — the way
+    one Tensorleap worker processes its share of the dataset. Metrics and loss run in a
+    separate process fed each batch's tensors (see _metrics_child_main)."""
+    metrics = MetricsProcess(plan) if plan.get("metrics", True) else None
+    try:
+        _generate(plan, result, metrics)
+    finally:
+        if metrics is not None:
+            metrics.close()
+
+
+def _generate(plan, result, metrics):
     import numpy as np
     integ = _load_worker(plan, result)
     result["handler_functions"] = handler_function_names(integ.root)
@@ -1605,7 +1680,7 @@ def worker_generate(plan, result):
         t0 = time.perf_counter()
         preds = run_model(lm, specs, [inputs[name] for name in feed])
         inference.append((time.perf_counter() - t0, len(rows), warm_chunk))
-        _run_scored_handlers(integ, handlers, state, rows, inputs, gts, preds, recorder, unsupported)
+        metrics.run(state, [r[0] for r in rows], inputs, gts, preds)
         for j, r in enumerate(rows):
             if row_key(state, r[0]) not in vis_keys:
                 continue
@@ -1635,9 +1710,11 @@ def worker_generate(plan, result):
             "per_sample_mean_seconds": sum(t for t, _ in steady_inf) / m_rows if m_rows else None,
         }
         metric_exclude = exclude if len(inference) > 1 else set()
-        result["metrics"] = {"samples": m_rows,
-                             "handlers": handler_stats(recorder, ("metric", "loss"), m_rows,
-                                                       metric_exclude)}
+        m = metrics.finish(m_rows, metric_exclude)
+        unsupported.update(m["unsupported"])
+        result["metrics"] = {"samples": m_rows, "handlers": m["handlers"],
+                             "process": {"pid": m["pid"], "startup_seconds": m["startup_seconds"],
+                                         "peak_rss_gb": m["peak_rss_gb"]}}
         if payload_rows and plan.get("payload_path"):
             np.savez(plan["payload_path"], **payload)
         result["vis_samples"] = payload_rows

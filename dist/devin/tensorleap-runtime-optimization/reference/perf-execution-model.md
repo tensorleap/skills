@@ -13,7 +13,7 @@ platform does not provide. This page lists the execution facts the skill relies 
 | preprocess (`@tensorleap_preprocess`) | once in **every worker process** Tensorleap starts | keep it fast; never load or transform the whole dataset there (it is paid again per worker) |
 | input encoders, ground-truth encoders, metadata (and custom latent space) | together, **in one process, for the same sample** | a small cache keyed by the source file is shared among them — the lossless fix for "two components decode the same file" |
 | the same components, across samples | in a long-lived worker process | a cache can also help across samples, **but** samples are not processed in your preprocess order and consecutive samples may go to different worker processes (§3) |
-| custom metrics and custom loss | on **batches** (leading dimension = batch), in one process per batch | vectorize over the batch; a metric must return one value per sample |
+| custom metrics and custom loss | on **batches** (leading dimension = batch), together in their own process, fed the batch's tensors — **not necessarily** the process that generated those samples | vectorize over the batch; a metric must return one value per sample; caches filled by encoders or metadata are **not** available to a metric — it must work from the tensors it receives (a metric that reloads the sample's source data pays the full load again) |
 | visualizers | **one sample at a time**, later, in a process that may **not** be the one that generated the sample; nothing ran there first | a visualizer must be efficient on its own. Caches filled by encoders, metadata, metrics or loss are **not** available to it |
 | model inference | on the model runtime (GPU when available) | everything else — encoders, metadata, metrics, loss, visualizers — runs on **CPU**; optimize that code for CPU, never move it to a GPU |
 
@@ -74,7 +74,7 @@ handled by different worker processes. **Do not rely on processing order for cac
 | encoders + metadata of a sample share one process | the generation worker keeps caches warm within and across samples |
 | samples arrive in a non-preprocess order | generation runs in a random order by default; a second worker runs a sorted-order what-if |
 | visualizers run elsewhere, with nothing run first | visualizers run in a **fresh process**, fed the sample's tensors directly (no encoder, metadata or metric ran there) |
-| metrics/loss run on batches | they run on batches of the recommended batch size, through code-loader |
+| metrics/loss run on batches, in their own process | they run on batches of the recommended batch size, through code-loader, in a **separate long-lived process** fed each batch's tensors (nothing from generation is warm there) |
 | only what the integration test wires runs | only metrics, losses and visualizers wired in `@tensorleap_integration_test` are profiled |
 | preprocess per worker | each worker's startup (import + preprocess) is timed and reported apart |
 | process warm-up | the first sample of each worker is reported apart from the per-sample means |
