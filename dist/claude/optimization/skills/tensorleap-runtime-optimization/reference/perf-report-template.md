@@ -21,7 +21,9 @@ before/after breakdown tables from the run artifacts itself. Never write the tab
       "equivalence": "bit-identical: 2400 values on 48 samples (tl_perf compare exit 0)",
       "before": "30.0 ms/sample", "after": "18.0 ms/sample", "gain": "-38% expected runtime",
       "side_effects": "none measured (peak memory +1%)",
-      "commit": "a1b2c3d"
+      "commit": "a1b2c3d",
+      "kind": "performance",
+      "catalog": "A"
     }
   ],
   "remaining_bottleneck": {
@@ -50,6 +52,11 @@ before/after breakdown tables from the run artifacts itself. Never write the tab
 Required: `title`; `optimizations` (list, may be empty; each needs `problem`, `change`,
 `evidence`, `equivalence`); `remaining_bottleneck` (`component`, `evidence`);
 `tensorleap_actions` (list, may be empty; each needs `need`).
+
+Optional per optimization: `kind` — `performance`, `correctness` (a bug fix: wrong or
+crashing output) or `prerequisite` (e.g. a dependency upgrade another fix needs); and
+`catalog` — the bottleneck-catalog class letter, or `new` for a problem no class describes.
+Unknown values are rejected (exit 11).
 
 ## Writing rules
 

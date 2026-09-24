@@ -2455,6 +2455,8 @@ REPORT_REQUIRED = {
     "tensorleap_actions": list,
 }
 OPTIMIZATION_REQUIRED = ("problem", "change", "evidence", "equivalence")
+OPTIMIZATION_KINDS = ("performance", "correctness", "prerequisite")
+CATALOG_CLASSES = tuple("ABCDEFGHIJKLMNOPQRSTU") + ("new",)
 
 
 def validate_report(doc):
@@ -2473,6 +2475,10 @@ def validate_report(doc):
         for key in OPTIMIZATION_REQUIRED:
             if not opt.get(key):
                 errors.append("optimizations[%d] missing %r" % (i, key))
+        if opt.get("kind") is not None and opt["kind"] not in OPTIMIZATION_KINDS:
+            errors.append("optimizations[%d] 'kind' must be one of %s" % (i, ", ".join(OPTIMIZATION_KINDS)))
+        if opt.get("catalog") is not None and opt["catalog"] not in CATALOG_CLASSES:
+            errors.append("optimizations[%d] 'catalog' must be a class letter A-U or 'new'" % i)
     rb = doc.get("remaining_bottleneck")
     if isinstance(rb, dict):
         for key in ("component", "evidence"):
@@ -2566,8 +2572,11 @@ def render_report(doc, out):
     if not doc["optimizations"]:
         lines += ["_None._", ""]
     for i, opt in enumerate(doc["optimizations"], 1):
-        lines += ["### %d. %s" % (i, opt["problem"]), "",
-                  "- **Change:** %s" % opt["change"],
+        lines += ["### %d. %s" % (i, opt["problem"]), ""]
+        tags = [t for t in (opt.get("kind"), ("catalog %s" % opt["catalog"]) if opt.get("catalog") else None) if t]
+        if tags:
+            lines.append("- **Type:** %s" % " · ".join(tags))
+        lines += ["- **Change:** %s" % opt["change"],
                   "- **Evidence:** %s" % opt["evidence"],
                   "- **Equivalence:** %s" % opt["equivalence"]]
         if opt.get("before") or opt.get("after"):

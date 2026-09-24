@@ -69,6 +69,7 @@ VALID_REPORT = {
         "evidence": "input_encoder ran 2.0x per sample; the same file was read 2x per sample",
         "equivalence": "bit-identical on 32 samples (tl_perf compare exit 0)",
         "before": "12.4 ms/sample", "after": "8.1 ms/sample", "gain": "-35%",
+        "kind": "performance", "catalog": "A",
     }],
     "remaining_bottleneck": {"component": "metadata:scan_position", "share": "61%",
                              "evidence": "5.9 ms per sample, 450x inference",
@@ -132,6 +133,17 @@ class ReportTest(unittest.TestCase):
         doc = json.loads(json.dumps(VALID_REPORT))
         del doc["optimizations"][0]["equivalence"]
         self.assertEqual(self.run_report(doc), tl_perf.EXIT_BAD_REPORT)
+
+    def test_kind_and_catalog_are_rendered(self):
+        self.assertEqual(self.run_report(VALID_REPORT), tl_perf.EXIT_OK)
+        with open(os.path.join(self.out, "report.md")) as fh:
+            self.assertIn("- **Type:** performance · catalog A", fh.read())
+
+    def test_unknown_kind_or_catalog_exits_11(self):
+        for key, value in (("kind", "speedup"), ("catalog", "Z")):
+            doc = json.loads(json.dumps(VALID_REPORT))
+            doc["optimizations"][0][key] = value
+            self.assertEqual(self.run_report(doc), tl_perf.EXIT_BAD_REPORT, key)
 
     def test_invalid_json_exits_11(self):
         self.assertEqual(self.run_report(raw="{not json"), tl_perf.EXIT_BAD_REPORT)

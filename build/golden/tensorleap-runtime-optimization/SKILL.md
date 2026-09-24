@@ -56,6 +56,15 @@ what limits runtime; work far below it is noise, however ugly the code.
 - **Lossless first.** A change is kept only if `tl_perf compare` shows the outputs are
   **equivalent** and runtime is **lower** with no memory regression. Changes that alter
   outputs are a separate, consent-gated step (Phase 5).
+- **The catalog is where you start, not where you stop.** Candidates come from
+  measurement: `profile` / `score` rank every component by cost, whether or not its problem
+  is in `reference/perf-bottleneck-catalog.md`. When the top cost matches no catalog
+  class, find the cause yourself — the profile's hot functions and repeated calls, a
+  focused `cProfile` of that component, the code — and fix it the same way (one change,
+  `compare`-verified). Fix **correctness bugs** you meet on the way first (a component that
+  raises on some samples, a metric wrong on batches, a loss that divides by the wrong axis):
+  they break the platform run no matter how fast it is. Log every problem no catalog class
+  describes as **new**, and tag it `"catalog": "new"` in the report.
 - **Run autonomously; ask only when blocked.** Infer everything you can from the repo and
   the artifacts. The questions you may need to ask: uncommitted changes in the repo
   (Phase 0), the model file to push if it can't be inferred (Phase 6), and the
@@ -147,6 +156,19 @@ component's function, the same file opened by several components, Python loops o
 in metrics, per-call model/table loading, per-sample `list.index`, debug statistics on large
 arrays, unbounded caches, unseeded randomness, data-dependent branches.
 
+Then read for **waste in general**, not only the catalogued patterns:
+- work repeated per sample that could run once (at import, in preprocess, once per file);
+- results computed and then thrown away, or computed twice under different names;
+- round trips between representations (PIL ↔ numpy, float64 ↔ float32, tensor ↔ array,
+  DataFrame ↔ dict);
+- Python loops over array elements, and copies of large arrays;
+- I/O, parsing or regex compilation inside per-sample code;
+- **bugs**: code that is wrong for some inputs, shapes or batch sizes, dead branches that
+  hide errors, silent `except:` blocks.
+
+(Work done at more precision or resolution than the output needs is real waste too, but
+removing it changes outputs — that belongs to Phase 5.)
+
 Write what you find to `tensorleap/runtime-optimization/static.json`:
 
 ```json
@@ -178,11 +200,13 @@ equivalence check only covers branches the sampled data executes.
 ## Phase 4 — Lossless optimization loop
 
 ```
-1. PICK     the highest-priority candidate that is worth it: ratio to inference >= 1, or
-            >= 10% of expected runtime. Skip ones marked (minor). Startup is attacked only
-            when it is large in absolute terms (it is paid once per worker).
+1. PICK     the highest-priority candidate that is worth it — catalogued or not: ratio to
+            inference >= 1, or >= 10% of expected runtime. Skip ones marked (minor).
+            Startup is attacked only when it is large in absolute terms (it is paid once
+            per worker).
 2. EXPLAIN  why it is slow, from its evidence + the code (profile diagnostics list hot
-            functions and repeated calls). No explanation -> no change.
+            functions and repeated calls; if no catalog class fits, profile that component
+            with cProfile and read the hot path). No explanation -> no change.
 3. CHANGE   one fix from the catalog / reference/perf-levers.md. It must respect
             the execution model: rely on a cache ONLY where Tensorleap shares it (within
             one sample's encoders + metadata, or within one process across samples),
@@ -221,37 +245,60 @@ expected gain from the profile, and the cost; ask once; apply only what the user
 one commit each; `tl_perf compare` must show **only** the declared fields changed. If the
 user declines everything, that is a valid outcome — record it.
 
-## Phase 6 — Server validation (push by default)
+## Phase 6 — Server smoke validation (push by default)
 
-Validate the optimized integration on the Tensorleap server — **push by default, don't
-ask**, unless the user said not to push. Use the batch size from Phase 1.
+Prove the optimized integration still **works** on the Tensorleap server: every component
+runs there without errors. This is a smoke test, not a runtime measurement (Phases 1–4
+measured runtime), so it runs on a **small subset — about 50 samples per state** — and
+finishes in minutes. **Push by default, don't ask**, unless the user said not to push. Use
+the batch size from Phase 1, capped at the subset size.
 
 1. `scripts/perf_preflight.sh` → exit 0 required (see Phase 0 for the others).
 2. Model file: the one `@tensorleap_load_model` loads locally (ask only if it can't be
-   inferred). Version name: `<integration>-perf-<yyyymmdd>`.
-3. **Reconcile first — the server is the source of truth:** `leap run list -t Push`; if a
+   inferred). Version name: `<integration>-perf-smoke-<yyyymmdd>`.
+3. **Build the subset on a throwaway branch**, so the cap never touches the optimized code:
+   `git switch -c tensorleap-runtime-optimization-smoke`. In the `@tensorleap_preprocess`
+   function, cap each state right where its `PreprocessResponse` is built — and change
+   nothing else:
+   - list of ids: `sample_ids[:50]`;
+   - grouped response: the first groups that together hold about 50 samples;
+   - `length=` form: `length=min(length, 50)`.
+
+   Mark it `# smoke-validation cap: not for merge` and commit. Check that the capped
+   integration still loads: `tl_perf preflight --out tensorleap/runtime-optimization/smoke`
+   (exit 0; the separate `--out` keeps the real `preflight.json` intact).
+4. **Reconcile first — the server is the source of truth:** `leap run list -t Push`; if a
    push for this project is still in flight, wait for it; never re-push blind.
-4. Push as a background shell (it can take longer than a foreground command allows):
-   ```
-   leap push -m <model> -n <version> -b <batch> --eval --yes < /dev/null > push.log 2>&1
-   ```
-   `--yes` acknowledges pre-push warnings instead of waiting at a prompt. Never use
-   `--no-wait`. If `push.log` contains `View errors in interactive mode`, the
-   push **failed** (older CLIs hang there): kill it and read `leap run logs <push-run-id>`.
-   **Keep the push process alive until the Evaluate exists.** `--eval` creates the
-   Evaluate from your machine *after* the push finishes; if the push process dies first
-   (session ends, job reaped), there is a Push and no Evaluate. So until `leap run list -t
-   Evaluate` shows the new run, don't let the session end: keep checking yourself
-   (`leap run list -t Push`, `sleep` between checks), or — only if your environment
-   re-invokes you when a background job finishes — wait for that notification. The first
-   push to a server can take long (it may pull a large base image). Once the Evaluate
-   exists, it runs on the server independently.
-5. **As soon as the Evaluate exists, finish the deliverables — don't wait for it to end.**
+5. Push from the smoke branch, as a background shell:
+   - **Current CLIs** — `leap push -h` says that with `--eval`, `--no-wait` lets the
+     server run the evaluation itself once the push finishes:
+     ```
+     leap push -m <model> -n <version> -b <batch> --eval --no-wait --yes < /dev/null > push.log 2>&1
+     ```
+     It returns once the push has started; the Evaluate no longer depends on this
+     session. Follow it with `leap run info <push-job-id>` (status, and the chained
+     Evaluate's id) or `leap run list -t Evaluate`.
+   - **Older CLIs** (no such sentence in `leap push -h`): the same command **without**
+     `--no-wait` — there, `--eval` creates the Evaluate from your machine after the push
+     finishes, so **keep the push process alive until the Evaluate exists**. Until `leap
+     run list -t Evaluate` shows the new run, don't let the session end: keep checking
+     (`sleep` between checks), or — only if your environment re-invokes you when a
+     background job finishes — wait for that notification.
+
+   `--yes` acknowledges pre-push warnings instead of waiting at a prompt. If `push.log`
+   contains `View errors in interactive mode`, the push **failed** (older CLIs hang there):
+   kill it and read `leap run logs <push-run-id>`. The first push to a server can take long
+   (it may pull a large base image).
+6. **Back to the optimized code:** once the push job shows in `leap run list -t Push` (the
+   code is uploaded by then), `git switch tensorleap-runtime-optimization` and delete the
+   smoke branch (`git branch -D tensorleap-runtime-optimization-smoke`). If you must
+   re-push later, recreate the smoke branch the same way.
+7. **As soon as the Evaluate exists, finish the deliverables — don't wait for it to end.**
    Write `report.json` with `server_validation` = `{"status": "IN PROGRESS", "job":
    "<evaluate run id>"}`, run `tl_perf report`, and commit the report, the log and
    `static.json`. A long evaluation (or a session that ends) must never leave the work
    without a report. Then:
-6. Find the Evaluate run (`leap run list -t Evaluate`) and watch **that** run with a
+8. Find the Evaluate run (`leap run list -t Evaluate`) and watch **that** run with a
    token-free background loop until it is terminal:
    ```
    while :; do s=$(leap run list -t Evaluate | grep "$RUN_ID")
@@ -259,23 +306,25 @@ ask**, unless the user said not to push. Use the batch size from Phase 1.
      sleep 300; done
    ```
    If the watcher dies, the evaluation is unaffected — relaunch the watcher, never re-push.
-   **Push finished but no Evaluate exists** (the push process was killed between the push
-   and the evaluate trigger — background jobs can be reaped): re-push over the same
+   **Push finished but no Evaluate exists** (older CLIs: the push process was killed
+   between the push and the evaluate trigger): from the smoke branch, re-push over the same
    version, `leap push -m <model> -o <version> -b <batch> -u metric --eval --yes`, then
    watch the new run. (On an overwrite the CLI asks what changed; `-u metric` answers
    "full re-evaluation" without a prompt.)
-7. **The server rejects the Evaluate at creation** — the Push is FINISHED but the Evaluate
+9. **The server rejects the Evaluate at creation** — the Push is FINISHED but the Evaluate
    is FAILED immediately with empty logs, or the CLI prints a 4xx (e.g. `400 Bad Request`):
    retry **once** with the overwrite command above. If it is rejected again, **stop**. The
    integration passed every push stage, so this is a server-side problem the integration
    can't fix: record the exact error, the run ids and what you tried as a Recommended
    Tensorleap action, and finish the report as not server-validated. Don't guess at batch
    sizes or flags.
-8. Outcome: **FINISHED** → update `server_validation` in `report.json` (status, duration),
-   re-run `tl_perf report`, and commit the update. **FAILED** → `leap run logs <run-id>`; an
-   out-of-memory failure means the batch size or a cache is too large for the server: lower
-   `-b` (re-run `fit` with the server's memory) and re-push with `-o <version> -u metric`; any other
-   error is an integration bug to fix, re-verify with `compare`, and re-push.
+10. Outcome: **FINISHED** → update `server_validation` in `report.json` (status, duration,
+    `"notes": "smoke subset: <n> samples per state"`), re-run `tl_perf report`, and commit
+    the update. **FAILED** → `leap run logs <run-id>`; an out-of-memory failure means the
+    batch size or a cache is too large for the server: lower `-b` (re-run `fit` with the
+    server's memory) and re-push with `-o <version> -u metric`. Any other error is an
+    integration bug: fix it on the optimization branch, re-verify with `compare`, and
+    re-run the smoke push.
 
 **GATE:** the Evaluate reached a terminal state, or you recorded why validation was not
 possible.
@@ -285,8 +334,10 @@ possible.
 The report follows `reference/perf-report-template.md`: write
 `tensorleap/runtime-optimization/report.json`, then `tl_perf report` (exit 11 → fix and
 re-run). If Phase 6 already produced it (validation in progress), finalize it here with the
-Evaluate's outcome; if there was no server validation, write it now. Read `report.md` once
-as the reader would, fix what is unclear, and commit it with the log and `static.json`.
+Evaluate's outcome; if there was no server validation, write it now. Tag every entry in
+`optimizations` with its `kind` (`performance`, `correctness` or `prerequisite`) and its
+`catalog` class (a letter, or `new` when no class describes it). Read `report.md` once as
+the reader would, fix what is unclear, and commit it with the log and `static.json`.
 
 Your closing message names the deliverables — the branch and its commits, `report.md`,
 the remaining bottleneck in one sentence — and stops.
@@ -313,6 +364,8 @@ the remaining bottleneck in one sentence — and stops.
 - Never make a visualizer depend on a cache filled elsewhere, and never assume a cache
   survives across worker processes.
 - Never alter the user's source data or the model weights.
-- Never re-push blind or use `leap push --no-wait`.
+- Never re-push blind. Use `--no-wait` only together with `--eval`, and only on a CLI whose
+  `leap push -h` says the server then runs the evaluation itself.
+- Never let the smoke-validation cap reach the optimization branch.
 - Never put secrets, credentials or data paths into the report beyond what the user's own
   repo already contains.
