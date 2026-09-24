@@ -108,6 +108,21 @@ class ReportTest(unittest.TestCase):
         self.assertIn("metadata:scan_position", md)
         self.assertIn("bit-identical on 32 samples", md)
 
+    def test_share_is_rendered_verbatim(self):
+        self.assertEqual(self.run_report(VALID_REPORT), tl_perf.EXIT_OK)
+        with open(os.path.join(self.out, "report.md")) as fh:
+            md = fh.read()
+        self.assertIn("**metadata:scan_position** — 61%", md)
+        self.assertNotIn("of expected runtime of expected runtime", md)
+
+    def test_output_dir_keeps_artifacts_out_of_git(self):
+        self.run_report(VALID_REPORT)
+        with open(os.path.join(self.out, ".gitignore")) as fh:
+            ignore = fh.read().split()
+        self.assertEqual(ignore[ignore.index("*")], "*")
+        for keep in ("!report.md", "!report.json", "!optimization-log.md", "!static.json"):
+            self.assertIn(keep, ignore)
+
     def test_missing_required_field_exits_11(self):
         doc = dict(VALID_REPORT)
         del doc["remaining_bottleneck"]

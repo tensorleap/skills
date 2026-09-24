@@ -111,6 +111,26 @@ def out_dir(args):
     return args.out if os.path.isabs(args.out) else os.path.join(args.root, args.out)
 
 
+OUT_GITIGNORE = """# tl_perf measurement artifacts: large and machine-specific. Only the deliverables are kept.
+*
+!.gitignore
+!report.md
+!report.json
+!optimization-log.md
+!static.json
+"""
+
+
+def ensure_out(path):
+    """Create the output dir with its own .gitignore, so measurement artifacts never land
+    in the user's commits whatever the repo's own .gitignore says."""
+    os.makedirs(path, exist_ok=True)
+    ignore = os.path.join(path, ".gitignore")
+    if not os.path.exists(ignore):
+        with open(ignore, "w", encoding="utf-8") as fh:
+            fh.write(OUT_GITIGNORE)
+
+
 def fmt_ms(seconds):
     return "%.3f ms" % (seconds * 1000.0)
 
@@ -2561,7 +2581,7 @@ def render_report(doc, out):
 
     rb = doc["remaining_bottleneck"]
     lines += ["## Remaining bottleneck", "",
-              "**%s**%s" % (rb["component"], " — %s of expected runtime" % rb["share"] if rb.get("share") else ""),
+              "**%s**%s" % (rb["component"], " — %s" % rb["share"] if rb.get("share") else ""),
               "", "- Evidence: %s" % rb["evidence"]]
     if rb.get("explanation"):
         lines.append("- Why: %s" % rb["explanation"])
@@ -2721,6 +2741,8 @@ def main(argv=None):
         parser.print_help()
         return EXIT_BLOCKER
     args.root = os.path.abspath(args.root)
+    if args.func is not cmd_worker:
+        ensure_out(out_dir(args))
     return args.func(args)
 
 

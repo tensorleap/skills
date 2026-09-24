@@ -97,10 +97,8 @@ poetry run python scripts/tl_perf.py <subcommand> [options]
    `requirements.txt` → the venv the user runs it with). Everything below runs in it.
 2. **Repo state.** `git status`. If there are uncommitted changes, **ask** whether to commit
    them first — never mix the user's work with optimization commits. Then create a branch:
-   `git switch -c tensorleap-runtime-optimization`. Add
-   `tensorleap/runtime-optimization/runs/` and `tensorleap/runtime-optimization/baseline/`
-   to `.gitignore` (large measurement artifacts); commit the report, the log and
-   `static.json` at the end.
+   `git switch -c tensorleap-runtime-optimization`. (`tl_perf` gives its output directory
+   its own `.gitignore`: only the report, the log and `static.json` are ever committed.)
 3. **`tl_perf preflight`.** Act on the exit code (table above). Note in the log: device,
    code-loader version and features (`grouped_preprocess` needs ≥ 1.0.196), state sizes.
 4. **Server check (for Phase 6, non-blocking):** `scripts/perf_preflight.sh`.
@@ -238,7 +236,12 @@ ask**, unless the user said not to push. Use the batch size from Phase 1.
    re-invokes you when a background job finishes — wait for that notification. The first
    push to a server can take long (it may pull a large base image). Once the Evaluate
    exists, it runs on the server independently.
-5. Find the Evaluate run (`leap run list -t Evaluate`) and watch **that** run with a
+5. **As soon as the Evaluate exists, finish the deliverables — don't wait for it to end.**
+   Write `report.json` with `server_validation` = `{"status": "IN PROGRESS", "job":
+   "<evaluate run id>"}`, run `tl_perf report`, and commit the report, the log and
+   `static.json`. A long evaluation (or a session that ends) must never leave the work
+   without a report. Then:
+6. Find the Evaluate run (`leap run list -t Evaluate`) and watch **that** run with a
    token-free background loop until it is terminal:
    ```
    while :; do s=$(leap run list -t Evaluate | grep "$RUN_ID")
@@ -251,14 +254,15 @@ ask**, unless the user said not to push. Use the batch size from Phase 1.
    version, `leap push -m <model> -o <version> -b <batch> -u metric --eval --yes`, then
    watch the new run. (On an overwrite the CLI asks what changed; `-u metric` answers
    "full re-evaluation" without a prompt.)
-6. **The server rejects the Evaluate at creation** — the Push is FINISHED but the Evaluate
+7. **The server rejects the Evaluate at creation** — the Push is FINISHED but the Evaluate
    is FAILED immediately with empty logs, or the CLI prints a 4xx (e.g. `400 Bad Request`):
    retry **once** with the overwrite command above. If it is rejected again, **stop**. The
    integration passed every push stage, so this is a server-side problem the integration
    can't fix: record the exact error, the run ids and what you tried as a Recommended
    Tensorleap action, and finish the report as not server-validated. Don't guess at batch
    sizes or flags.
-7. Outcome: **FINISHED** → record the duration. **FAILED** → `leap run logs <run-id>`; an
+8. Outcome: **FINISHED** → update `server_validation` in `report.json` (status, duration),
+   re-run `tl_perf report`, and commit the update. **FAILED** → `leap run logs <run-id>`; an
    out-of-memory failure means the batch size or a cache is too large for the server: lower
    `-b` (re-run `fit` with the server's memory) and re-push with `-o <version> -u metric`; any other
    error is an integration bug to fix, re-verify with `compare`, and re-push.
@@ -268,9 +272,11 @@ possible.
 
 ## Phase 7 — Report
 
-Write `tensorleap/runtime-optimization/report.json` following
-`reference/perf-report-template.md`, then `tl_perf report` (exit 11 → fix and
-re-run). Read `report.md` once as the reader would and fix what is unclear.
+The report follows `reference/perf-report-template.md`: write
+`tensorleap/runtime-optimization/report.json`, then `tl_perf report` (exit 11 → fix and
+re-run). If Phase 6 already produced it (validation in progress), finalize it here with the
+Evaluate's outcome; if there was no server validation, write it now. Read `report.md` once
+as the reader would, fix what is unclear, and commit it with the log and `static.json`.
 
 Your closing message names the deliverables — the branch and its commits, `report.md`,
 the remaining bottleneck in one sentence — and stops.
