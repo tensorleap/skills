@@ -188,6 +188,20 @@ class HelperTest(unittest.TestCase):
         specs = [{"name": "x", "shape": [None, 10]}]
         self.assertIsNone(tl_perf.map_inputs(specs, dataset))
 
+    def test_run_model_feeds_the_declared_input_dtype(self):
+        import numpy as np
+        seen = {}
+
+        class Session:
+            def run(self, _outputs, feed):
+                seen.update({k: v.dtype for k, v in feed.items()})
+                return [np.zeros((1, 2), np.float32)]
+
+        lm = tl_perf.LoadedModel(Session(), "onnxruntime", None)
+        specs = [{"name": "x", "dtype": "float32"}, {"name": "lengths", "dtype": "int64"}]
+        tl_perf.run_model(lm, specs, [np.ones((1, 3), np.float64), np.array([7.0], np.float32)])
+        self.assertEqual(seen, {"x": np.dtype("float32"), "lengths": np.dtype("int64")})
+
     def test_expected_total_counts_startup_once(self):
         p = {"dataset": {"state_lengths": {"training": 6, "validation": 4}},
              "startup": {"stats": {"mean": 2.0}}}

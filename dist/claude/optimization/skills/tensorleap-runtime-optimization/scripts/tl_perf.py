@@ -569,7 +569,15 @@ def make_batch(specs, bs, pool, rng):
 def run_model(lm, specs, batch):
     import numpy as np
     if lm.framework == "onnxruntime":
-        outs = lm.model.run(None, {s["name"]: a for s, a in zip(specs, batch)})
+        # Feed each input in the model's declared dtype (an encoder may return float32 for
+        # an int64 input, which the integration test accepts); onnxruntime itself won't cast.
+        feed = {}
+        for s, a in zip(specs, batch):
+            a = np.asarray(a)
+            if s.get("dtype") and a.dtype != np.dtype(s["dtype"]):
+                a = a.astype(s["dtype"])
+            feed[s["name"]] = a
+        outs = lm.model.run(None, feed)
         return [np.asarray(o) for o in outs]
     out = lm.model(batch if len(batch) > 1 else batch[0], training=False)
     outs = out if isinstance(out, (list, tuple)) else [out]
@@ -2565,7 +2573,7 @@ REPORT_REQUIRED = {
 }
 OPTIMIZATION_REQUIRED = ("problem", "change", "evidence", "equivalence")
 OPTIMIZATION_KINDS = ("performance", "correctness", "prerequisite")
-CATALOG_CLASSES = tuple("ABCDEFGHIJKLMNOPQRSTU") + ("new",)
+CATALOG_CLASSES = tuple("ABCDEFGHIJKLMNOPQRSTUVW") + ("new",)
 
 
 def validate_report(doc):
@@ -2587,7 +2595,7 @@ def validate_report(doc):
         if opt.get("kind") is not None and opt["kind"] not in OPTIMIZATION_KINDS:
             errors.append("optimizations[%d] 'kind' must be one of %s" % (i, ", ".join(OPTIMIZATION_KINDS)))
         if opt.get("catalog") is not None and opt["catalog"] not in CATALOG_CLASSES:
-            errors.append("optimizations[%d] 'catalog' must be a class letter A-U or 'new'" % i)
+            errors.append("optimizations[%d] 'catalog' must be a class letter A-W or 'new'" % i)
     rb = doc.get("remaining_bottleneck")
     if isinstance(rb, dict):
         for key in ("component", "evidence"):
