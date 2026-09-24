@@ -280,11 +280,17 @@ the batch size from Phase 1, capped at the subset size.
    code is uploaded by then), `git switch tensorleap-runtime-optimization` and delete the
    smoke branch (`git branch -D tensorleap-runtime-optimization-smoke`). If you must
    re-push later, recreate the smoke branch the same way.
-7. **As soon as the Evaluate exists, finish the deliverables — don't wait for it to end.**
-   Write `report.json` with `server_validation` = `{"status": "IN PROGRESS", "job":
-   "<evaluate run id>"}`, run `tl_perf report`, and commit the report, the log and
-   `static.json`. A long evaluation (or a session that ends) must never leave the work
-   without a report. Then:
+7. **Finish the deliverables before you wait for anything.** As soon as the push is
+   submitted (current CLIs — the server chains the Evaluate itself) or the Evaluate exists
+   (older CLIs), write `report.json` with `server_validation` = `{"status": "SUBMITTED" or
+   "IN PROGRESS", "job": "<push or evaluate run id>"}`, run `tl_perf report`, and
+   **commit** the report, the log and `static.json`. A long push or evaluation, or a
+   session that ends, must never leave the work without a committed report.
+
+   **Wait in the foreground.** Poll with one foreground command at a time (`sleep 120 &&
+   leap run info <push-job-id>`), not a background timer followed by ending your turn: an
+   unattended session that ends its turn is over, and whatever it was waiting for is
+   lost. Then:
 8. Find the Evaluate run (`leap run list -t Evaluate`) and watch **that** run with a
    token-free background loop until it is terminal:
    ```
