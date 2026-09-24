@@ -190,6 +190,13 @@ equivalence check only covers branches the sampled data executes.
    nondeterministic outputs. For a large or slow dataset use `--samples` / `--max-seconds`
    to keep one run within minutes; keep the same settings for every later run.
 2. `tl_perf score --static tensorleap/runtime-optimization/static.json`.
+
+   **Visualized samples.** Visualizers run on a subset of samples, not on every one. By
+   default `score`, `compare` and `report` weight visualizers by *every* sample, which
+   hugely overstates them on a large dataset. When the dataset is much larger than what
+   the evaluation visualizes, pass `--visualized-samples <n>` (the number of samples the
+   user's evaluation visualizes) to `score`, `compare` and `report` alike, keep it fixed
+   for the whole loop, and state the value you assumed in the report.
 3. Read, in this order:
    a. **worker failures / "not profiled"** lines → a component that crashes or can't be
       wired is fixed first (it breaks on the platform too);
@@ -205,8 +212,9 @@ equivalence check only covers branches the sampled data executes.
 ```
 1. PICK     the highest-priority candidate that is worth it — catalogued or not: ratio to
             inference >= 1, or >= 10% of expected runtime. Skip ones marked (minor).
-            Startup is attacked only when it is large in absolute terms (it is paid once
-            per worker).
+            Startup (import + preprocess, paid by every worker) counts once in the
+            expected total — `score` and `compare` both include it — so a preprocess fix
+            is judged like any other; it earns exit 0 when startup is a real share.
 2. EXPLAIN  why it is slow, from its evidence + the code (profile diagnostics list hot
             functions and repeated calls; if no catalog class fits, profile that component
             with cProfile and read the hot path). No explanation -> no change.

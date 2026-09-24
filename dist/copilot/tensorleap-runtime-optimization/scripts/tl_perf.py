@@ -2113,10 +2113,17 @@ def pipeline_costs(p):
     }
 
 
+def startup_seconds(p):
+    """Mean per-worker startup (import + preprocess). A job pays it at least once before
+    its first sample, so it is part of the expected total (as in score)."""
+    return (((p.get("startup") or {}).get("stats") or {}).get("mean")) or 0.0
+
+
 def expected_total(p, costs, visualized):
     n = sum((p.get("dataset") or {}).get("state_lengths", {}).values())
     nv = visualized or n
-    return n * (costs["generation"] + costs["inference"] + costs["metrics"]) + nv * costs["visualizers"]
+    return startup_seconds(p) + n * (costs["generation"] + costs["inference"] + costs["metrics"]) + \
+        nv * costs["visualizers"]
 
 
 def cmd_compare(args):
@@ -2174,6 +2181,8 @@ def cmd_compare(args):
         "baseline": base_dir, "reference": ref_dir, "run": cur_dir, "exit_code": code,
         "equivalence": eq,
         "per_sample_seconds": {"baseline": bc, "reference": rc, "current": cc},
+        "startup_seconds_per_worker": {"baseline": startup_seconds(base_p), "reference": startup_seconds(ref_p),
+                                       "current": startup_seconds(cur_p)},
         "sorted_what_if_generation_mean": {"reference": rw.get("mean"), "current": cw.get("mean")},
         "expected_total_seconds": {"baseline": bt, "reference": rt, "current": ct,
                                    "gain": gain, "cumulative_gain": cumulative},
@@ -2206,6 +2215,8 @@ def cmd_compare(args):
     print("  %-12s %12s %12s %12s" % ("per sample", "baseline", "reference", "current"))
     for block in ("generation", "inference", "metrics", "visualizers"):
         print("  %-12s %12s %12s %12s" % (block, fmt_ms(bc[block]), fmt_ms(rc[block]), fmt_ms(cc[block])))
+    print("  %-12s %12s %12s %12s" % ("startup/wkr", "%.2f s" % startup_seconds(base_p),
+                                      "%.2f s" % startup_seconds(ref_p), "%.2f s" % startup_seconds(cur_p)))
     if bw.get("mean") and cw.get("mean"):
         print("  %-12s %12s %12s %12s" % ("gen (sorted)", "", fmt_ms(bw["mean"]), fmt_ms(cw["mean"])))
     print("  expected total: %.1f s -> %.1f s (this change %+.1f%%; since baseline %+.1f%%)" % (

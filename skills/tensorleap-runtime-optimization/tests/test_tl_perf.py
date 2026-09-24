@@ -188,6 +188,14 @@ class HelperTest(unittest.TestCase):
         specs = [{"name": "x", "shape": [None, 10]}]
         self.assertIsNone(tl_perf.map_inputs(specs, dataset))
 
+    def test_expected_total_counts_startup_once(self):
+        p = {"dataset": {"state_lengths": {"training": 6, "validation": 4}},
+             "startup": {"stats": {"mean": 2.0}}}
+        costs = {"generation": 0.1, "inference": 0.02, "metrics": 0.01, "visualizers": 0.5}
+        self.assertAlmostEqual(tl_perf.expected_total(p, costs, 3), 2.0 + 10 * 0.13 + 3 * 0.5)
+        del p["startup"]
+        self.assertAlmostEqual(tl_perf.expected_total(p, costs, None), 10 * 0.13 + 10 * 0.5)
+
     def test_static_batch_dim_reads_the_model_inputs(self):
         class Inp:
             def __init__(self, shape):
