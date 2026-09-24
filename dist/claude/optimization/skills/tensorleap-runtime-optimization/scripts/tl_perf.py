@@ -439,6 +439,24 @@ class LoadedModel:
         return {"label": "GPU" if gpus else "CPU", "tensorflow_gpus": [g.name for g in gpus]}
 
 
+def static_batch_dim(model, framework):
+    """The model's leading input dimension when every input fixes it to the same integer
+    (e.g. an ONNX exported with batch 1), else None."""
+    try:
+        if framework == "onnxruntime":
+            dims = [i.shape[0] if i.shape else None for i in model.get_inputs()]
+        else:
+            dims = [list(t.shape)[0] if len(t.shape) else None for t in model.inputs]
+    except Exception:
+        return None
+    dims = set(dims)
+    if len(dims) == 1:
+        dim = dims.pop()
+        if isinstance(dim, int) and not isinstance(dim, bool) and dim > 0:
+            return dim
+    return None
+
+
 def load_model(integ):
     loader_fn, error = find_model_loader()
     if loader_fn is None:
@@ -451,8 +469,9 @@ def load_model(integ):
         is_onnx = isinstance(model, ort.InferenceSession)
     except ImportError:
         is_onnx = False
-    return LoadedModel(model, "onnxruntime" if is_onnx else "keras",
-                       getattr(handle, "fixed_batch_size", None))
+    framework = "onnxruntime" if is_onnx else "keras"
+    fixed = getattr(handle, "fixed_batch_size", None) or static_batch_dim(model, framework)
+    return LoadedModel(model, framework, fixed)
 
 
 # --------------------------------------------------------------------------- #

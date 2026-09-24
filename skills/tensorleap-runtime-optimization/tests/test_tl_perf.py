@@ -188,6 +188,23 @@ class HelperTest(unittest.TestCase):
         specs = [{"name": "x", "shape": [None, 10]}]
         self.assertIsNone(tl_perf.map_inputs(specs, dataset))
 
+    def test_static_batch_dim_reads_the_model_inputs(self):
+        class Inp:
+            def __init__(self, shape):
+                self.shape = shape
+
+        class Session:
+            def __init__(self, *shapes):
+                self._inputs = [Inp(s) for s in shapes]
+
+            def get_inputs(self):
+                return self._inputs
+
+        self.assertEqual(tl_perf.static_batch_dim(Session([1, 3, 640, 640]), "onnxruntime"), 1)
+        self.assertIsNone(tl_perf.static_batch_dim(Session(["batch", 3, 640, 640]), "onnxruntime"))
+        self.assertIsNone(tl_perf.static_batch_dim(Session([None, 10]), "onnxruntime"))
+        self.assertIsNone(tl_perf.static_batch_dim(Session([1, 3], [2, 3]), "onnxruntime"))
+
 
 if __name__ == "__main__":
     unittest.main()
