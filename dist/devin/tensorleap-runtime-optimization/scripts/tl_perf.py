@@ -176,6 +176,17 @@ def memory_info():
     return info
 
 
+def load_info():
+    """1-minute load average relative to cores: timings taken on a busy machine are noisy
+    and shift batch-size recommendations."""
+    try:
+        load1 = os.getloadavg()[0]
+    except (OSError, AttributeError):
+        return None
+    cores = os.cpu_count() or 1
+    return {"load1": load1, "cores": cores, "busy": load1 > 0.5 * cores}
+
+
 def peak_rss_gb():
     try:
         import resource
@@ -574,6 +585,12 @@ def cmd_preflight(args):
                                 "run tl_perf inside the integration's environment."))
         return _finish_preflight(args, report)
 
+    report["load"] = load_info()
+    if report["load"] and report["load"]["busy"]:
+        findings.append(finding("warn", "machine-busy",
+                                "Load average %.1f on %d cores: timings will be noisy and the "
+                                "recommended batch size may shift. Measure on a quiet machine."
+                                % (report["load"]["load1"], report["load"]["cores"])))
     mem = report["memory"]
     if mem["total_gb"] is not None and mem["total_gb"] < 8:
         findings.append(finding("warn", "low-ram", "Less than 8 GB of RAM (%.1f GB)." % mem["total_gb"]))
@@ -735,6 +752,7 @@ def cmd_floor(args):
         "knee_reached": knee_reached,
         "t_inf_per_sample_mean_seconds": recommended["per_sample_mean_seconds"],
         "peak_rss_gb": peak_rss_gb(),
+        "load": load_info(),
     }
     path = os.path.join(out_dir(args), "floor.json")
     write_json(path, report)
@@ -1793,8 +1811,12 @@ def cmd_profile(args):
     base = {"root": args.root, "entry": entry, "seed": args.seed, "batch_size": batch_size}
     timeout = args.worker_timeout
     workers = {}
+    args.load_start = load_info()
 
     print("tl_perf profile -> %s" % run_dir)
+    if args.load_start and args.load_start["busy"]:
+        print("  warning: machine busy (load %.1f on %d cores) — timings will be noisy" % (
+            args.load_start["load1"], args.load_start["cores"]))
     print("  [1/5] generation + inference + metrics (server-default order)...", flush=True)
     gen = workers["generate"] = run_worker("generate", dict(
         base, mode="random", samples_per_state=args.samples, metrics=True,
@@ -1843,6 +1865,8 @@ def cmd_profile(args):
     if set_baseline and nondet is not None:
         if os.path.isdir(baseline_dir):
             shutil.rmtree(baseline_dir)
+        if os.path.exists(os.path.join(out, "accepted.json")):
+            os.remove(os.path.join(out, "accepted.json"))   # gains restart from the new baseline
         shutil.copytree(run_dir, baseline_dir,
                         ignore=shutil.ignore_patterns("vis_payload.npz", "snapshot_repeat"))
     _print_profile(profile, set_baseline and nondet is not None, baseline_dir)
@@ -1870,6 +1894,7 @@ def _assemble_profile(args, run_dir, entry, batch_size, floor, workers, nondet):
                    "snapshot_samples_per_state": args.snapshot_samples,
                    "order": "server-default (random order)"},
         "code_loader": (code_loader_info() or {}).get("version"),
+        "load": {"start": getattr(args, "load_start", None), "end": load_info()},
         "floor": None if not floor else {
             k: floor.get(k) for k in ("t_inf_per_sample_mean_seconds", "recommended_batch_size",
                                       "framework", "device", "knee_reached")},
@@ -1977,10 +2002,19 @@ def expected_total(p, costs, visualized):
 
 
 def cmd_compare(args):
+    """Equivalence against the ORIGINAL baseline (every step stays lossless relative to the
+    start); gain and memory against the last ACCEPTED run (so each change must earn its own
+    gain — after one big win, a useless or slower change must not ride on it). An exit 0
+    makes the current run the new accepted reference."""
     out = out_dir(args)
     base_dir = args.baseline or os.path.join(out, "baseline")
     cur_dir = args.run or _latest_run(out)
+    accepted = _read_json(os.path.join(out, "accepted.json")) or {}
+    ref_dir = args.reference or accepted.get("run") or base_dir
+    if cur_dir and ref_dir and os.path.realpath(ref_dir) == os.path.realpath(cur_dir):
+        ref_dir = base_dir
     base_p = _read_json(os.path.join(base_dir, "profile.json"))
+    ref_p = _read_json(os.path.join(ref_dir, "profile.json")) or base_p
     cur_p = _read_json(os.path.join(cur_dir, "profile.json")) if cur_dir else None
     if base_p is None or cur_p is None:
         print("tl_perf compare: need a baseline (%s) and a profiled run (%s)" % (base_dir, cur_dir),
@@ -1993,39 +2027,51 @@ def cmd_compare(args):
         if base_snap is not None and cur_snap is not None else \
         {"equivalent": False, "error": "snapshot missing"}
 
-    bc, cc = pipeline_costs(base_p), pipeline_costs(cur_p)
+    bc, rc, cc = pipeline_costs(base_p), pipeline_costs(ref_p), pipeline_costs(cur_p)
     bt = expected_total(base_p, bc, args.visualized_samples)
+    rt = expected_total(ref_p, rc, args.visualized_samples)
     ct = expected_total(cur_p, cc, args.visualized_samples)
-    gain = (bt - ct) / bt if bt else 0.0
-    bw = (base_p.get("generation_sorted_what_if") or {}).get("per_sample_seconds") or {}
+    gain = (rt - ct) / rt if rt else 0.0                  # this step
+    cumulative = (bt - ct) / bt if bt else 0.0            # since the baseline
+    rw = (ref_p.get("generation_sorted_what_if") or {}).get("per_sample_seconds") or {}
     cw = (cur_p.get("generation_sorted_what_if") or {}).get("per_sample_seconds") or {}
-    b_mem = ((base_p.get("memory") or {}).get("generate") or {}).get("peak_rss_gb")
+    r_mem = ((ref_p.get("memory") or {}).get("generate") or {}).get("peak_rss_gb")
     c_mem = ((cur_p.get("memory") or {}).get("generate") or {}).get("peak_rss_gb")
-    mem_increase = (c_mem - b_mem) / b_mem if b_mem and c_mem else 0.0
+    mem_increase = (c_mem - r_mem) / r_mem if r_mem and c_mem else 0.0
+    loads = [((p.get("load") or {}).get("start") or {}).get("load1") for p in (ref_p, cur_p)]
+    load_warning = None
+    if all(x is not None for x in loads) and max(loads) > 2.0 * max(min(loads), 1.0):
+        load_warning = ("the two runs were taken under different machine load (%.1f vs %.1f); "
+                        "re-measure before trusting the gain" % tuple(loads))
 
     if not eq.get("equivalent"):
         code = EXIT_NOT_EQUIVALENT
-    elif mem_increase > args.max_mem_increase and (c_mem - b_mem) > 0.0625:
+    elif mem_increase > args.max_mem_increase and (c_mem - r_mem) > 0.0625:
         code = EXIT_MEMORY_REGRESSION
     elif gain < args.min_gain:
         code = EXIT_NO_GAIN
     else:
         code = EXIT_OK
     report = {
-        "baseline": base_dir, "run": cur_dir, "exit_code": code,
+        "baseline": base_dir, "reference": ref_dir, "run": cur_dir, "exit_code": code,
         "equivalence": eq,
-        "per_sample_seconds": {"baseline": bc, "current": cc},
-        "sorted_what_if_generation_mean": {"baseline": bw.get("mean"), "current": cw.get("mean")},
-        "expected_total_seconds": {"baseline": bt, "current": ct, "gain": gain},
-        "peak_rss_gb": {"baseline": b_mem, "current": c_mem, "increase": mem_increase},
+        "per_sample_seconds": {"baseline": bc, "reference": rc, "current": cc},
+        "sorted_what_if_generation_mean": {"reference": rw.get("mean"), "current": cw.get("mean")},
+        "expected_total_seconds": {"baseline": bt, "reference": rt, "current": ct,
+                                   "gain": gain, "cumulative_gain": cumulative},
+        "peak_rss_gb": {"reference": r_mem, "current": c_mem, "increase": mem_increase},
+        "load_warning": load_warning,
         "thresholds": {"min_gain": args.min_gain, "max_mem_increase": args.max_mem_increase,
                        "rtol": args.rtol, "atol": args.atol},
     }
     path = os.path.join(cur_dir, "compare.json")
     write_json(path, report)
     write_json(os.path.join(out, "compare.json"), report)
+    if code == EXIT_OK and not args.no_accept:
+        write_json(os.path.join(out, "accepted.json"), {"run": cur_dir})
+    bw = rw  # printed as the reference column below
 
-    print("tl_perf compare: %s -> %s" % (base_dir, cur_dir))
+    print("tl_perf compare: equivalence vs %s; gain vs %s" % (base_dir, ref_dir))
     verdict = "EQUIVALENT" if eq.get("equivalent") else "NOT EQUIVALENT"
     print("  outputs: %s (%s values compared bit-for-bit%s)" % (
         verdict, eq.get("checked_values"),
@@ -2039,14 +2085,19 @@ def cmd_compare(args):
             b.get("std", 0), c.get("std", 0)))
     for m in eq.get("missing") or []:
         print("    missing: %s" % m)
-    print("  %-12s %12s %12s" % ("per sample", "baseline", "current"))
+    print("  %-12s %12s %12s %12s" % ("per sample", "baseline", "reference", "current"))
     for block in ("generation", "inference", "metrics", "visualizers"):
-        print("  %-12s %12s %12s" % (block, fmt_ms(bc[block]), fmt_ms(cc[block])))
+        print("  %-12s %12s %12s %12s" % (block, fmt_ms(bc[block]), fmt_ms(rc[block]), fmt_ms(cc[block])))
     if bw.get("mean") and cw.get("mean"):
-        print("  %-12s %12s %12s" % ("gen (sorted)", fmt_ms(bw["mean"]), fmt_ms(cw["mean"])))
-    print("  expected total: %.1f s -> %.1f s (%+.1f%%)" % (bt, ct, -100.0 * gain))
-    if b_mem and c_mem:
-        print("  peak RSS (generation worker): %.2f GB -> %.2f GB (%+.1f%%)" % (b_mem, c_mem, 100 * mem_increase))
+        print("  %-12s %12s %12s %12s" % ("gen (sorted)", "", fmt_ms(bw["mean"]), fmt_ms(cw["mean"])))
+    print("  expected total: %.1f s -> %.1f s (this change %+.1f%%; since baseline %+.1f%%)" % (
+        rt, ct, -100.0 * gain, -100.0 * cumulative))
+    if r_mem and c_mem:
+        print("  peak RSS (generation worker): %.2f GB -> %.2f GB (%+.1f%%)" % (r_mem, c_mem, 100 * mem_increase))
+    if load_warning:
+        print("  warning: %s" % load_warning)
+    if code == EXIT_OK and not args.no_accept:
+        print("  accepted: this run is now the reference for the next change")
     print("  -> %s (exit %d)" % (path, code))
     return code
 
@@ -2631,6 +2682,10 @@ def build_parser():
                        help="equivalence + timing/memory delta against the baseline")
     p.add_argument("--baseline", default=None, help="baseline dir (default: <out>/baseline)")
     p.add_argument("--run", default=None, help="run dir (default: latest run)")
+    p.add_argument("--reference", default=None,
+                   help="run to measure the gain against (default: last accepted run, else baseline)")
+    p.add_argument("--no-accept", action="store_true",
+                   help="don't make this run the new reference on exit 0")
     p.add_argument("--rtol", type=float, default=0.0, help="declared relative tolerance")
     p.add_argument("--atol", type=float, default=0.0, help="declared absolute tolerance")
     p.add_argument("--min-gain", type=float, default=0.05,

@@ -82,7 +82,7 @@ poetry run python scripts/tl_perf.py <subcommand> [options]
 | `fit` | per-sample tensor size, rows per state, **measured** model memory per batch size, recommended batch size, and whether every metric/loss accepts a batch | `fit.json` |
 | `profile` | every wired component, run the way Tensorleap runs it (fresh processes per pass: generation, sorted-order what-if, visualizers, diagnostics, output snapshot); the first run becomes the equivalence **baseline** | `runs/NNN/profile.json`, `profile.json`, `baseline/` |
 | `score` | ranks candidates: expected seconds removable × confidence, with evidence | `score.json` |
-| `compare` | latest run vs baseline: output equivalence, expected-runtime gain, memory | `runs/NNN/compare.json` |
+| `compare` | latest run: output equivalence vs the **baseline**; gain and memory vs the **last accepted run** (exit 0 makes it the new reference) | `runs/NNN/compare.json` |
 | `report` | renders your `report.json` into `report.md` | `report.md` |
 
 **Exit code → action** (all subcommands):
@@ -97,7 +97,7 @@ poetry run python scripts/tl_perf.py <subcommand> [options]
 | 6 | the model can't be loaded standalone | check `@tensorleap_load_model` loads a local `.onnx`/`.h5`; fix, re-run |
 | 7 | a profiling pass failed | read `runs/NNN/worker-*.log`; usually a component raising on some sample — fix the integration bug (it would fail on the platform too), re-run |
 | 8 | `compare`: outputs **not equivalent** | revert the change (see Phase 4) |
-| 9 | `compare`: equivalent but **no meaningful gain** (< 5%) | revert, unless the change is a prerequisite for the next one |
+| 9 | `compare`: equivalent but **no meaningful gain** (< 5%) over the last accepted run | revert, unless the change is a prerequisite for the next one |
 | 10 | `compare`: memory regression | revert, or shrink the cache and re-measure |
 | 11 | `report`: invalid `report.json` | fix the listed fields, re-run |
 
@@ -107,7 +107,10 @@ poetry run python scripts/tl_perf.py <subcommand> [options]
    `requirements.txt` → the venv the user runs it with). Everything below runs in it.
 2. **Repo state.** `git status`. If there are uncommitted changes, **ask** whether to commit
    them first — never mix the user's work with optimization commits. Then create a branch:
-   `git switch -c tensorleap-runtime-optimization`.
+   `git switch -c tensorleap-runtime-optimization`. Add
+   `tensorleap/runtime-optimization/runs/` and `tensorleap/runtime-optimization/baseline/`
+   to `.gitignore` (large measurement artifacts); commit the report, the log and
+   `static.json` at the end.
 3. **`tl_perf preflight`.** Act on the exit code (table above). Note in the log: device,
    code-loader version and features (`grouped_preprocess` needs ≥ 1.0.196), state sizes.
 4. **Server check (for Phase 6, non-blocking):** `scripts/perf_preflight.sh`.
@@ -119,6 +122,10 @@ poetry run python scripts/tl_perf.py <subcommand> [options]
 **GATE:** `preflight` exits 0 (or 4 with the CPU-floor caveat noted).
 
 ## Phase 1 — Floor, fit, sanity
+
+Measure on a quiet machine: `preflight` warns when the CPU is busy, and `floor`/`profile`
+record the load they ran under — a busy machine shifts both the floor and the recommended
+batch size.
 
 1. `tl_perf floor` — the model's own speed per batch size. The **floor** (mean inference
    time per sample at the recommended batch size) is the unit every later number is
@@ -184,7 +191,9 @@ equivalence check only covers branches the sampled data executes.
             never across processes, never from a visualizer.
 4. MEASURE  tl_perf profile   then   tl_perf compare
 5. DECIDE   exit 0  -> keep: commit ("perf(<component>): <change> — X -> Y ms/sample,
-                       outputs equivalent"), log it, `tl_perf score`, go to 1
+                       outputs equivalent"), log it, `tl_perf score`, go to 1.
+                       compare has made this run the reference: the next change
+                       must beat THIS run, not the original baseline
             exit 8  -> revert (git checkout -- . / git restore), read the mismatching
                        fields in compare.json, understand why, try another fix
             exit 9  -> revert; the change didn't matter
@@ -231,6 +240,14 @@ ask**, unless the user said not to push. Use the batch size from Phase 1.
    `--yes` acknowledges pre-push warnings instead of waiting at a prompt. Never use
    `--no-wait`. If `push.log` contains `View errors in interactive mode`, the
    push **failed** (older CLIs hang there): kill it and read `leap run logs <push-run-id>`.
+   **Keep the push process alive until the Evaluate exists.** `--eval` creates the
+   Evaluate from your machine *after* the push finishes; if the push process dies first
+   (session ends, job reaped), there is a Push and no Evaluate. So until `leap run list -t
+   Evaluate` shows the new run, don't let the session end: keep checking yourself
+   (`leap run list -t Push`, `sleep` between checks), or — only if your environment
+   re-invokes you when a background job finishes — wait for that notification. The first
+   push to a server can take long (it may pull a large base image). Once the Evaluate
+   exists, it runs on the server independently.
 5. Find the Evaluate run (`leap run list -t Evaluate`) and watch **that** run with a
    token-free background loop until it is terminal:
    ```
@@ -241,10 +258,19 @@ ask**, unless the user said not to push. Use the batch size from Phase 1.
    If the watcher dies, the evaluation is unaffected — relaunch the watcher, never re-push.
    **Push finished but no Evaluate exists** (the push process was killed between the push
    and the evaluate trigger — background jobs can be reaped): re-push over the same
-   version, `leap push -m <model> -o <version> -b <batch> --eval --yes`, then watch the new run.
-6. Outcome: **FINISHED** → record the duration. **FAILED** → `leap run logs <run-id>`; an
+   version, `leap push -m <model> -o <version> -b <batch> -u metric --eval --yes`, then
+   watch the new run. (On an overwrite the CLI asks what changed; `-u metric` answers
+   "full re-evaluation" without a prompt.)
+6. **The server rejects the Evaluate at creation** — the Push is FINISHED but the Evaluate
+   is FAILED immediately with empty logs, or the CLI prints a 4xx (e.g. `400 Bad Request`):
+   retry **once** with the overwrite command above. If it is rejected again, **stop**. The
+   integration passed every push stage, so this is a server-side problem the integration
+   can't fix: record the exact error, the run ids and what you tried as a Recommended
+   Tensorleap action, and finish the report as not server-validated. Don't guess at batch
+   sizes or flags.
+7. Outcome: **FINISHED** → record the duration. **FAILED** → `leap run logs <run-id>`; an
    out-of-memory failure means the batch size or a cache is too large for the server: lower
-   `-b` (re-run `fit` with the server's memory) and re-push with `-o <version>`; any other
+   `-b` (re-run `fit` with the server's memory) and re-push with `-o <version> -u metric`; any other
    error is an integration bug to fix, re-verify with `compare`, and re-push.
 
 **GATE:** the Evaluate reached a terminal state, or you recorded why validation was not

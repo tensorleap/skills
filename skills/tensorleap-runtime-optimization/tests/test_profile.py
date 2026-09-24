@@ -104,6 +104,18 @@ class CompareVerdicts(unittest.TestCase):
         self.assertTrue(report["equivalence"]["equivalent"])
         self.assertGreater(report["expected_total_seconds"]["gain"], 0.05)
 
+    def test_each_change_must_earn_its_own_gain(self):
+        """After an accepted fix, an unchanged re-run must not ride on the earlier win."""
+        self.profile(SYNTH_REDUNDANT="1", SYNTH_DECODE_MS="4")
+        self.profile(SYNTH_REDUNDANT="1", SYNTH_DECODE_MS="4", SYNTH_CACHE="1")
+        self.assertEqual(self.synth.run("compare").returncode, tl_perf.EXIT_OK)   # accepted
+        self.profile(SYNTH_REDUNDANT="1", SYNTH_DECODE_MS="4", SYNTH_CACHE="1")   # nothing changed
+        proc = self.synth.run("compare")
+        self.assertEqual(proc.returncode, tl_perf.EXIT_NO_GAIN, proc.stdout + proc.stderr)
+        totals = self.synth.result("compare.json")["expected_total_seconds"]
+        self.assertGreater(totals["cumulative_gain"], 0.05)       # still far better than baseline
+        self.assertLess(abs(totals["gain"]), 0.05)                # but this step added nothing
+
     def test_behavior_change_is_not_equivalent(self):
         self.profile()
         self.profile(SYNTH_ALTER="1")
@@ -113,8 +125,9 @@ class CompareVerdicts(unittest.TestCase):
         self.assertTrue(any("scan_position" in f for f in fields), fields)
 
     def test_unchanged_code_is_equivalent_without_gain(self):
-        self.profile()
-        self.profile()
+        # A real per-sample cost: at ~0.1 ms/sample, scheduler noise alone exceeds 5%.
+        self.profile(SYNTH_DECODE_MS="3")
+        self.profile(SYNTH_DECODE_MS="3")
         proc = self.synth.run("compare")
         self.assertEqual(proc.returncode, tl_perf.EXIT_NO_GAIN, proc.stdout + proc.stderr)
 
