@@ -213,9 +213,10 @@ ask**, unless the user said not to push. Use the batch size from Phase 1.
    push for this project is still in flight, wait for it; never re-push blind.
 4. Push as a background shell (it can take longer than a foreground command allows):
    ```
-   leap push -m <model> -n <version> -b <batch> --eval < /dev/null > push.log 2>&1
+   leap push -m <model> -n <version> -b <batch> --eval --yes < /dev/null > push.log 2>&1
    ```
-   Never use `--no-wait`. If `push.log` contains `View errors in interactive mode`, the
+   `--yes` acknowledges pre-push warnings instead of waiting at a prompt. Never use
+   `--no-wait`. If `push.log` contains `View errors in interactive mode`, the
    push **failed** (older CLIs hang there): kill it and read `leap run logs <push-run-id>`.
 5. Find the Evaluate run (`leap run list -t Evaluate`) and watch **that** run with a
    token-free background loop until it is terminal:
@@ -225,6 +226,9 @@ ask**, unless the user said not to push. Use the batch size from Phase 1.
      sleep 300; done
    ```
    If the watcher dies, the evaluation is unaffected — relaunch the watcher, never re-push.
+   **Push finished but no Evaluate exists** (the push process was killed between the push
+   and the evaluate trigger — background jobs can be reaped): re-push over the same
+   version, `leap push -m <model> -o <version> -b <batch> --eval --yes`, then watch the new run.
 6. Outcome: **FINISHED** → record the duration. **FAILED** → `leap run logs <run-id>`; an
    out-of-memory failure means the batch size or a cache is too large for the server: lower
    `-b` (re-run `fit` with the server's memory) and re-push with `-o <version>`; any other
