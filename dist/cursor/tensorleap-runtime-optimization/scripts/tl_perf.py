@@ -61,6 +61,8 @@ DEFAULT_BATCH_SIZES = "1,2,4,8,16,32,64"
 
 # Measurement stability: keep code-loader's usage analytics off the timed path.
 os.environ.setdefault("TL_DISABLE_ANALYTICS", "1")
+# Headless: a plt.show() in integration code must not open (and block on) a GUI window.
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 
 # --------------------------------------------------------------------------- #

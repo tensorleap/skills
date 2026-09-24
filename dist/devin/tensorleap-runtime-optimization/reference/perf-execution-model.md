@@ -89,6 +89,10 @@ platform's own scheduling and scaling — checked by the validation push.
   validation on every call. `tl_perf` drives code-loader's `LeapLoader` directly.
 - `tl_perf` disables code-loader's usage analytics while measuring (a slow network call
   there can stall imports); set `TL_DISABLE_ANALYTICS=1` for your own local timing too.
+- `tl_perf` runs matplotlib headless (`MPLBACKEND=Agg`). Do the same when you run the
+  integration test yourself (`MPLBACKEND=Agg python leap_integration.py`): its visualizer
+  checks can call `plt.show()`, which blocks on a desktop GUI backend until a window is
+  closed — an unattended run just hangs.
 - Measure on the device you will report: the floor is labeled with the device it was
   measured on (a CPU floor on a laptop is valid for before/after comparisons, not as the
   server's GPU floor).
