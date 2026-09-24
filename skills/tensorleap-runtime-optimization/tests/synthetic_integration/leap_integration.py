@@ -14,6 +14,7 @@ Driven entirely by environment variables so each test can plant a runtime pathol
   SYNTH_POST_MS      cost of that post-processing
   SYNTH_ALTER        "1": change one metadata value (a behavior change, for compare tests)
   SYNTH_CACHE        "1": the lossless fix — decode through a small shared lru_cache
+  SYNTH_BAD_BATCH    "1": the metric returns one value per batch (breaks at batch > 1)
 """
 import functools
 import os
@@ -125,7 +126,10 @@ def _post(row):
 
 @tensorleap_custom_metric("confidence")
 def confidence(prediction):
-    return np.array([_post(row) for row in prediction], dtype=np.float32)
+    values = np.array([_post(row) for row in prediction], dtype=np.float32)
+    if os.environ.get("SYNTH_BAD_BATCH") == "1":
+        return values[:1]          # a metric that only handles batch size 1
+    return values
 
 
 @tensorleap_custom_loss("mse")

@@ -21,7 +21,6 @@ Exit codes:
   4 env mismatch  5 predicted not to fit    6 model won't load
   7 run failed    8 not equivalent          9 no gain
   10 memory regression                      11 invalid report.json
-  64 not implemented
 """
 
 import argparse
@@ -56,7 +55,6 @@ EXIT_NOT_EQUIVALENT = 8
 EXIT_NO_GAIN = 9
 EXIT_MEMORY_REGRESSION = 10
 EXIT_BAD_REPORT = 11
-NOT_IMPLEMENTED = 64
 
 DEFAULT_OUT = os.path.join("tensorleap", "runtime-optimization")
 DEFAULT_BATCH_SIZES = "1,2,4,8,16,32,64"
@@ -2187,13 +2185,393 @@ def cmd_score(args):
 
 
 # --------------------------------------------------------------------------- #
-# CLI
+# fit
 # --------------------------------------------------------------------------- #
 
-def cmd_not_implemented(args):
-    print("tl_perf %s: not implemented yet" % args.command, file=sys.stderr)
-    return NOT_IMPLEMENTED
+def _linear_fit(xs, ys):
+    """Least-squares intercept and slope."""
+    n = float(len(xs))
+    if n < 2:
+        return (ys[0] if ys else 0.0), 0.0
+    mx, my = sum(xs) / n, sum(ys) / n
+    var = sum((x - mx) ** 2 for x in xs)
+    slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / var if var else 0.0
+    return my - slope * mx, slope
 
+
+def _instance_rows(integ):
+    """Instance-level rows per state (0 when the integration has none)."""
+    get = getattr(integ.loader, "get_instances_data", None)
+    rows = {}
+    for state, enum_state in integ.states.items():
+        try:
+            with working_dir(integ.root), captured_stdout():
+                _sample_to_instances, instance_to_sample = get(enum_state) if get else ({}, {})
+            rows[state] = len(instance_to_sample or {})
+        except Exception:
+            rows[state] = 0
+    return rows
+
+
+def cmd_fit(args):
+    """Measured, not modeled: model memory is read from the process while running each
+    batch size (ascending, so every step sets a new peak)."""
+    import numpy as np
+    out = out_dir(args)
+    integ = Integration(args.root, args.entry or read_entry_file(args.root))
+    try:
+        integ.load()
+    except Exception as exc:
+        print("tl_perf fit: integration failed to load: %r" % (exc,), file=sys.stderr)
+        return EXIT_INVALID_INTEGRATION
+    if not integ.valid:
+        print("tl_perf fit: check_dataset() failed; run preflight", file=sys.stderr)
+        return EXIT_INVALID_INTEGRATION
+    setup = integ.setup_summary()
+
+    def tensor_bytes(entries):
+        return sum(4 * int(np.prod(e["shape"])) for e in entries)
+
+    per_sample_bytes = tensor_bytes(setup["inputs"]) + tensor_bytes(setup["ground_truths"])
+    instances = _instance_rows(integ)
+    rows = {s: n + instances.get(s, 0) for s, n in setup["state_lengths"].items()}
+    n_total = sum(rows.values())
+
+    rss_before = current_rss_gb()
+    try:
+        lm = load_model(integ)
+    except Exception as exc:
+        print("tl_perf fit: model could not be loaded: %r" % (exc,), file=sys.stderr)
+        return EXIT_MODEL_LOAD
+    specs = model_input_specs(lm)
+    pool, _mapping = real_input_pool(integ, specs, 4)
+    rng = np.random.default_rng(0)
+    run_model(lm, specs, make_batch(specs, 1, pool, rng))   # warm the runtime first
+    rss_loaded = max(current_rss_gb() or 0.0, peak_rss_gb() or 0.0)
+
+    floor = _read_json(os.path.join(out, "floor.json")) or {}
+    sizes = [lm.fixed_batch_size] if lm.fixed_batch_size else \
+        [int(x) for x in args.batch_sizes.split(",") if x.strip()]
+    measured = []
+    for bs in sorted(sizes):
+        try:
+            run_model(lm, specs, make_batch(specs, bs, pool, rng))
+        except Exception as exc:
+            measured.append({"batch_size": bs, "error": repr(exc)[:300]})
+            break
+        peak = max(current_rss_gb() or 0.0, peak_rss_gb() or 0.0)
+        measured.append({"batch_size": bs, "peak_rss_gb": peak,
+                         "activation_gb": max(0.0, peak - rss_loaded)})
+    ok = [m for m in measured if "error" not in m]
+    base, per_sample_act = _linear_fit([m["batch_size"] for m in ok],
+                                       [m["activation_gb"] for m in ok])
+    per_sample_act = max(per_sample_act, 0.0)
+
+    memory_gb = args.memory_gb or memory_info().get("total_gb") or 0.0
+    budget = memory_gb * args.usable_fraction
+    candidates = sorted(set(sizes) | {floor.get("recommended_batch_size") or 1})
+
+    def predicted(bs):
+        return rss_loaded + max(base, 0.0) + per_sample_act * bs + bs * per_sample_bytes / 2 ** 30
+
+    table = [{"batch_size": bs, "predicted_peak_gb": predicted(bs),
+              "fits": predicted(bs) <= budget} for bs in candidates]
+    fitting = [t["batch_size"] for t in table if t["fits"]]
+    knee = floor.get("recommended_batch_size")
+    if not fitting:
+        recommended = None
+    elif knee:
+        recommended = max([b for b in fitting if b <= knee] or [min(fitting)])
+    else:
+        recommended = max(fitting)
+
+    batch_support = _batch_support(integ, lm, specs, pool)
+    report = {
+        "method": "measured: process memory while running each batch size (not a formula)",
+        "per_sample_tensor_bytes": per_sample_bytes,
+        "rows_per_state": rows, "instance_rows": instances, "rows_total": n_total,
+        "dataset_tensor_gb": n_total * per_sample_bytes / 2 ** 30,
+        "grouped": setup["grouped"],
+        "model": {"framework": lm.framework, "fixed_batch_size": lm.fixed_batch_size,
+                  "process_rss_before_model_gb": rss_before,
+                  "process_rss_loaded_gb": rss_loaded,
+                  "activation_per_sample_gb": per_sample_act, "activation_base_gb": base},
+        "measured": measured,
+        "memory_budget_gb": budget, "memory_total_gb": memory_gb,
+        "usable_fraction": args.usable_fraction,
+        "table": table,
+        "floor_recommended_batch_size": knee,
+        "recommended_batch_size": recommended,
+        "batch_support": batch_support,
+    }
+    path = os.path.join(out, "fit.json")
+    write_json(path, report)
+
+    print("tl_perf fit (%s)" % report["method"])
+    print("  rows %s (instances %s) = %d; %.1f KB of input+GT tensors per sample; %.2f GB total" % (
+        rows, instances, n_total, per_sample_bytes / 1024.0, report["dataset_tensor_gb"]))
+    print("  model resident %.2f GB; +%.1f MB activation per sample in a batch" % (
+        rss_loaded, per_sample_act * 1024))
+    print("  budget %.1f GB (%.0f%% of %.1f GB)" % (budget, 100 * args.usable_fraction, memory_gb))
+    for t in table:
+        print("    batch %4d  predicted peak %6.2f GB  %s" % (
+            t["batch_size"], t["predicted_peak_gb"], "fits" if t["fits"] else "DOES NOT FIT"))
+    for name, status in batch_support.items():
+        if status != "ok":
+            print("  batch support: %s -> %s" % (name, status))
+    if recommended is None:
+        print("  NOT PREDICTED TO FIT even at the smallest batch size")
+        print("  -> %s (exit %d)" % (path, EXIT_NOT_FIT))
+        return EXIT_NOT_FIT
+    print("  recommended batch size %d%s" % (
+        recommended, " (floor knee %d)" % knee if knee else ""))
+    print("  -> %s" % path)
+    return EXIT_OK
+
+
+def _has_batch_dim(out, batch):
+    """A per-sample result: every array (or the list itself) has `batch` rows."""
+    import numpy as np
+    if isinstance(out, (list, tuple)) and len(out) == batch:
+        return True          # e.g. confusion-matrix elements, one list per sample
+    arrays = [v for _f, v in flatten_output(out) if isinstance(v, np.ndarray) and v.ndim >= 1]
+    return bool(arrays) and all(a.shape[0] == batch for a in arrays)
+
+
+def _batch_support(integ, lm, specs, pool):
+    """Run every wired metric/loss on a batch of 2 real samples: they must accept a batch."""
+    import numpy as np
+    model_inputs, handlers = mapping_info()
+    status = {}
+    for state, ids in integ.sample_ids.items():
+        if len(ids) < 2:
+            continue
+        rows = []
+        for sid in ids[:2]:
+            rows.extend(sample_rows(integ.get_sample(state, sid), sid))
+        inputs, gts = _stack(rows, 1), _stack(rows, 2)
+        try:
+            feed = model_feed_names(specs, model_inputs, rows[0][1])
+            preds = run_model(lm, specs, [inputs[n] for n in feed])
+        except Exception as exc:
+            return {"model": "error: %r" % (exc,)}
+        for kind, name, args in handlers:
+            if kind not in ("metric", "loss"):
+                continue
+            key = "%s:%s" % (kind, name)
+            try:
+                tensors = {arg: resolve_arg(t, s, inputs, gts, preds) for arg, (t, s) in args.items()}
+                call = integ.loader.run_metric if kind == "metric" else integ.loader.run_custom_loss
+                with working_dir(integ.root), captured_stdout():
+                    out = call(name, np.array([r[0] for r in rows]), integ.states[state], tensors)
+                status[key] = "ok" if _has_batch_dim(out, 2) else "returns no per-sample batch dimension"
+            except Unsupported as exc:
+                status[key] = "skipped: %s" % exc
+            except Exception as exc:
+                status[key] = "error on a batch of 2: %r" % (exc,)
+        break
+    return status
+
+
+# --------------------------------------------------------------------------- #
+# report
+# --------------------------------------------------------------------------- #
+
+REPORT_REQUIRED = {
+    "title": str,
+    "optimizations": list,
+    "remaining_bottleneck": dict,
+    "tensorleap_actions": list,
+}
+OPTIMIZATION_REQUIRED = ("problem", "change", "evidence", "equivalence")
+
+
+def validate_report(doc):
+    errors = []
+    if not isinstance(doc, dict):
+        return ["report.json must be a JSON object"]
+    for key, typ in REPORT_REQUIRED.items():
+        if key not in doc:
+            errors.append("missing required field %r" % key)
+        elif not isinstance(doc[key], typ):
+            errors.append("%r must be a %s" % (key, typ.__name__))
+    for i, opt in enumerate(doc.get("optimizations") or []):
+        if not isinstance(opt, dict):
+            errors.append("optimizations[%d] must be an object" % i)
+            continue
+        for key in OPTIMIZATION_REQUIRED:
+            if not opt.get(key):
+                errors.append("optimizations[%d] missing %r" % (i, key))
+    rb = doc.get("remaining_bottleneck")
+    if isinstance(rb, dict):
+        for key in ("component", "evidence"):
+            if not rb.get(key):
+                errors.append("remaining_bottleneck missing %r" % key)
+    for i, act in enumerate(doc.get("tensorleap_actions") or []):
+        if not isinstance(act, dict) or not act.get("need"):
+            errors.append("tensorleap_actions[%d] needs a 'need'" % i)
+    return errors
+
+
+def _md_table(headers, rows):
+    lines = ["| " + " | ".join(headers) + " |", "|" + "---|" * len(headers)]
+    for r in rows:
+        lines.append("| " + " | ".join(str(c) for c in r) + " |")
+    return "\n".join(lines)
+
+
+def _share_rows(before, after, visualized):
+    rows = []
+    bc = pipeline_costs(before) if before else None
+    ac = pipeline_costs(after) if after else None
+    for block in ("generation", "inference", "metrics", "visualizers"):
+        b = bc[block] if bc else None
+        a = ac[block] if ac else None
+        rows.append([block, fmt_ms(b) if b is not None else "-", fmt_ms(a) if a is not None else "-"])
+    if before:
+        rows.append(["expected total", "%.1f s" % expected_total(before, bc, visualized),
+                     "%.1f s" % expected_total(after, ac, visualized) if after else "-"])
+    return rows
+
+
+def render_report(doc, out):
+    lines = ["# %s" % doc["title"], ""]
+    if doc.get("summary"):
+        lines += [doc["summary"], ""]
+    preflight = _read_json(os.path.join(out, "preflight.json")) or {}
+    floor = _read_json(os.path.join(out, "floor.json")) or {}
+    fit = _read_json(os.path.join(out, "fit.json")) or {}
+    before = _read_json(os.path.join(out, "baseline", "profile.json"))
+    latest_dir = _latest_run(out)
+    after = _read_json(os.path.join(latest_dir, "profile.json")) if latest_dir else None
+    if after and before and after.get("run") == before.get("run") and after.get("created") == before.get("created"):
+        after = None
+
+    lines += ["## Environment", ""]
+    env = doc.get("environment") or {}
+    if preflight:
+        env.setdefault("platform", preflight.get("platform"))
+        env.setdefault("cpu cores", (preflight.get("cpu") or {}).get("logical_cores"))
+        env.setdefault("RAM (GB)", "%.1f" % ((preflight.get("memory") or {}).get("total_gb") or 0))
+        env.setdefault("code-loader", (preflight.get("code_loader") or {}).get("version"))
+        if preflight.get("model"):
+            env.setdefault("model", "%s on %s" % (preflight["model"]["framework"],
+                                                  preflight["model"]["device"]["label"]))
+    lines += [_md_table(["", ""], sorted(env.items())) if env else "_not recorded_", ""]
+
+    lines += ["## Performance floor and fit", ""]
+    if floor:
+        lines.append("- Model inference floor: **%s per sample** (mean, batch %s, %s on %s)." % (
+            fmt_ms(floor["t_inf_per_sample_mean_seconds"]), floor["recommended_batch_size"],
+            floor["framework"], floor["device"]["label"]))
+    if fit:
+        lines.append("- Recommended batch size: **%s**; model resident %.2f GB, +%.1f MB per sample "
+                     "in a batch (measured)." % (
+                         fit.get("recommended_batch_size"), fit["model"]["process_rss_loaded_gb"],
+                         1024 * fit["model"]["activation_per_sample_gb"]))
+        bad = {k: v for k, v in (fit.get("batch_support") or {}).items() if v != "ok"}
+        for k, v in bad.items():
+            lines.append("- Batch support: `%s` — %s." % (k, v))
+    lines.append("")
+
+    lines += ["## Runtime breakdown (per sample)", ""]
+    visualized = doc.get("visualized_samples")
+    lines += [_md_table(["block", "before", "after"], _share_rows(before, after, visualized)), ""]
+    if before or after:
+        src = after or before
+        handlers = []
+        for block in ("generation", "metrics", "visualizers"):
+            for h in ((src.get(block) or {}).get("handlers") or {}).values():
+                pc = h.get("per_call_seconds") or {}
+                mean = h.get("per_sample_mean_seconds") or 0
+                handlers.append((mean, [block, "`%s`" % h["name"], fmt_ms(mean), fmt_ms(pc.get("p50", 0)),
+                                        fmt_ms(pc.get("p95", 0)), fmt_ms(pc.get("p99", 0))]))
+        handlers.sort(key=lambda r: -r[0])
+        lines += ["Components (%s):" % ("after" if after else "before"), "",
+                  _md_table(["block", "component", "mean/sample", "P50/call", "P95/call", "P99/call"],
+                            [row for _, row in handlers]), ""]
+
+    lines += ["## Optimizations applied", ""]
+    if not doc["optimizations"]:
+        lines += ["_None._", ""]
+    for i, opt in enumerate(doc["optimizations"], 1):
+        lines += ["### %d. %s" % (i, opt["problem"]), "",
+                  "- **Change:** %s" % opt["change"],
+                  "- **Evidence:** %s" % opt["evidence"],
+                  "- **Equivalence:** %s" % opt["equivalence"]]
+        if opt.get("before") or opt.get("after"):
+            lines.append("- **Runtime:** %s → %s%s" % (opt.get("before", "?"), opt.get("after", "?"),
+                                                       " (%s)" % opt["gain"] if opt.get("gain") else ""))
+        if opt.get("side_effects"):
+            lines.append("- **Trade-offs:** %s" % opt["side_effects"])
+        if opt.get("commit"):
+            lines.append("- **Commit:** `%s`" % opt["commit"])
+        lines.append("")
+
+    rb = doc["remaining_bottleneck"]
+    lines += ["## Remaining bottleneck", "",
+              "**%s**%s" % (rb["component"], " — %s of expected runtime" % rb["share"] if rb.get("share") else ""),
+              "", "- Evidence: %s" % rb["evidence"]]
+    if rb.get("explanation"):
+        lines.append("- Why: %s" % rb["explanation"])
+    lines.append("")
+
+    if doc.get("lossy_options"):
+        lines += ["## Options that would change behavior (not applied without consent)", ""]
+        lines += [_md_table(["option", "expected gain", "cost / behavior change", "decision"],
+                            [[o.get("option", ""), o.get("gain", ""), o.get("cost", ""), o.get("decision", "pending")]
+                             for o in doc["lossy_options"]]), ""]
+    if doc.get("server_validation"):
+        sv = doc["server_validation"]
+        lines += ["## Server validation", "", "- Status: **%s**" % sv.get("status", "unknown")]
+        for k in ("job", "duration", "notes"):
+            if sv.get(k):
+                lines.append("- %s: %s" % (k.capitalize(), sv[k]))
+        lines.append("")
+    if doc.get("remaining_integration_issues"):
+        lines += ["## Remaining issues in the integration", ""] + \
+            ["- %s" % x for x in doc["remaining_integration_issues"]] + [""]
+    lines += ["## Recommended Tensorleap actions", ""]
+    if not doc["tensorleap_actions"]:
+        lines += ["_None._", ""]
+    for act in doc["tensorleap_actions"]:
+        lines.append("- **%s**%s%s" % (act["need"],
+                                       " — evidence: %s" % act["evidence"] if act.get("evidence") else "",
+                                       " — impact: %s" % act["impact"] if act.get("impact") else ""))
+    lines.append("")
+    if doc.get("coverage_caveats"):
+        lines += ["## What was not verified", ""] + ["- %s" % x for x in doc["coverage_caveats"]] + [""]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def cmd_report(args):
+    out = out_dir(args)
+    src = args.input or os.path.join(out, "report.json")
+    try:
+        doc = _read_json(src)
+    except ValueError as exc:
+        print("tl_perf report: %s is not valid JSON: %s" % (src, exc), file=sys.stderr)
+        return EXIT_BAD_REPORT
+    if doc is None:
+        print("tl_perf report: %s not found" % src, file=sys.stderr)
+        return EXIT_BAD_REPORT
+    errors = validate_report(doc)
+    if errors:
+        print("tl_perf report: invalid report.json:", file=sys.stderr)
+        for e in errors:
+            print("  - %s" % e, file=sys.stderr)
+        return EXIT_BAD_REPORT
+    md = render_report(doc, out)
+    path = os.path.join(out, "report.md")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(md)
+    print("tl_perf report -> %s" % path)
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="tl_perf", description=__doc__.splitlines()[0])
@@ -2261,11 +2639,17 @@ def build_parser():
     p.add_argument("--visualized-samples", type=int, default=None)
     p.set_defaults(func=cmd_compare)
 
-    for name, help_text in (
-            ("fit", "per-sample size and server memory/disk headroom per batch size"),
-            ("report", "render report.json into report.md")):
-        p = sub.add_parser(name, parents=[common], help=help_text)
-        p.set_defaults(func=cmd_not_implemented)
+    p = sub.add_parser("fit", parents=[common],
+                       help="per-sample size and measured memory headroom per batch size")
+    p.add_argument("--batch-sizes", default=DEFAULT_BATCH_SIZES)
+    p.add_argument("--memory-gb", type=float, default=None,
+                   help="memory of the machine that will run the model (default: this one's)")
+    p.add_argument("--usable-fraction", type=float, default=0.8)
+    p.set_defaults(func=cmd_fit)
+
+    p = sub.add_parser("report", parents=[common], help="render report.json into report.md")
+    p.add_argument("--input", default=None, help="report.json (default: <out>/report.json)")
+    p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("_worker")  # internal: one measurement pass in a fresh process
     p.add_argument("task", choices=sorted(WORKERS))
@@ -2282,14 +2666,13 @@ def main(argv=None):
         parser.print_help()
         return EXIT_BLOCKER
     args.root = os.path.abspath(args.root)
-    try:
-        return args.func(args)
-    finally:
-        # code-loader prints its integration-test status/warning table from an atexit
-        # hook; it is about authoring, not runtime, so keep it out of our output.
-        sys.stdout.flush()
-        sys.stdout = open(os.devnull, "w")
+    return args.func(args)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_code = main()
+    # code-loader prints its integration-test status/warning table from an atexit hook;
+    # it is about authoring, not runtime, so keep it out of our output.
+    sys.stdout.flush()
+    sys.stdout = open(os.devnull, "w")
+    sys.exit(exit_code)
