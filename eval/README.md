@@ -147,6 +147,10 @@ attribution and Push/Evaluate tracking are the blind flow's, unchanged.
 bash run.sh --fixture yolov5_visdrone --extend --model opus --plugin-dir ../dist/claude/integration
 ```
 
+`--push-flags "<flags>"` tells the agent to pass extra flags to every `leap push`
+(e.g. `--novis` to skip the sample-visualization step, which leaves insights
+unchanged); it works in both modes and is recorded in the run log.
+
 `--model` pins the agent's Claude model (any `claude --model` value) and works in
 both modes; without it the CLI's configured default runs, and either way the
 report records the model actually used. The before/after is then two versions of

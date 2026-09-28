@@ -32,6 +32,7 @@ FIXTURE=""
 PLUGIN_DIR=""
 EXTEND=0
 MODEL=""               # empty: the claude CLI's own default
+PUSH_FLAGS=""          # extra flags the agent must pass to every `leap push`
 LEAP_CMD=""            # default resolved below: leapdev if installed, else leap
 IDLE_STUCK_TICKS="${IDLE_STUCK_TICKS:-40}"   # ~40 * 30s = 20 min of no pane change & no eval
 POLL_SECS="${POLL_SECS:-30}"
@@ -46,7 +47,7 @@ EVAL_MAX_SECS="${EVAL_MAX_SECS:-7200}"       # max wait for a detected Evaluate 
 
 usage() {
   cat <<'EOF'
-Usage: run.sh --fixture <id> [--extend] [--model <id>] [--plugin-dir <dir>] [--leap-cmd <cmd>]
+Usage: run.sh --fixture <id> [--extend] [--model <id>] [--push-flags <flags>] [--plugin-dir <dir>] [--leap-cmd <cmd>]
 
   --fixture ID       Fixture id from manifest.json (must be prepared + verified).
   --extend           Build on the FINISHED integration already in the fixture tree
@@ -55,6 +56,8 @@ Usage: run.sh --fixture <id> [--extend] [--model <id>] [--plugin-dir <dir>] [--l
                      blindness gate; reports go to reports/extend/. Optional.
   --model ID         Pin the Claude model for the agent session (passed to
                      `claude --model`). Default: the CLI's configured default.
+  --push-flags FLAGS Extra flags the agent is told to pass to every `leap push`
+                     (e.g. "--novis" to skip sample visualization). Optional.
   --plugin-dir DIR   Run the skill from a built dist dir (e.g. dist/claude/integration)
                      instead of the installed marketplace plugin. Optional.
   --leap-cmd CMD     The Tensorleap CLI the `leap` shim forwards to. Default:
@@ -71,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --fixture)    FIXTURE="$2"; shift 2 ;;
     --extend)     EXTEND=1; shift ;;
     --model)      MODEL="$2"; shift 2 ;;
+    --push-flags) PUSH_FLAGS="$2"; shift 2 ;;
     --plugin-dir) PLUGIN_DIR="$2"; shift 2 ;;
     --leap-cmd)   LEAP_CMD="$2"; shift 2 ;;
     -h|--help)    usage; exit 0 ;;
@@ -100,7 +104,7 @@ mkdir -p "${REPORTS_DIR}"
 rm -f "${REPORTS_DIR}/${FIXTURE}.md" "${REPORTS_DIR}/${FIXTURE}.json"
 : >"${RUN_LOG}"
 exec > >(tee -a "${RUN_LOG}") 2>&1
-log "run.sh --fixture ${FIXTURE} (${MODE}${MODEL:+, model ${MODEL}}) — $(date '+%Y-%m-%dT%H:%M:%S') (log: ${RUN_LOG})"
+log "run.sh --fixture ${FIXTURE} (${MODE}${MODEL:+, model ${MODEL}}${PUSH_FLAGS:+, push flags ${PUSH_FLAGS}}) — $(date '+%Y-%m-%dT%H:%M:%S') (log: ${RUN_LOG})"
 
 require_cmd() { command -v "$1" >/dev/null 2>&1 || fail "required command '$1' not found"; }
 require_cmd tmux
@@ -340,12 +344,20 @@ if unresolved:
 print(text)
 PY
 )" || { rc=$?; [[ "${rc}" -eq 12 ]] && exit 12; fail "could not build the operator prompt (see above)"; }
+# A hand-made fixture (not in the manifest) can carry its own operator guidance.
+[[ -f "${FIXTURES_ROOT}/${FIXTURE}/operator_guidance.txt" ]] \
+  && GUIDANCE="$(<"${FIXTURES_ROOT}/${FIXTURE}/operator_guidance.txt")"
 
 STAGED_NOTE=""
 if [[ -n "${STAGED_DATA}" ]]; then
   STAGED_NOTE="
 This fixture's data is already staged at ${STAGED_DATA} — read it from there. Do
 not download or fetch datasets or model weights yourself."
+fi
+PUSH_NOTE=""
+if [[ -n "${PUSH_FLAGS}" ]]; then
+  PUSH_NOTE="
+Pass these extra flags to every \`leap push\`: ${PUSH_FLAGS}"
 fi
 if [[ "${EXTEND}" -eq 1 ]]; then
 read -r -d '' MSG <<EOF || true
@@ -370,7 +382,7 @@ terminal state.
 
 Operator guidance for this fixture:
 ${GUIDANCE}
-${STAGED_NOTE}
+${STAGED_NOTE}${PUSH_NOTE}
 
 Rules:
 - Work only from THIS repository, its dependencies, the installed code-loader,
@@ -393,7 +405,7 @@ nothing, no matter how well the integration went.
 
 Operator guidance for this fixture:
 ${GUIDANCE}
-${STAGED_NOTE}
+${STAGED_NOTE}${PUSH_NOTE}
 
 Rules:
 - Work only from THIS repository, its dependencies, the code-loader you install,
@@ -451,19 +463,23 @@ trap 'log "interrupted — releasing the agent session"; exit 130' INT TERM HUP
 
 tmux kill-session -t "${SESS}" 2>/dev/null || true
 START_EPOCH="$(date +%s)"   # transcripts modified at/after this belong to THIS run
+# The prompt goes in as the session's first message (claude's positional argument),
+# not as a paste: current Claude Code wraps pasted text in <pasted_content> and does not
+# take instructions from it, so a pasted prompt reaches the agent as untrusted text.
+PROMPT_FILE="$(mktemp)"; printf '%s' "${MSG}" > "${PROMPT_FILE}"
 tmux new-session -d -s "${SESS}" -x 220 -y 50 -c "${PRE_DIR}"
 AGENT_ALIVE=1
 # CLAUDE_CONFIG_DIR unset inside the pane (empty string hides the plugin); shim + local bin on PATH.
 tmux send-keys -t "${SESS}" 'unset CLAUDE_CONFIG_DIR; export PATH='"$(printf '%q' "${RUN_PATH}")" Enter
-tmux send-keys -t "${SESS}" "${CLAUDE_LAUNCH}" Enter
+SUBMIT_EPOCH="$(date +%s)"   # platform jobs created at/after this belong to THIS run
+tmux send-keys -t "${SESS}" "${CLAUDE_LAUNCH} \"\$(cat $(printf '%q' "${PROMPT_FILE}"))\"" Enter
 
-log "Waiting for the REPL to be ready…"
-ready=0
+log "Waiting for the agent to start on the prompt…"
+submitted=0
 for _ in $(seq 1 150); do          # up to ~5 min
   pane="$(tmux capture-pane -t "${SESS}" -p 2>/dev/null || true)"
-  # '❯' is the current composer prompt; '│ >' the older boxed one. Matching only
-  # the transient Welcome banner would race against it scrolling away.
-  if grep -qE 'Welcome|│ >|❯|> $' <<<"${pane}"; then ready=1; break; fi
+  # "esc to interrupt" only renders while the agent is working on a submitted turn.
+  if grep -qiE 'esc to interrupt' <<<"${pane}"; then submitted=1; break; fi
   # First-run bypass-permissions acceptance: select "Yes, I accept" and confirm.
   if grep -qiE 'Bypass Permissions mode|Yes, I accept|accept all responsibility' <<<"${pane}"; then
     log "  dismissing bypass-permissions acceptance prompt"
@@ -472,31 +488,9 @@ for _ in $(seq 1 150); do          # up to ~5 min
   fi
   sleep 2
 done
-[[ "${ready}" -eq 1 ]] || fail "REPL never became ready (inspect: tmux attach -t ${SESS})"
-
-# Paste the prompt as one message (send-keys would submit at the first newline).
-PROMPT_FILE="$(mktemp)"; printf '%s' "${MSG}" > "${PROMPT_FILE}"
-tmux load-buffer -t "${SESS}" "${PROMPT_FILE}"
-tmux paste-buffer -t "${SESS}"
 rm -f "${PROMPT_FILE}"
-
-# The REPL ingests a bracketed paste asynchronously. An Enter sent immediately
-# lands mid-paste, is swallowed, and the prompt sits in the composer forever while
-# this script happily polls for an Evaluate that will never be created. So: let the
-# paste settle, submit, then CONFIRM the agent actually started before moving on.
-log "Submitting the prompt…"
-SUBMIT_EPOCH="$(date +%s)"   # platform jobs created at/after this belong to THIS run
-submitted=0
-for _ in $(seq 1 10); do
-  sleep 2
-  tmux send-keys -t "${SESS}" Enter
-  sleep 3
-  pane="$(tmux capture-pane -t "${SESS}" -p 2>/dev/null || true)"
-  # "esc to interrupt" only renders while the agent is working on a submitted turn.
-  if grep -qiE 'esc to interrupt' <<<"${pane}"; then submitted=1; break; fi
-done
 [[ "${submitted}" -eq 1 ]] \
-  || fail "prompt never submitted — it is probably still sitting in the composer (inspect: tmux attach -t ${SESS})"
+  || fail "agent never started on the prompt (inspect: tmux attach -t ${SESS})"
 log "Prompt submitted. Tracking Evaluate to a terminal state…"
 
 cancel_eval() {
