@@ -631,10 +631,9 @@ Add these one at a time, running after each:
     3. **Cap on concepts:** roughly 10-15 metadata functions, every one
        something a user would slice by; per-class fan-out counts as one concept
        and is restricted to top-K classes when the class count is large.
-- **Custom latent space** — `@tensorleap_custom_latent_space("name",
-  use_ls_for_analysis=True)` on a function that takes model outputs and/or
-  encoder outputs and returns `(batch, d)` (drop the flag if a user-defined
-  custom latent space already carries it — only one may). The platform extracts its own latent
+- **Custom latent space** — `@tensorleap_custom_latent_space("name")` on a
+  function that takes model outputs and/or encoder outputs and returns
+  `(batch, d)`. The platform extracts its own latent
   spaces with model-agnostic heuristics; you add **exactly one** more, the
   tensor most informative for *this* task, exposed as an extra model output in
   a **sibling model file** (never the original). See

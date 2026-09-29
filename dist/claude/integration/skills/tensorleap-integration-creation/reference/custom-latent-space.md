@@ -20,7 +20,7 @@ import numpy as np
 from code_loader.inner_leap_binder.leapbinder_decorators import tensorleap_custom_latent_space
 from code_loader.contract.enums import LatentSpaceReduction
 
-@tensorleap_custom_latent_space(name="object_features", use_ls_for_analysis=True)
+@tensorleap_custom_latent_space(name="object_features")
 def object_features(p3: np.ndarray, gt_boxes: np.ndarray) -> np.ndarray:
     ...                                   # -> (batch, d) float32
 ```
@@ -55,12 +55,8 @@ Contract, enforced by code-loader:
   like): it sees one batch at a time, so a per-batch fit changes basis between
   batches and the space is meaningless.
 - **≤ 10 custom latent spaces per project**, unique names. This skill adds one.
-- `use_ls_for_analysis=True` on **at most one** latent space in the project: the
-  Out-Of-Distribution, Domain-Gap and mislabeling insights run in that space.
-  Set it on the space you add — that is what makes its insights attributable —
-  **unless the repo already has a custom latent space carrying it**: that flag
-  is the user's choice, so leave theirs in place and add yours without it
-  (code-loader rejects a second one).
+- If a user-defined custom latent space already sets `use_ls_for_analysis`,
+  leave it in place — that flag is the user's choice.
 
 ## Selecting the layer: two jobs, both before any inference
 
@@ -221,7 +217,7 @@ Detection, stride-8 neck map exposed as the 5th output, channel-first ONNX
 layout, pooled at the GT boxes (normalized `cx, cy, w, h, class`, NaN-padded):
 
 ```python
-@tensorleap_custom_latent_space(name="object_features", use_ls_for_analysis=True)
+@tensorleap_custom_latent_space(name="object_features")
 def object_features(p3: np.ndarray, gt_boxes: np.ndarray) -> np.ndarray:
     B, C, H, W = p3.shape                                 # layout read from the graph
     out = np.empty((B, C), dtype=np.float32)
@@ -244,7 +240,7 @@ masked-mean over the GT foreground (one-hot GT at input resolution, class 0 =
 background):
 
 ```python
-@tensorleap_custom_latent_space(name="foreground_features", use_ls_for_analysis=True)
+@tensorleap_custom_latent_space(name="foreground_features")
 def foreground_features(decoder: np.ndarray, gt_mask: np.ndarray) -> np.ndarray:
     B, h, w, C = decoder.shape
     H, W = gt_mask.shape[1:3]
@@ -265,8 +261,6 @@ def foreground_features(decoder: np.ndarray, gt_mask: np.ndarray) -> np.ndarray:
 - **Never overwrite the user's model file.** Write a sibling with the extra
   output and point the config at it.
 - **One `PredictionTypeHandler` per model output**, the new one appended last.
-- `use_ls_for_analysis=True` on the space you add — unless a user-defined custom
-  latent space already carries it; then leave theirs and add yours without it.
 - Respect the width caps with stateless reductions — in your code or via
   `reduce=` — never a fitted one; keep post-processing semantic (box-, mask-,
   attention-guided pooling).
