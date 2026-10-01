@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.4.0, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.4.1, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -296,6 +296,14 @@ server, or configures anything. React to its exit status:
   environment and `code_loader` setup in Step 0 below; those need the env to
   exist, so preflight deliberately leaves them to the skill.
 
+**Custom latent space gate.** The custom latent space step needs a server
+release **newer than 1.6.85**. On a local server, preflight prints a
+`Custom latent space` line: **DISABLED** (version ≤ 1.6.85 or unreadable) →
+**skip the custom latent space step entirely** — no `@tensorleap_custom_latent_space`,
+no sibling model file, no extra model output. On a remote server, apply the
+same rule to the `version:` line of the remote `leap server info` the user
+pastes; if no version is available, treat it as DISABLED.
+
 ## Data delivery (how the dataset reaches the code)
 
 The dataset must end up readable from a **config-driven data root** (never
@@ -452,7 +460,8 @@ order:
    `.tensorleap/reference/metadata.md` (documents, directory, GT-derived, domain
    knowledge) rather than adding generic statistics. Last, add **one custom
    latent space** chosen for the task (`.tensorleap/reference/custom-latent-space.md`);
-   it changes the model file, so do it after everything else is green.
+   it changes the model file, so do it after everything else is green. Skip it
+   when the **Custom latent space gate** (Preflight gate) says DISABLED.
 
 `load_model()` alone validates only model type and declared outputs. Useful
 validation starts when a real encoded sample flows into the model.
@@ -623,6 +632,8 @@ Add these one at a time, running after each:
   a **sibling model file** (never the original). See
   `.tensorleap/reference/custom-latent-space.md` for the API contract, the
   selection procedure, the ONNX/Keras recipes, and worked examples.
+  **Only on a server release > 1.6.85** — skip it when the **Custom latent
+  space gate** (Preflight gate) says DISABLED.
   Non-negotiable:
     1. **Choose before inference, from materialized metadata and the model
        graph** (object scale, class balance, sequence length …). A capped,
