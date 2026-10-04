@@ -38,6 +38,7 @@ Exit codes:
   6  matplotlib unavailable (render-charts only, fall back to html tables)
   7  inline-html: some src paths did not resolve (listed on stderr)
   8  build-report: report.json invalid or referenced images missing (listed on stderr)
+  11 a Tensorleap admin turned off AI access to this data (message on stderr)
   9  analysis-export contract mismatch (update the skill or the server, whichever is older)
 """
 import argparse
@@ -63,6 +64,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 API = {"url": None, "key": None}
 CACHE = {"dir": None, "refresh": False}
+ACCESS = {}
 # Blob downloads are soft (a missing image must not kill the run), so count
 # them: signed URLs point at the storage host, which a port-forward to
 # node-server alone does not expose. Then the API works and every blob fails.
@@ -118,6 +120,13 @@ def api(path, body, soft=False):
                 return json.loads(raw) if raw.strip() else {}
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:500]
+            if e.code == 403 and "AI_ACCESS_DISABLED" in detail:
+                message = server_error(detail)
+                if soft:
+                    print(f"warning: {message}", file=sys.stderr)
+                    return None
+                print(message, file=sys.stderr)
+                raise SystemExit(11)
             if e.code in (401, 403):
                 print(f"auth rejected by {API['url']} ({e.code}): {detail}", file=sys.stderr)
                 raise SystemExit(3)
@@ -159,6 +168,13 @@ def cache_path(file_name):
         return None
     return os.path.join(CACHE["dir"],
                         hashlib.sha256(file_name.encode()).hexdigest())
+
+
+def server_error(detail):
+    try:
+        return json.loads(detail).get("error") or detail
+    except ValueError:
+        return detail
 
 
 def check_contract(resp):
@@ -252,9 +268,9 @@ def cmd_list_versions(args):
               file=sys.stderr)
         raise SystemExit(2)
     project = matches[0]
-    versions = check_contract(
-        api("analysis-export/listTargets", {"projectId": project["cid"]})
-    ).get("versions") or []
+    targets = check_contract(
+        api("analysis-export/listTargets", {"projectId": project["cid"]}))
+    versions = targets.get("versions") or []
     out = [{
         "versionId": v.get("cid"),
         "name": v.get("name"),
@@ -263,6 +279,7 @@ def cmd_list_versions(args):
         "hasInsightsArtifacts": bool(v.get("hasInsights")),
     } for v in versions if v.get("evaluated")]
     print(json.dumps({"projectId": project["cid"], "projectName": project.get("name"),
+                      "aiAccess": targets.get("aiAccess"),
                       "evaluatedVersions": out}, indent=2))
 
 
@@ -398,7 +415,10 @@ def fetch_insight_files(insight, out_dir, k, rank_by, ascending, digest):
 
     digest["top_samples"] = sample_ids or []
     if not sample_ids:
-        digest["errors"].append("no sample ids resolved (csv/cluster blob missing)")
+        digest["errors"].append(
+            "per-sample data is turned off for this project (AI access)"
+            if ACCESS.get("sampleRows") is False
+            else "no sample ids resolved (csv/cluster blob missing)")
 
 
 def ui_base_url():
@@ -473,6 +493,12 @@ def cmd_fetch(args):
     export = check_contract(api("analysis-export/exportAnalysis",
                                 {"projectId": args.project,
                                  "versionId": args.version}))
+    ACCESS.update((api("analysis-export/listTargets", {"projectId": args.project},
+                       soft=True) or {}).get("aiAccess") or {})
+    if ACCESS.get("sampleRows") is False:
+        print("warning: per-sample data is turned off for this project (AI access), so "
+              "failure-mode sizes, composition and representative samples are unavailable",
+              file=sys.stderr)
     insights = export.get("insights") or []
     if not insights:
         print(f"version {args.version} has no insights", file=sys.stderr)
@@ -648,6 +674,7 @@ def cmd_fetch(args):
                          "arg_names": v.get("argNames")}
                         for v in export.get("visualizers") or []],
         "integration": extract_integration_code(export, args.out),
+        "ai_access": ACCESS or None,
         "insights": parents + orphans,
         "counts": {
             "total": len(digests),
