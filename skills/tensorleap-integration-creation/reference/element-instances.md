@@ -47,13 +47,25 @@ def preprocess() -> List[PreprocessResponse]:
     ...   # ordinary preprocess body; ids must be scalars (not grouped)
 ```
 
-- **Length encoder** `(sample_id, preprocess) -> int` — how many instances the
-  sample has. `0` is fine (the sample simply contributes no instance rows).
-- **Mask encoder** — see next.
+- **Length encoder** — see next.
+- **Mask encoder** — see §3.
 - Optional third argument `instance_metadata_types={...}` — see *Instance
   metadata* below.
 
-### 2. Masks encoder — `@tensorleap_instances_masks_encoder("name")`
+### 2. Length encoder
+
+```python
+def instance_length_encoder(sample_id: str, preprocess: PreprocessResponse) -> int:
+    return count_of_instances(sample_id)      # e.g. this sample's GT boxes
+```
+
+Returns how many instances the sample has; the platform then calls the masks
+encoder with `instance_id` in `range(k)`. `0` is fine — the sample simply
+contributes no instance rows. The wiring is the **argument position** on the
+preprocess decorator (a standalone `@tensorleap_instances_length_encoder("name")`
+decorator also exists, but passing the function is what binds it).
+
+### 3. Masks encoder — `@tensorleap_instances_masks_encoder("name")`
 
 ```python
 @tensorleap_instances_masks_encoder("image")
@@ -70,7 +82,7 @@ def instance_mask(sample_id: str, preprocess: PreprocessResponse,
 The mask is the instance's spatial footprint on the input; the engine uses it
 to build the instance row. Return `None` for an absent instance.
 
-### 3. Instance metrics — `@tensorleap_custom_instances_metric`
+### 4. Instance metrics — `@tensorleap_custom_instances_metric`
 
 Looks like a custom metric (batched `np.ndarray` args + one
 `SamplePreprocessResponse` arg) but returns a **dict keyed by instance
@@ -88,7 +100,7 @@ rows (no subkeys). Declare `direction` — insights silently default to
 `Downward` otherwise. **Call it in `integration_test`** (on the raw prediction
 slot plus the `SamplePreprocessResponse`) like any other metric.
 
-### 4. Instance custom latent space — `@tensorleap_instance_custom_latent_space`
+### 5. Instance custom latent space — `@tensorleap_instance_custom_latent_space`
 
 The instance-level counterpart of the custom latent space. **Dataset-computed
 only** (no model-computed variant), called once per instance:

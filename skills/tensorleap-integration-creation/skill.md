@@ -685,8 +685,9 @@ Add these one at a time, running after each:
   `(d,)` vector per instance, instance rows only). Use it when the user's
   question is object-level, not image-level. **Only when the Element instances
   gate (Preflight gate) says ENABLED** (server ≥ 1.6.75, code-loader ≥ 1.0.206).
-  See `{{reference_dir}}/element-instances.md` for the row model, all four
-  decorators, instance metadata, and the `check_dataset` companion rules.
+  See `{{reference_dir}}/element-instances.md` for the row model, the whole
+  instance interface (preprocess, length + masks encoders, instance metrics,
+  instance custom LS), instance metadata, and the `check_dataset` companion rules.
   Non-negotiable:
     1. **All-or-nothing wiring:** the element-instance preprocess and the masks
        encoder come together; `check_dataset` fails a partial setup by name.
