@@ -127,6 +127,10 @@ Not a decorator — it rides on the masks encoder's return value:
    `@tensorleap_element_instance_preprocess(..., instance_metadata_types=
    {"area": DatasetMetadataType.float})`. The declaration wins on type and
    guarantees the column even when the probed instance lacks the key.
+   The `instance_metadata_types` argument exists from **code-loader 1.0.206**
+   (the version a 1.6.75 server pins); on 1.0.204–1.0.205 the rest of the
+   instance surface exists but metadata types are probe-inferred only, so
+   every key must have a real (non-`None`) value on the first probed instance.
 
 Each key surfaces as a `builtin_instance_extra_metadata_<key>` column on
 instance rows (declared-but-empty on image rows) — filterable and usable for
