@@ -33,7 +33,8 @@ python3 scripts/tl_api.py build-report DIR
 
 Exit codes: `0` ok · `2` bad args / ambiguous project · `3` not authenticated
 · `4` server unreachable/error · `5` version has no insights · `6` matplotlib
-missing (render-charts only) · `8` build-report input invalid. Auth and server URL come from the leap CLI's
+missing (render-charts only) · `8` build-report input invalid · `11` a Tensorleap
+admin turned off AI access to this data. Auth and server URL come from the leap CLI's
 own login (`~/.config/tensorleap/config.yaml`), the script talks to whichever
 server `leap auth select` points at, exactly like the UI does.
 
@@ -49,6 +50,14 @@ Then run `whoami`. On exit 3, stop and tell the user to run `leap auth login`
 (or `leap auth select <env>`); on exit 4 the server is unreachable, show the
 api_url from the error and ask the user to check connectivity/port-forward.
 Do not improvise other auth mechanisms.
+
+Exit 11 from any command means a Tensorleap admin turned off AI access to that
+data for this project: show the stderr message verbatim and stop. It is not a
+login problem, so never suggest `leap auth login`. When `fetch` warns that
+per-sample data or visualizations are turned off, continue with what was
+returned and say in the report what was unavailable (`ai_access` in
+insights.json records the project's settings); never present an insight's
+`n_samples` as its failing count in that case.
 
 ## Step 2: Pick the version
 
