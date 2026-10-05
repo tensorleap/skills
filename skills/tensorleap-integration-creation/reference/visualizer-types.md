@@ -27,6 +27,7 @@ def viz(...) -> LeapImage:
 | `TextMask` | `LeapTextMask` | NER / text highlighting | tokens + per-token mask + labels |
 | `ImageWithBBox` | `LeapImageWithBBox` | object detection | image + list of `BoundingBox` (relative x,y,w,h) |
 | `ImageWithHeatmap` | `LeapImageWithHeatmap` | attention / saliency | image + heatmap |
+| `Volume` | `LeapVolume` | 3-D scalar fields (CT/MRI, z-stacks, voxel grids) | `data` `(D,H,W)` float32/uint8 + optional `mask` `(D,H,W)` uint8 with `labels`; optional `spacing` `(D,H,W)` in physical units |
 
 Rules that apply across types:
 
