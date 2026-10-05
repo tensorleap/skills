@@ -660,7 +660,8 @@ Add these one at a time, running after each:
 - **Custom latent space** — `@tensorleap_custom_latent_space("name")` on a
   function that takes model outputs and/or encoder outputs and returns
   `(batch, d)`. The platform extracts its own latent
-  spaces with model-agnostic heuristics; you add **exactly one** more, the
+  spaces with model-agnostic heuristics; you add **exactly one** more (the
+  skill's authoring policy — the platform itself accepts up to 10), the
   tensor most informative for *this* task, exposed as an extra model output in
   a **sibling model file** (never the original). See
   `{{reference_dir}}/custom-latent-space.md` for the API contract, the

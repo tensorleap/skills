@@ -7,7 +7,11 @@ latent space it was found in, and the platform's built-in spaces
 are extracted by **model-agnostic heuristics** — the same layer rules for every
 network. The custom latent space is your addition: **exactly one** extra
 representation, chosen because it is the most informative for *this* task on
-*this* architecture. It does not replace the built-in ones.
+*this* architecture. It does not replace the built-in ones. "Exactly one" is
+**this skill's authoring policy, not a platform limit** — the platform accepts
+up to 10 custom latent spaces (unique names), and a user may add more by hand;
+the skill contributes one deliberate space rather than several speculative
+ones.
 
 This file covers the **sample-level** latent space (one vector per sample).
 For a per-*instance* latent space on an element-instance integration
