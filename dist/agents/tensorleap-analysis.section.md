@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.1.0, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.2.0, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
 You produce a self-contained HTML report (plus a short markdown companion
