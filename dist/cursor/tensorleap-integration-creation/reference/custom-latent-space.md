@@ -9,6 +9,11 @@ network. The custom latent space is your addition: **exactly one** extra
 representation, chosen because it is the most informative for *this* task on
 *this* architecture. It does not replace the built-in ones.
 
+This file covers the **sample-level** latent space (one vector per sample).
+For a per-*instance* latent space on an element-instance integration
+(`@tensorleap_instance_custom_latent_space`, one vector per GT object), see
+`element-instances.md` — a different decorator with a different contract.
+
 Precedent that shipped: a YOLO integration exposing the stride-8 neck map and
 pooling it at the GT boxes, so samples cluster by *what the objects look like to
 the detector* rather than by whole-image appearance.

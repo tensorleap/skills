@@ -8,7 +8,7 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.4.1
+version: 0.5.0
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents, devin]
@@ -324,11 +324,13 @@ same rule to the `version:` line of the remote `leap server info` the user
 pastes; if no version is available, treat it as DISABLED.
 
 **Element instances gate.** Instance mode (see Optional surfaces and
-`{{reference_dir}}/element-instances.md`) needs a server release **≥ 1.6.75**
-and `code-loader` **≥ 1.0.206**. Preflight prints an `Element instances` line
-under the same rules (unknown version = DISABLED); when DISABLED, skip the
+`{{reference_dir}}/element-instances.md`) needs a server release **≥ 1.6.75**.
+Preflight prints an `Element instances` line under the same rules as the
+custom-latent-space gate (unknown version = DISABLED); when DISABLED, skip the
 whole instance surface — no element-instance preprocess, instance encoders,
-instance metrics, or instance custom latent space.
+instance metrics, or instance custom latent space. Preflight checks only the
+server release; the local env must separately have `code-loader` **≥ 1.0.206**
+(the version a 1.6.75 server pins) — pin it in the project env.
 
 ## Data delivery (how the dataset reaches the code)
 
@@ -684,13 +686,17 @@ Add these one at a time, running after each:
   space** (`@tensorleap_instance_custom_latent_space`, dataset-computed, one
   `(d,)` vector per instance, instance rows only). Use it when the user's
   question is object-level, not image-level. **Only when the Element instances
-  gate (Preflight gate) says ENABLED** (server ≥ 1.6.75, code-loader ≥ 1.0.206).
+  gate (Preflight gate) says ENABLED** (server ≥ 1.6.75; the local env also
+  needs code-loader ≥ 1.0.206, which preflight does not check).
   See `{{reference_dir}}/element-instances.md` for the row model, the whole
   instance interface (preprocess, length + masks encoders, instance metrics,
   instance custom LS), instance metadata, and the `check_dataset` companion rules.
   Non-negotiable:
     1. **All-or-nothing wiring:** the element-instance preprocess and the masks
-       encoder come together; `check_dataset` fails a partial setup by name.
+       encoder come together. Registering the instance custom latent space
+       without both fails `check_dataset` by name (that is the only enforced
+       check — other partial setups fail later and obscurely, so wire them
+       together regardless).
     2. Instance metrics return `Dict[int, (batch,) array]` keyed by instance
        position, and need an explicit `direction`.
     3. The instance custom latent space is **sparse** — instance rows only; the

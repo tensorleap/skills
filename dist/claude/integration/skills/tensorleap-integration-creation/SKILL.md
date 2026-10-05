@@ -146,6 +146,9 @@ clutter the customer's repo:
 - **`tensorleap/latent_space.py`** — the one custom latent space, when it is
   added (see **Optional surfaces**), plus the small script that writes the
   sibling model file exposing its layer.
+- **`tensorleap/instances.py`** — the element-instance surface, when instance
+  mode is used (see **Optional surfaces**): the instance length + masks
+  encoders, instance metrics, and the instance custom latent space.
 
 The `tensorleap/` component files must be covered by `leap.yaml`'s `include` (e.g.
 `tensorleap/**`), along with `leap_integration.py` and `requirements.txt` at root.
@@ -314,6 +317,15 @@ no sibling model file, no extra model output. On a remote server, apply the
 same rule to the `version:` line of the remote `leap server info` the user
 pastes; if no version is available, treat it as DISABLED.
 
+**Element instances gate.** Instance mode (see Optional surfaces and
+`reference/element-instances.md`) needs a server release **≥ 1.6.75**.
+Preflight prints an `Element instances` line under the same rules as the
+custom-latent-space gate (unknown version = DISABLED); when DISABLED, skip the
+whole instance surface — no element-instance preprocess, instance encoders,
+instance metrics, or instance custom latent space. Preflight checks only the
+server release; the local env must separately have `code-loader` **≥ 1.0.206**
+(the version a 1.6.75 server pins) — pin it in the project env.
+
 ## Data delivery (how the dataset reaches the code)
 
 The dataset must end up readable from a **config-driven data root** (never
@@ -472,6 +484,11 @@ order:
    latent space** chosen for the task (`reference/custom-latent-space.md`);
    it changes the model file, so do it after everything else is green. Skip it
    when the **Custom latent space gate** (Preflight gate) says DISABLED.
+10. **Instance mode**, only when the task is object-level and the user wants
+   per-instance analysis (`reference/element-instances.md`): switch the
+   preprocess to `@tensorleap_element_instance_preprocess`, add the instance
+   encoders, then instance metrics / metadata / latent space one at a time,
+   running between each. Skip when the **Element instances gate** says DISABLED.
 
 `load_model()` alone validates only model type and declared outputs. Useful
 validation starts when a real encoded sample flows into the model.
@@ -657,6 +674,27 @@ Add these one at a time, running after each:
     4. Width ≤ 4096 per sample (warn > 1024); reduce with any **stateless**
        pooling or projection — in code, or `reduce=` for the built-in mean-pool /
        random-projection — never a fitted one (PCA) inside the function.
+- **Element instances (instance mode)** — make each annotated element of a
+  sample (GT box, mask region, object) its own analyzable row, with instance
+  metrics, per-instance metadata, and optionally an **instance custom latent
+  space** (`@tensorleap_instance_custom_latent_space`, dataset-computed, one
+  `(d,)` vector per instance, instance rows only). Use it when the user's
+  question is object-level, not image-level. **Only when the Element instances
+  gate (Preflight gate) says ENABLED** (server ≥ 1.6.75; the local env also
+  needs code-loader ≥ 1.0.206, which preflight does not check).
+  See `reference/element-instances.md` for the row model, the whole
+  instance interface (preprocess, length + masks encoders, instance metrics,
+  instance custom LS), instance metadata, and the `check_dataset` companion rules.
+  Non-negotiable:
+    1. **All-or-nothing wiring:** the element-instance preprocess and the masks
+       encoder come together. Registering the instance custom latent space
+       without both fails `check_dataset` by name (that is the only enforced
+       check — other partial setups fail later and obscurely, so wire them
+       together regardless).
+    2. Instance metrics return `Dict[int, (batch,) array]` keyed by instance
+       position, and need an explicit `direction`.
+    3. The instance custom latent space is **sparse** — instance rows only; the
+       sample-level pass skipping it ("no samples in latent space") is expected.
 - **Metrics / custom loss** — return a **batch-aligned 1D array (one value per
   sample)**, not a single scalar. Give a metric its `direction`
   (`MetricDirection.Upward`/`Downward`). A metric/loss must **discriminate
