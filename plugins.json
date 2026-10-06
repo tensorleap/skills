@@ -1,5 +1,5 @@
 {
-  "_comment": "SOURCE catalog (input to build/generate.py). Defines the Claude Code marketplace name, shared owner/metadata, and which skills compose which plugins. 'plugin' is a Claude-only grouping: other tools (cursor/copilot/agents) flatten to one file per skill and ignore this file. Skill names are the directory names under skills/. Regenerate after editing: python build/generate.py",
+  "_comment": "SOURCE catalog (input to build/generate.py). Defines the Claude Code marketplace name, shared owner/metadata, and which skills compose which plugins. 'plugin' is a Claude-only grouping; an optional 'mcpServers' map becomes the plugin's .mcp.json: other tools (cursor/copilot/agents) flatten to one file per skill and ignore this file. Skill names are the directory names under skills/. Regenerate after editing: python build/generate.py",
   "name": "tensorleap",
   "owner": {
     "name": "Tensorleap",
@@ -27,7 +27,10 @@
     {
       "name": "analysis",
       "description": "Tensorleap's AI-assistant skills for analyzing platform results: insights reports with evidence, sample visualizations, and action items.",
-      "version": "0.2.0",
+      "version": "0.3.0",
+      "mcpServers": {
+        "tensorleap": { "command": "leap", "args": ["mcp"] }
+      },
       "skills": [
         "tensorleap-analysis"
       ]

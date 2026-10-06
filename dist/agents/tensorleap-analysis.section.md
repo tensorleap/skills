@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.2.0, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.3.0, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
 You produce a self-contained HTML report (plus a short markdown companion
@@ -10,17 +10,19 @@ metadata can't show, and turn it all into action items the user can execute.
 Do not relay the platform's output uncritically. You have the samples;
 form an opinion.
 
-All server access goes through one script (python3, stdlib only):
+Data comes from the Tensorleap MCP server (`leap mcp`, part of the leap
+CLI), through its tools: `tl_status`, `tl_list_projects`, `tl_list_versions`,
+`tl_get_insights`, `tl_export_analysis`, `tl_get_integration_code`,
+`tl_view_samples`, `tl_list_samples`, `tl_query`. Read its
+`tensorleap://glossary` resource once. The report plumbing is one script
+(python3, stdlib only):
 
 ```
-python3 .tensorleap/scripts/tl_api.py whoami
-python3 .tensorleap/scripts/tl_api.py list-versions [--project NAME_OR_ID]
-python3 .tensorleap/scripts/tl_api.py fetch --project ID --version ID --out DIR
-                                        [--top-k 10] [--rank-by COL] [--asc]
-                                        [--refresh]
-python3 .tensorleap/scripts/tl_api.py render-charts DIR
-python3 .tensorleap/scripts/tl_api.py summarize DIR
-python3 .tensorleap/scripts/tl_api.py build-report DIR
+python3 .tensorleap/scripts/tl_api.py digest DIR         # manifest.json -> insights.json (the digest you read)
+python3 .tensorleap/scripts/tl_api.py render-charts DIR  # chart.png / boxes.jpg for non-image payloads
+python3 .tensorleap/scripts/tl_api.py summarize DIR      # per-insight composition stats from samples.csv
+python3 .tensorleap/scripts/tl_api.py build-report DIR   # assemble report.html + report.txt from DIR/report.json
+python3 .tensorleap/scripts/tl_api.py inline-html FILE   # embed <img src> files as data URIs, in place
 ```
 
 > `.tensorleap/scripts/tl_api.py` lives in this skill's own directory, NOT in
@@ -28,12 +30,11 @@ python3 .tensorleap/scripts/tl_api.py build-report DIR
 > `leap.yaml`), so resolve the script's path relative to this skill file
 > (an absolute path is safest) and never copy it into the project.
 
-Exit codes: `0` ok · `2` bad args / ambiguous project · `3` not authenticated
-· `4` server unreachable/error · `5` version has no insights · `6` matplotlib
-missing (render-charts only) · `8` build-report input invalid · `11` a Tensorleap
-admin turned off AI access to this data. Auth and server URL come from the leap CLI's
-own login (`~/.config/tensorleap/config.yaml`), the script talks to whichever
-server `leap auth select` points at, exactly like the UI does.
+Exit codes: `0` ok · `2` bad args · `5` no manifest / no insights · `6`
+matplotlib missing (render-charts only) · `7` inline-html src unresolved ·
+`8` build-report input invalid. Auth and the server come from the leap CLI's
+own login; `leap mcp` talks to whichever server `leap auth select` points at
+(or the `--env` its MCP registration pins), exactly like the UI does.
 
 ## Step 1: Preflight
 
@@ -43,59 +44,72 @@ over. A `NOTE:` line means a project-local install has an update available:
 ask the user before running the printed command. The script only acts on
 Copilot/Cursor installs; Claude updates through the plugin marketplace.
 
-Then run `whoami`. On exit 3, stop and tell the user to run `leap auth login`
-(or `leap auth select <env>`); on exit 4 the server is unreachable, show the
-api_url from the error and ask the user to check connectivity/port-forward.
-Do not improvise other auth mechanisms.
+Then call `tl_status`. If the Tensorleap tools are not available at all, the
+MCP server is not registered in this assistant: tell the user to run
+`leap mcp config <claude-code|cursor|vscode|codex|windsurf>` (it prints the
+exact step; it needs leap CLI 0.0.163 or newer) and restart the assistant,
+then stop. If `tl_status` fails, relay its message verbatim (it says whether
+to run `leap auth login`, fix `--env`, or check the tunnel) and stop. Do not
+improvise other auth mechanisms.
 
-Exit 11 from any command means a Tensorleap admin turned off AI access to that
-data for this project: show the stderr message verbatim and stop. It is not a
-login problem, so never suggest `leap auth login`. When `fetch` warns that
-per-sample data or visualizations are turned off, continue with what was
-returned and say in the report what was unavailable (`ai_access` in
-insights.json records the project's settings); never present an insight's
-`n_samples` as its failing count in that case.
+**AI access.** An admin can turn off what assistants may read (gear icon >
+AI ACCESS). `tl_status` and `tl_list_projects` show what is turned off. If a
+tool refuses, quote its message to the user and continue with what is
+allowed: never retry, and never reconstruct the withheld data another way.
+When per-sample data is off, `tl_export_analysis` skips the sample lists and
+says so in `skipped`; the report then states what was unavailable, and never
+presents an insight's `n_samples` as its failing count.
 
 ## Step 2: Pick the version
 
-- If the cwd has a `leap.yaml` with a project name/id, try
-  `list-versions --project <that>`. Otherwise run `list-versions` bare, show
-  the projects, and ask the user which one.
-- Show the evaluated versions (name, serial, date, `hasInsightsArtifacts`)
-  and ask the user which version to analyze. Prefer versions where
-  `hasInsightsArtifacts` is true; if the chosen one is false, warn that fetch
-  may find nothing.
+- If the cwd has a `leap.yaml` with a project name/id, call
+  `tl_list_versions` with it. Otherwise call `tl_list_projects`, show the
+  projects, and ask the user which one.
+- Show the evaluated versions (name, serial, date, `hasInsights`) and ask the
+  user which version to analyze. Prefer versions where `hasInsights` is true;
+  if the chosen one is false, warn that the export may find nothing. Tools
+  accept the project or version name, and `latest` for the newest evaluated
+  version.
 
-## Step 3: Fetch
+## Step 3: Export
+
+Call `tl_export_analysis` with the project, the version and
+`dir` = the absolute path of `tensorleap-analysis/<version-name-or-serial>`
+under the cwd (`topK` defaults to 24 samples per insight, 6 per sub-insight;
+pass `heatmapLabels` to choose which heatmap overlays are rendered). It
+returns the paths it wrote plus `skipped` (data an admin turned off) and
+`notes` (downloads that failed). An error from the tool is final: relay it.
+If `skipped` says sample lists are off, continue with the engine payloads
+only. If no insights exist for that version, tell the user to generate
+insights in the UI (Population Exploration -> Insights) or pick another
+version, and stop. Then run:
 
 ```
-python3 .tensorleap/scripts/tl_api.py fetch --project <projectId> --version <versionId> \
-    --out tensorleap-analysis/<version-name-or-serial>
+python3 .tensorleap/scripts/tl_api.py digest tensorleap-analysis/<version>
 ```
 
-On exit 4 after the API answered, every artifact download failed: the signed
-URLs point at the server's storage host, which a port-forward to node-server
-alone does not expose. Tell the user to point `leap auth` at the server's
-public URL (the one the UI uses) and re-run with `--refresh`. A stderr
-`warning:` with a partial failure count is not fatal, mention the gap in the
-companion's Notes.
-On exit 5 there are no insights for that version: tell the user to generate
-insights in the UI (Population Exploration → Insights) or pick another
-version, and stop. On success the out dir contains:
+It turns the export's `manifest.json` into `insights.json`. All paths inside
+are relative to that directory. It contains:
 
 - `insights.json`, the digest you work from: parent insights with nested
-  `subinsights`, each with `insightType` (full engine payload), `files`
-  (local csv / top_panel / fixing_csv, the last only when the insight
+  `subinsights`, each with `insightType` (the engine's payload: `metrics_info`,
+  `mutual_info_elements`, `is_train_aggressor`, `overfitting_metrics` /
+  `overfitting_evidence`, `cluster_extended_stats`, `aggressor_fixing` counts,
+  `automatic_tests`), `summary` (the export's own digest: `groupSize`,
+  `split`, `composition`, `contrast`, `rankedBy`), `files`
+  (local csv / cluster / top_panel / fixing_csv, the last only when the insight
   carries `aggressor_fixing`), `deep_link` (the insight opened and analyzed
   in the platform), `add_test_link` (present when the insight has engine-made
   `automatic_tests`; opens the platform, which offers to create the insight's
   regression test on the user's confirmation), `samples` (per sample id: downloaded `payload.json`
-  + assets), `errors`, and top-level `counts`, plus `prediction_labels`
+  + assets, and `overlay*.jpg` heatmaps already rendered over the image),
+  `errors`, and top-level `counts` and `skipped`, plus `prediction_labels`
   (per prediction type, the class-name list the integration declared,
   class index i is `labels[i]`; empty if the integration declared none),
   `visualizers` (every visualizer the integration declared: name, data
   type, argument names), and `integration` (where the pushed code was
-  extracted; null if the download failed). Each insight also carries
+  extracted; null when the server has no snapshot or an admin turned
+  integration code off). Each insight also carries
   `population` (`samples` = the group the report describes, for a failure
   mode the rows that actually underperform, otherwise every csv row; and
   `csv_rows`, the raw row count, internal only), `asset_resolution` (the
@@ -115,16 +129,15 @@ For a failure mode, only the rows that actually underperform
 (`is_low_perf_root_member`) are eligible, the latent neighbours the cluster
 also holds are often healthy, and a card must not illustrate a failure with a
 passing sample. Other insight types have no such split, so every row is
-eligible. The eligible rows are then ranked by `aggressor_affinity_score` when
+eligible. The eligible rows are ranked by `aggressor_affinity_score` when
 the CSV has it (highest first, the samples most representative of the
 insight's population, and the order the user sees in the Insights panel), else
 worst-first by the first `metrics.*` column containing `loss`/`entropy` (the
-tail, not the group's identity, weigh observations accordingly); among
-equally-ranked candidates, samples that have rendered visualizations are
-preferred. If the project's real
-quality metric is a different column (see `csv_columns` in the digest),
-re-run fetch with `--rank-by <column>` (add `--asc` for higher-is-better
-metrics).
+tail, not the group's identity, weigh observations accordingly); the insight's
+`summary.rankedBy` says which. Among equally-ranked candidates, samples that
+have rendered visualizations come first. To look at other samples of a
+case (a different metric, a condition the user named), use
+`tl_list_samples` with filters and `tl_view_samples`, or re-export.
 
 Then render charts for non-image modalities:
 
@@ -138,14 +151,9 @@ render-charts also writes a `<name>.thumb.jpg` (max 640 px) beside every
 larger image, the copies you view in Step 5. They never go in the report;
 build-report rejects them.
 
-**Repeat runs are cheap.** Blobs are cached (`~/.cache/tensorleap-analysis`)
-and sample directories already present in `--out` are reused, so re-running
-after a crash or a report edit costs seconds; `--refresh` forces a full
-re-download. All artifact URLs arrive pre-signed in batches from the
-server's analysis-export API, so there are no per-file signing round-trips.
-The server must expose that API (a recent node-server); on older servers
-`fetch` exits 4 with a clear message, and a contract-version mismatch exits
-9, update whichever side is older.
+**Repeat runs re-export.** The export tool rewrites the directory in a few
+seconds; after a crash or a report edit just call it again and re-run
+`digest`. `chart.png`, `boxes.jpg` and thumbnails already present are kept.
 
 ## Step 4: Establish the domain
 
@@ -368,7 +376,7 @@ the user can mail or Slack. Also write `<out-dir>/report.md`, the
 executive summary, summary table, per-insight action checklists, and the
 **Notes** section (template: one line per insight without a card, ending in
 what the reader can do; unrendered visualizations as on-demand behavior;
-fetch errors). It is the paste-into-a-ticket companion; no images.
+export notes). It is the paste-into-a-ticket companion; no images.
 
 Modality handling per sample `payload.json` (`data.type`):
 
