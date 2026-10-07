@@ -167,6 +167,47 @@ class MemoryCompareVerdicts(unittest.TestCase):
         self.assertEqual(r["peak_rss_gb"]["source"], "user-code footprint (memory pass)")
 
 
+class EachPlantedFixIsAccepted(unittest.TestCase):
+    """Remove one planted problem at a time: compare --objective memory accepts the fix."""
+
+    CASES = {
+        "duplicate copies": dict(SYNTH_MEM_DUP="64"),
+        "view keeping a big array alive": dict(SYNTH_MEM_VIEW="128"),
+        "object-heavy string list": dict(SYNTH_MEM_STRINGS="800000"),
+        "growth with the samples": dict(SYNTH_MEM_LEAK="4096"),
+    }
+
+    def test_fixes(self):
+        for label, env in self.CASES.items():
+            with self.subTest(label):
+                synth = SyntheticEnv()
+                try:
+                    proc = synth.run("profile", *FAST, SYNTH_DECODE_MS="4", **env)
+                    self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                    proc = synth.run("profile", *FAST, SYNTH_DECODE_MS="4")
+                    self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                    proc = synth.run("compare", "--objective", "memory", "--runtime-tolerance", "0.5")
+                    self.assertEqual(proc.returncode, tl_perf.EXIT_OK, proc.stdout + proc.stderr)
+                finally:
+                    synth.close()
+
+    def test_memory_candidates_are_ranked(self):
+        synth = SyntheticEnv()
+        try:
+            proc = synth.run("profile", *FAST, SYNTH_MEM_DUP="48", SYNTH_MEM_VIEW="96", SYNTH_MEM_UNUSED="64")
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            proc = synth.run("score", "--objective", "memory")
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            cands = synth.result("score.json")["memory"]["candidates"]
+            priorities = [c["priority"] for c in cands]
+            self.assertEqual(priorities, sorted(priorities, reverse=True))
+            self.assertTrue(cands[0]["target"].endswith("KEPT_SLICE"), cands[0])   # 96 MB freed, exact
+            classes = {c["class"] for c in cands}
+            self.assertTrue({"M3", "M4", "M9"} <= classes, classes)
+        finally:
+            synth.close()
+
+
 class CensusUnitTest(unittest.TestCase):
     def test_dtype_hints(self):
         import numpy as np
