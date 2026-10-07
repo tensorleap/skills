@@ -27,6 +27,7 @@ def viz(...) -> LeapImage:
 | `TextMask` | `LeapTextMask` | NER / text highlighting | tokens + per-token mask + labels |
 | `ImageWithBBox` | `LeapImageWithBBox` | object detection | image + list of `BoundingBox` (relative x,y,w,h) |
 | `ImageWithHeatmap` | `LeapImageWithHeatmap` | attention / saliency | image + heatmap |
+| `PointCloud` | `LeapPointCloud` | 3-D point sets (LiDAR sweeps, depth frames, mesh vertices) with optional oriented boxes | `points` `(N,3)` float32 + optional `intensity` `(N,)` float32 (per-point scalar, a UI color mode) + optional `bounding_boxes: List[BoundingBox3D]` (`x,y,z,width,length,height,yaw` radians CCW about +z, `label`, `confidence`, `is_ground_truth` — GT boxes draw dashed so one visualizer can show GT and predictions together) |
 
 Rules that apply across types:
 
