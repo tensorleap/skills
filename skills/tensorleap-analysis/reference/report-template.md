@@ -58,7 +58,7 @@ write every field in full.
   `insights.json` for whoever wants them; the report speaks English.
 - Any platform term you do use gets a one-line translation the first time
   (e.g. "severity 3, the platform's highest").
-- **A failure mode's sample count is the number that actually underperforms**
+- **A failure mode's sample count is its root members, the group the platform flagged**
   (`population.samples` in the digest), and it is written plainly: "314
   samples". The platform's `n_samples` counts a wider latent neighbourhood
   the report does not discuss, never quote it, and never invent vocabulary
@@ -95,6 +95,8 @@ groups, and ends with the last card. Notes live in `report.md` alone
 2. **KPI strip** (`.tiles`): 3–4 stat tiles with the model-level numbers a
    domain expert checks first (from `population_metrics`, e.g. recall,
    precision, misses/image for detection; accuracy for classification),
+   the headline metric once per split (training, validation) so a gap is
+   visible,
    then one tile per insight type present with its count, the same numbers
    the reader sees in the Insights panel.
 3. **Executive summary**: 3–5 sentences. This is where impact PRIORITY
@@ -131,7 +133,7 @@ groups, and ends with the last card. Notes live in `report.md` alone
    Step 6). Every insight in the run is either a card or a Notes line,
    nothing is silently dropped. Plus, when
    relevant: unrendered visualizations phrased as on-demand behavior (never
-   as an error) and fetch errors. Word editorial outcomes neutrally and
+   as an error) and export notes. Word editorial outcomes neutrally and
    ground them in the data, never verdict labels on the insight
    ("incoherent", "not actionable").
 
@@ -185,8 +187,8 @@ restate severity in `chips`. Card content, in render order:
 2. **Chips** (`chips`): sample count, key metric, latent space (the severity
    chip is script-generated, and an "insight #N" chip is dropped, the
    header already carries the number). The count chip is
-   `population.samples`, for a failure mode, the samples that actually
-   underperform, and every other number on the card (composition, contrast,
+   `population.samples`, for a failure mode, the root members the platform
+   flagged, and every other number on the card (composition, contrast,
    action items) describes that same set.
 3. **Bottom line** (`lede`): ONE bold sentence, what is going
    wrong and why it matters. A reader who stops here still got the point.
