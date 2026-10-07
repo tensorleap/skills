@@ -3491,8 +3491,9 @@ REPORT_REQUIRED = {
     "tensorleap_actions": list,
 }
 OPTIMIZATION_REQUIRED = ("problem", "change", "evidence", "equivalence")
-OPTIMIZATION_KINDS = ("performance", "correctness", "prerequisite")
-CATALOG_CLASSES = tuple("ABCDEFGHIJKLMNOPQRSTUVW") + ("new",)
+OPTIMIZATION_KINDS = ("performance", "correctness", "prerequisite", "memory")
+CATALOG_CLASSES = tuple("ABCDEFGHIJKLMNOPQRSTUVW") + tuple("M%d" % i for i in range(1, 13)) + ("new",)
+MEMORY_STATUSES = ("GREEN", "AMBER", "RED")
 
 
 def validate_report(doc):
@@ -3513,8 +3514,16 @@ def validate_report(doc):
                 errors.append("optimizations[%d] missing %r" % (i, key))
         if opt.get("kind") is not None and opt["kind"] not in OPTIMIZATION_KINDS:
             errors.append("optimizations[%d] 'kind' must be one of %s" % (i, ", ".join(OPTIMIZATION_KINDS)))
-        if opt.get("catalog") is not None and opt["catalog"] not in CATALOG_CLASSES:
-            errors.append("optimizations[%d] 'catalog' must be a class letter A-W or 'new'" % i)
+        if opt.get("catalog") is not None and \
+                not all(part in CATALOG_CLASSES for part in str(opt["catalog"]).split("/")):
+            errors.append("optimizations[%d] 'catalog' must be a class (A-W, M1-M12, combined "
+                          "with '/') or 'new'" % i)
+    mem = doc.get("memory")
+    if mem is not None:
+        if not isinstance(mem, dict):
+            errors.append("'memory' must be an object")
+        elif mem.get("status") not in MEMORY_STATUSES:
+            errors.append("memory.status must be one of %s" % ", ".join(MEMORY_STATUSES))
     rb = doc.get("remaining_bottleneck")
     if isinstance(rb, dict):
         for key in ("component", "evidence"):
@@ -3545,6 +3554,43 @@ def _share_rows(before, after, visualized):
         rows.append(["expected total", "%.1f s" % expected_total(before, bc, visualized),
                      "%.1f s" % expected_total(after, ac, visualized) if after else "-"])
     return rows
+
+
+def _memory_section(mem, before, after):
+    """The user-code memory section: triage from report.json, the footprint table from the
+    baseline and latest profiles (never typed by hand)."""
+    ub = (before or {}).get("user_memory") or {}
+    ua = (after or {}).get("user_memory") or {}
+    if not mem and not ub:
+        return []
+    lines = ["## Memory (user code, one worker process)", ""]
+    if mem:
+        lines.append("- Status: **%s**" % mem["status"])
+        for r in mem.get("reasons") or []:
+            lines.append("  - %s" % r)
+    if ub:
+        def row(label, get):
+            b, a = get(ub), get(ua) if ua else None
+            return [label, _gb(b) if b is not None else "-", _gb(a) if a is not None else "-"]
+        bd = lambda u, k: (u.get("breakdown_gb") or {}).get(k)
+        rows = [row("footprint (peak)", lambda u: u.get("footprint_gb")),
+                row("held: imports", lambda u: bd(u, "import")),
+                row("held: preprocess result", lambda u: bd(u, "preprocess")),
+                row("preprocess peak above what it keeps", lambda u: bd(u, "preprocess_transient")),
+                row("held: caches and growth over the samples", lambda u: bd(u, "samples")),
+                row("unattributed (allocator / native)", lambda u: u.get("unattributed_gb"))]
+        lines += ["", _md_table(["", "before", "after"], rows), ""]
+        stage_b, stage_a = ub.get("peak_stage"), (ua or {}).get("peak_stage")
+        if stage_b:
+            lines.append("- The peak is set during: %s%s." % (
+                stage_b, " → %s" % stage_a if stage_a and stage_a != stage_b else ""))
+    rh = (mem or {}).get("remaining_holder")
+    if rh:
+        lines.append("- Largest remaining holder: **%s** — %s" % (rh.get("target", "?"), rh.get("evidence", "")))
+    if (mem or {}).get("notes"):
+        lines.append("- %s" % mem["notes"])
+    lines.append("")
+    return lines
 
 
 def render_report(doc, out):
@@ -3604,6 +3650,7 @@ def render_report(doc, out):
                   _md_table(["block", "component", "mean/sample", "P50/call", "P95/call", "P99/call"],
                             [row for _, row in handlers]), ""]
 
+    lines += _memory_section(doc.get("memory"), before, after)
     lines += ["## Optimizations applied", ""]
     if not doc["optimizations"]:
         lines += ["_None._", ""]

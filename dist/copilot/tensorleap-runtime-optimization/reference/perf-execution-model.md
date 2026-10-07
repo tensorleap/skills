@@ -83,7 +83,17 @@ Two things the local run **cannot** show, and the skill must say so in the repor
 behavior on data the sample set did not cover (code paths never executed), and the
 platform's own scheduling and scaling — checked by the validation push.
 
-## 6. Local measurement hygiene
+## 6. Memory of the integration's own code
+
+Each worker process imports the integration, runs preprocess, and keeps its own module
+globals, preprocess result and caches. So whatever the integration's code holds is paid
+**per worker process** — when Tensorleap runs several, it is multiplied, and a large
+footprint means fewer workers fit or out-of-memory failures. `tl_perf profile` measures
+that footprint in one process with the model not loaded (the model's own memory is what
+`fit` measures): what imports, the preprocess result, caches and per-call temporaries hold,
+which stage sets the peak, and whether memory grows with the samples.
+
+## 7. Local measurement hygiene
 
 - Never measure runtime with `@tensorleap_integration_test`: it re-runs preprocessing and
   validation on every call. `tl_perf` drives code-loader's `LeapLoader` directly.

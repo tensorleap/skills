@@ -18,7 +18,9 @@ group: tensorleap
 You take an existing, working Tensorleap integration (`leap_integration.py` + `leap.yaml`
 at the repo root) from "it's slow and nobody knows why" to a measured, component-level
 picture, apply every **lossless** optimization the evidence supports, validate the result
-on the Tensorleap server, and hand over a report that names what limits runtime now.
+on the Tensorleap server, and hand over a report that names what limits runtime now. The
+same flow reduces the **memory the integration's own code holds** per worker process when
+that is the problem (or when it comes for free).
 
 Work from the **integration repo root**, inside the **integration's own Python
 environment** (the one that runs `leap_integration.py` — `poetry run` by default, or the
@@ -52,13 +54,27 @@ And the cost model: **every component is scored by its mean cost per sample rela
 the model's mean inference time per sample.** Work that costs many times the inference is
 what limits runtime; work far below it is noise, however ugly the code.
 
+For memory, the unit is the **user-code footprint of one worker process**: what the
+integration's own code holds — imported libraries, module globals, the preprocess result,
+caches, per-call temporaries — measured by `profile` with the model **not** loaded (the
+model's memory is `fit`'s concern). Every worker process pays it, because preprocess runs
+in each and caches live in each; a smaller footprint lets more workers fit and avoids
+out-of-memory failures.
+
 ## Operating principle: measure, then change; lossless first
 
 - **Evidence before change.** Nothing gets changed because it *looks* slow. A change needs
   a measured signal (`tl_perf profile` / `score`) and, ideally, a matching static tell.
 - **Lossless first.** A change is kept only if `tl_perf compare` shows the outputs are
-  **equivalent** and runtime is **lower** with no memory regression. Changes that alter
-  outputs are a separate, consent-gated step (Phase 5).
+  **equivalent** and either runtime is **lower** with no memory regression (runtime loop),
+  or the footprint is **lower** with runtime within the allowed tolerance (memory loop).
+  Changes that alter outputs are a separate, consent-gated step (Phase 5).
+- **Runtime first, unless memory is the problem.** `tl_perf score` triages memory:
+  **RED** (out-of-memory reported or seen, or one worker's footprint over half the memory
+  budget) → the memory loop runs first and a memory fix may cost up to +15% runtime;
+  **AMBER** (a large footprint, a structure over 1 GB per worker, or growth with the
+  samples) → runtime loop first, then the memory loop, memory fixes within noise (3%);
+  **GREEN** → runtime loop, then only **free** memory wins (no runtime cost).
 - **The catalog is where you start, not where you stop.** Candidates come from
   measurement: `profile` / `score` rank every component by cost, whether or not its problem
   is in `reference/perf-bottleneck-catalog.md`. When the top cost matches no catalog
@@ -92,9 +108,9 @@ poetry run python scripts/tl_perf.py <subcommand> [options]
 | `preflight` | environment, devices (and whether the model actually uses the GPU), code-loader features, integration validity, model load | `preflight.json` |
 | `floor` | the model alone: warm-up, P50/P90/P95/P99 per batch size, recommended batch size (throughput knee) → **the scoring unit** | `floor.json` |
 | `fit` | per-sample tensor size, rows per state, **measured** model memory per batch size, recommended batch size, and whether every metric/loss accepts a batch | `fit.json` |
-| `profile` | every wired component, run the way Tensorleap runs it (fresh processes per pass: generation, sorted-order what-if, visualizers, diagnostics, output snapshot); the first run becomes the equivalence **baseline** | `runs/NNN/profile.json`, `profile.json`, `baseline/` |
-| `score` | ranks candidates: expected seconds removable × confidence, with evidence | `score.json` |
-| `compare` | latest run: output equivalence vs the **baseline**; gain and memory vs the **last accepted run** (exit 0 makes it the new reference) | `runs/NNN/compare.json` |
+| `profile` | every wired component, run the way Tensorleap runs it (fresh processes per pass: generation, sorted-order what-if, visualizers, diagnostics, output snapshot, **user-code memory**); the first run becomes the equivalence **baseline** | `runs/NNN/profile.json`, `runs/NNN/memory.json`, `profile.json`, `baseline/` |
+| `score` | ranks candidates: expected seconds removable × confidence, with evidence; always triages memory (GREEN / AMBER / RED) and ranks **memory candidates** (`--objective memory` lists them first) | `score.json` |
+| `compare` | latest run: output equivalence vs the **baseline**; gain and memory vs the **last accepted run** (exit 0 makes it the new reference). `--objective memory` judges a memory fix: footprint drop, runtime within the triage tolerance | `runs/NNN/compare.json` |
 | `report` | renders your `report.json` into `report.md` | `report.md` |
 
 **Exit code → action** (all subcommands):
@@ -109,9 +125,15 @@ poetry run python scripts/tl_perf.py <subcommand> [options]
 | 6 | the model can't be loaded standalone | check `@tensorleap_load_model` loads a local `.onnx`/`.h5`; fix, re-run |
 | 7 | a profiling pass failed | read `runs/NNN/worker-*.log`; usually a component raising on some sample — fix the integration bug (it would fail on the platform too), re-run |
 | 8 | `compare`: outputs **not equivalent** | revert the change (see Phase 4) |
-| 9 | `compare`: equivalent but **no meaningful gain** (< 5%) over the last accepted run | revert, unless the change is a prerequisite for the next one |
-| 10 | `compare`: memory regression | revert, or shrink the cache and re-measure |
+| 9 | `compare`: equivalent but **no meaningful gain** over the last accepted run (runtime < 5%; memory objective: footprint drop < max(5%, 64 MB)) | revert, unless the change is a prerequisite for the next one |
+| 10 | `compare` (runtime objective): the user-code footprint grew (> 10%, or > 5% when memory is AMBER/RED) | revert, or shrink the cache and re-measure |
 | 11 | `report`: invalid `report.json` | fix the listed fields, re-run |
+| 12 | `compare --objective memory`: the memory fix costs more runtime than the triage allows | revert, or find a cheaper way to save the same memory |
+
+Memory options: `profile --memory-samples N` (samples per state in the memory pass),
+`--no-memory`, `--no-import-costs`; `score --memory-symptom none|high|oom`, `--memory-gb`,
+`--red-share` / `--amber-share` / `--amber-holder-gb` (triage thresholds); `compare
+--objective memory`, `--min-memory-gain`, `--runtime-tolerance`, `--max-mem-increase`.
 
 ## Phase 0 — Preflight and setup
 
@@ -147,6 +169,9 @@ batch size.
 3. Sanity, from the three JSON files: GPU present *and* used; batch size sensible;
    nothing obviously wrong (debug flags, full-dataset work in preprocess, huge per-sample
    tensors). Write each finding to the log.
+4. **Memory symptom.** If the user reports out-of-memory failures (killed workers, OOM),
+   note `--memory-symptom oom`; if they report high memory use, `--memory-symptom high`.
+   Note the server's memory as `--memory-gb` when known. Both go to `tl_perf score`.
 
 **GATE:** a floor exists and no metric/loss fails the batch check.
 
@@ -189,7 +214,8 @@ equivalence check only covers branches the sampled data executes.
    run also becomes the **baseline** for equivalence, taken twice to detect
    nondeterministic outputs. For a large or slow dataset use `--samples` / `--max-seconds`
    to keep one run within minutes; keep the same settings for every later run.
-2. `tl_perf score --static tensorleap/runtime-optimization/static.json`.
+2. `tl_perf score --static tensorleap/runtime-optimization/static.json` (plus
+   `--memory-symptom` / `--memory-gb` from Phase 1).
 
    **Visualized samples.** Visualizers run on a subset of samples, not on every one. By
    default `score`, `compare` and `report` weight visualizers by *every* sample, which
@@ -204,10 +230,21 @@ equivalence check only covers branches the sampled data executes.
       use a distribution check for them;
    c. **shares** of expected runtime (generation / inference / metrics / visualizers /
       startup) and the **generation-to-inference ratio**;
-   d. the **ranked candidates** and their **evidence**.
-4. Log the baseline breakdown.
+   d. the **ranked candidates** and their **evidence**;
+   e. the **memory triage** (status, reasons, budget and where it came from) and the
+      footprint breakdown: held by imports / the preprocess result / caches and growth, how
+      much more preprocess needs at its peak than it keeps, which stage sets the peak, and
+      the "unattributed" part (memory freed but kept by an allocator or a native library —
+      it shrinks when the peak that grew it shrinks; never chase it as a holder).
+4. Log the baseline breakdown, runtime and memory.
 
-## Phase 4 — Lossless optimization loop
+## Phase 4 — Lossless optimization loops (runtime 4R, memory 4M)
+
+Run the loops in the order the memory triage gives: **RED** → 4M, then 4R; **AMBER** →
+4R, then 4M; **GREEN** → 4R, then 4M for free wins only. Re-run `tl_perf score` after every
+kept fix — a fix can change the status.
+
+### 4R — runtime loop
 
 ```
 1. PICK     the highest-priority candidate that is worth it — catalogued or not: ratio to
@@ -248,10 +285,53 @@ Rules of the loop:
 - If the baseline itself was wrong (e.g. you fixed a crash in Phase 3), re-take it:
   `tl_perf profile --set-baseline`.
 
+### 4M — memory loop
+
+```
+1. PICK     the top memory candidate from `tl_perf score --objective memory` that is worth
+            it (not marked minor: at least max(5% of the footprint, 64 MB)). Candidates of
+            unknown size (a growing container, an unbounded cache, open figures) are worth
+            a look when the status is AMBER/RED. GREEN: only candidates whose fix cannot
+            cost runtime (an unused import, columns never read, a duplicate copy, a leak).
+2. EXPLAIN  what holds the memory and why, from the census and the code: which object,
+            created where, alive since when, needed by whom. A peak set inside preprocess
+            means several large temporaries alive at once — read preprocess for full-width
+            reads, copies and intermediates kept until the end. No explanation -> no change.
+3. CHANGE   one fix from the memory classes of the catalog (M1-M12). The narrower dtype,
+            the codes for repeated strings, the slice, the dropped column must leave every
+            output identical — if not, it is a Phase 5 option.
+4. MEASURE  tl_perf profile   then   tl_perf compare --objective memory
+5. DECIDE   exit 0  -> keep: commit ("mem(<component>): <change> — X -> Y GB per worker,
+                       outputs equivalent, runtime +Z%"), log it, `tl_perf score`, go to 1
+            exit 8  -> revert; the change altered outputs
+            exit 9  -> revert; the memory saving was too small to count
+            exit 12 -> revert; it cost more runtime than the triage allows — look for a
+                       cheaper way to save the same memory
+
+STOP when no memory candidate is worth it, or (GREEN) no free win is left, or every
+worth-it candidate had 3 attempts without a kept fix.
+```
+
+Rules of the memory loop:
+
+- **Footprint is per worker process.** Bytes held once at import or in the preprocess
+  result are paid by every worker; prefer removing them over trimming per-call temporaries.
+- **Memory-mapped and file-backed data are not held memory** (`np.load(mmap_mode="r")`),
+  and they stay exact. A one-time conversion written next to the data must be reported
+  (disk use) and must fall back cleanly when that location is read-only.
+- **Never trade correctness for memory silently**: a float64 → float32 conversion of values
+  that are not exactly representable, a truncated string, a dropped column that any output
+  reads — those change outputs. `compare` will say so; offer them in Phase 5.
+- A runtime fix that the memory loop later undoes needs both verdicts: keep the memory fix
+  only if `compare --objective memory` accepts it with the runtime cost in tolerance.
+
 ## Phase 5 — Behavior-changing options (consent required)
 
 Only if, after Phase 4, **one component still dominates** (roughly: more than half of the
-expected runtime, or many times the inference cost) **and** no lossless fix is left for it.
+expected runtime, or many times the inference cost) **and** no lossless fix is left for it
+— or the memory triage is still RED/AMBER and the remaining memory holders can only shrink
+by changing values (narrower dtypes that round, lower-resolution stored data, dropping
+columns that feed an output).
 Follow `reference/perf-lossy-options.md`: present each option with what changes, the
 expected gain from the profile, and the cost; ask once; apply only what the user accepts,
 one commit each; `tl_perf compare` must show **only** the declared fields changed. If the
@@ -353,12 +433,16 @@ The report follows `reference/perf-report-template.md`: write
 `tensorleap/runtime-optimization/report.json`, then `tl_perf report` (exit 11 → fix and
 re-run). If Phase 6 already produced it (validation in progress), finalize it here with the
 Evaluate's outcome; if there was no server validation, write it now. Tag every entry in
-`optimizations` with its `kind` (`performance`, `correctness` or `prerequisite`) and its
-`catalog` class (a letter, or `new` when no class describes it). Read `report.md` once as
-the reader would, fix what is unclear, and commit it with the log and `static.json`.
+`optimizations` with its `kind` (`performance`, `correctness`, `prerequisite` or
+`memory`) and its `catalog` class (a letter, an `M` class, or `new` when no class
+describes it). Fill `memory` (status and reasons from `score`, the largest remaining
+holder); `tl_perf report` adds the footprint breakdown before → after from the profiles.
+Read `report.md` once as the reader would, fix what is unclear, and commit it with the log
+and `static.json`.
 
 Your closing message names the deliverables — the branch and its commits, `report.md`,
-the remaining bottleneck in one sentence — and stops.
+the remaining bottleneck in one sentence (and the largest remaining memory holder when the
+memory status was not GREEN) — and stops.
 
 ## Equivalence: what "lossless" means here
 
@@ -387,3 +471,6 @@ the remaining bottleneck in one sentence — and stops.
 - Never let the smoke-validation cap reach the optimization branch.
 - Never put secrets, credentials or data paths into the report beyond what the user's own
   repo already contains.
+- Never save memory by changing values (rounding dtypes, truncating, dropping data an
+  output reads) without an explicit yes; never let a memory fix cost more runtime than the
+  triage allows.

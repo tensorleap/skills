@@ -37,6 +37,13 @@ before/after breakdown tables from the run artifacts itself. Never write the tab
   ],
   "server_validation": {"status": "FINISHED", "job": "<evaluate run id>", "duration": "12 min",
                         "notes": "batch 4 as recommended; no memory errors"},
+  "memory": {
+    "status": "AMBER",
+    "reasons": ["AMBER: preprocess[training]['data'] alone holds 1.2 GB in every worker"],
+    "remaining_holder": {"target": "preprocess[training]['data']['inputs']",
+                         "evidence": "1.05 GB float32 per worker; read by the input encoder"},
+    "notes": "budget 64 GB (this machine's RAM) — state it when the server's memory is unknown"
+  },
   "remaining_integration_issues": ["an input check runs 5x per sample (1 ms) — minor"],
   "tensorleap_actions": [
     {"need": "evaluation is producer-bound: sample generation costs 12x inference",
@@ -54,9 +61,15 @@ Required: `title`; `optimizations` (list, may be empty; each needs `problem`, `c
 `tensorleap_actions` (list, may be empty; each needs `need`).
 
 Optional per optimization: `kind` — `performance`, `correctness` (a bug fix: wrong or
-crashing output) or `prerequisite` (e.g. a dependency upgrade another fix needs); and
-`catalog` — the bottleneck-catalog class letter, or `new` for a problem no class describes.
+crashing output), `prerequisite` (e.g. a dependency upgrade another fix needs) or `memory`
+(a footprint fix, from the memory loop); and `catalog` — the bottleneck-catalog class (`A`–`W`,
+`M1`–`M12`, combined with `/` like `M3/M7`), or `new` for a problem no class describes.
 Unknown values are rejected (exit 11).
+
+Optional `memory`: `status` (`GREEN` / `AMBER` / `RED`, from `tl_perf score`), `reasons`,
+`remaining_holder` (`target`, `evidence`), `notes`. `tl_perf report` adds the footprint
+table (peak, imports, preprocess result, preprocess transient, caches and growth,
+unattributed) before → after from the profiles itself.
 
 ## Writing rules
 
