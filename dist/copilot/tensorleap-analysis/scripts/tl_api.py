@@ -104,8 +104,11 @@ def population_summary(csv_path):
     return metric_means, metadata
 
 
-def _rel(out_dir, path):
-    return os.path.relpath(path, out_dir) if path else None
+def _rel(export_dir, path):
+    # manifests from leap 0.0.163 hold absolute paths; later ones are relative to the export dir
+    if not path:
+        return None
+    return os.path.relpath(path, export_dir) if os.path.isabs(path) else path
 
 
 def cmd_digest(args):
@@ -116,6 +119,7 @@ def cmd_digest(args):
               file=sys.stderr)
         raise SystemExit(5)
     manifest = json.load(open(manifest_path))
+    export_dir = manifest.get("dir") or out_dir
     insights = manifest.get("insights") or []
     if not insights:
         print("the export has no insights: generate insights in the UI "
@@ -131,9 +135,9 @@ def cmd_digest(args):
             "description": ins.get("description"),
             "type": ins.get("type"),
             "name": ins.get("name"),
-            "dir": _rel(out_dir, ins.get("dir")),
+            "dir": _rel(export_dir, ins.get("dir")),
             "insightType": dict(ins.get("engine") or {}, type=ins.get("type")),
-            "files": {k: _rel(out_dir, ins.get(src)) for k, src in
+            "files": {k: _rel(export_dir, ins.get(src)) for k, src in
                       (("csv", "samplesCsv"), ("cluster", "clusterJson"),
                        ("top_panel", "topPanelJson"), ("fixing_csv", "fixingCsv"))
                       if ins.get(src)},
@@ -148,16 +152,23 @@ def cmd_digest(args):
         if summary:
             d["population"] = {"samples": summary.get("groupSize"), "csv_rows": summary.get("csvRows")}
         for smp in ins.get("samples") or []:
-            entry = {"files": [_rel(out_dir, f) for f in smp.get("files") or []]}
-            if not smp.get("rendered"):
+            entry = {"rank": smp.get("rank"), "files": [_rel(export_dir, f) for f in smp.get("files") or []]}
+            if not entry["files"]:
                 entry["missing_visualization"] = True
             d["samples"][smp["id"]] = entry
-        csv_path = ins.get("samplesCsv")
+        for kind, rel in list(d["files"].items()) + [(f"sample {i}", f) for i, e in d["samples"].items() for f in e["files"]]:
+            if not os.path.exists(os.path.join(out_dir, rel)):
+                d["errors"].append(f"{kind}: {rel} is listed in manifest.json but missing; re-run tl_export_analysis")
+        csv_path = d["files"].get("csv") and os.path.join(out_dir, d["files"]["csv"])
         if csv_path and os.path.isfile(csv_path):
             with open(csv_path, newline="") as f:
                 reader = csv.DictReader(f)
                 d["csv_columns"] = reader.fieldnames or []
                 d["_ids"] = {r.get("sample_id") for r in reader if r.get("sample_id")}
+            if d["type"] != "low_performance" and d["files"].get("cluster"):
+                members = cluster_members(os.path.join(out_dir, d["files"]["cluster"]))
+                if members:
+                    d["_ids"] &= members
         sizes = [wh for entry in d["samples"].values() for wh in
                  (image_size(os.path.join(out_dir, f)) for f in entry["files"]
                   if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif"))) if wh]
@@ -184,10 +195,11 @@ def cmd_digest(args):
     for d in digests.values():
         d.pop("_ids", None)
 
-    pop_metrics, pop_metadata = population_summary(manifest.get("populationCsv"))
+    pop_rel = _rel(export_dir, manifest.get("populationCsv"))
+    pop_metrics, pop_metadata = population_summary(pop_rel and os.path.join(out_dir, pop_rel))
     integration = None
     if manifest.get("integrationDir"):
-        integration = {"dir": _rel(out_dir, manifest["integrationDir"]), "entry_file": manifest.get("entryFile")}
+        integration = {"dir": _rel(export_dir, manifest["integrationDir"]), "entry_file": manifest.get("entryFile")}
     all_samples = [s for d in digests.values() for s in d["samples"].values()]
     result = {
         "projectId": manifest.get("projectId"),
@@ -244,6 +256,15 @@ def column_stats(rows, col):
     return entry
 
 
+def cluster_members(path):
+    """Sample ids of an insight's own members (cluster.json samples_index), or None."""
+    try:
+        index = json.load(open(path)).get("samples_index") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    return {f"{state}_{i}" for state, idx in index.items() for i in idx} or None
+
+
 def walk_insights(insights):
     for d in insights:
         yield d
@@ -265,7 +286,10 @@ def cmd_summarize(args):
             continue
         root = [r for r in rows
                 if str(r.get("is_low_perf_root_member")).lower() == "true"]
-        group = root or rows
+        members = (None if root or d.get("type") == "low_performance"
+                   else cluster_members(os.path.join(args.dir, d["dir"], "cluster.json")))
+        own = [r for r in rows if r.get("sample_id") in members] if members else []
+        group = root or own or rows
         split = {}
         for r in group:
             state = (r.get("sample_id") or "").rsplit("_", 1)[0] or "unknown"
@@ -1087,12 +1111,18 @@ def cmd_inline_html(args):
             return "image/jpeg", buf.getvalue()
         return mime, data
 
+    root = os.path.realpath(base)
+
+    def inside(path):
+        real = os.path.realpath(path)
+        return os.path.commonpath([root, real]) == root and os.path.isfile(real)
+
     def repl(m):
         src = html.unescape(m.group(2))
         if src.startswith(("data:", "http://", "https://")):
             return m.group(0)
         path = os.path.join(base, urllib.request.url2pathname(src))
-        if not os.path.isfile(path):
+        if not inside(path):
             missing.append(src)
             return m.group(0)
         mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
@@ -1106,7 +1136,7 @@ def cmd_inline_html(args):
     # a remote link is never an option)
     def repl_dl(m):
         path = os.path.join(base, urllib.request.url2pathname(html.unescape(m.group(2))))
-        if not os.path.isfile(path) or os.path.getsize(path) > 5_000_000:
+        if not inside(path) or os.path.getsize(path) > 5_000_000:
             return m.group(0)
         mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
         b64 = base64.b64encode(open(path, "rb").read()).decode()

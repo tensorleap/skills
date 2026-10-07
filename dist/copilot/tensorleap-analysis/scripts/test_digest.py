@@ -7,13 +7,13 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def make_export(root):
+def make_export(root, relative=False):
     def w(rel, text):
         path = os.path.join(root, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(text)
-        return path
+        return rel if relative else path
 
     pop = w("population.csv", "sample_id,metrics.loss,metadata.fog\ntraining_1,2.5,yes\ntraining_2,1.5,yes\ntraining_3,0.1,no\n")
     csv1 = w("insight_1_low_performance/samples.csv",
@@ -33,7 +33,8 @@ def make_export(root):
             {"index": 1, "type": "low_performance", "name": "Failure Mode", "status": "InReview", "dir": os.path.join(root, "insight_1_low_performance"),
              "samplesCsv": csv1, "fixingCsv": fix, "link": "http://ui/i1", "createTestLink": "http://ui/i1?addTestFromInsight=c1",
              "summary": {"groupSize": 2, "csvRows": 3, "rankedBy": "metrics.loss"}, "engine": {"n_samples": 3, "is_train_aggressor": True},
-             "samples": [{"id": "training_1", "rendered": True, "files": [payload]}, {"id": "training_2", "rendered": False}]},
+             "samples": [{"id": "training_1", "rank": 1, "rendered": True, "files": [payload]}, {"id": "training_2", "rank": 2, "rendered": False},
+                         {"id": "training_3", "rank": 3, "rendered": True}]},
             {"index": 2, "type": "low_performance", "name": "Failure Mode", "parentIndex": 1, "dir": os.path.join(root, "insight_1_low_performance", "sub_2_low_performance"),
              "samplesCsv": csv2, "link": "http://ui/i2", "summary": {"groupSize": 1, "csvRows": 1}, "engine": {"n_samples": 1}, "samples": []},
             {"index": 4, "type": "duplication", "name": "Duplication", "dir": os.path.join(root, "insight_4_duplication"),
@@ -60,13 +61,27 @@ def main():
     assert p["insightType"] == {"n_samples": 3, "is_train_aggressor": True, "type": "low_performance"}
     assert p["population"] == {"samples": 2, "csv_rows": 3} and p["csv_columns"][0] == "sample_id"
     assert p["samples"]["training_1"]["files"] == ["insight_1_low_performance/samples/training_1/image/vis/payload.json"]
-    assert p["samples"]["training_2"] == {"files": [], "missing_visualization": True}
+    assert p["samples"]["training_1"]["rank"] == 1
+    assert p["samples"]["training_2"] == {"rank": 2, "files": [], "missing_visualization": True}
+    assert p["samples"]["training_3"]["missing_visualization"], "a sample whose downloads failed has nothing to show"
     assert p["overlaps"] == [{"insight": 4, "shared": 1, "of_this": 0.333}]
-    assert d["counts"] == {"total": 3, "parents": 2, "subinsights": 1, "samples_with_visualizations": 1, "samples_missing_visualizations": 1}
+    assert d["counts"] == {"total": 3, "parents": 2, "subinsights": 1, "samples_with_visualizations": 1, "samples_missing_visualizations": 2}
     summ = subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "summarize", root], capture_output=True, text=True)
     rows = json.loads(summ.stdout)
     assert [(r["insight"], r["parent_index"], r["group_rows"]) for r in rows] == [(1, None, 2), (2, 1, 1), (4, None, 2)], rows
     assert rows[0]["metrics"]["metrics.loss"] == {"group_mean": 2.0, "all_data_mean": 1.3667}
+    moved_from = os.path.join(tempfile.mkdtemp(), "export")
+    make_export(moved_from, relative=True)
+    moved = moved_from + "-moved"
+    os.rename(moved_from, moved)
+    assert subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", moved], capture_output=True).returncode == 0
+    m = json.load(open(os.path.join(moved, "insights.json")))
+    assert m["insights"][0]["csv_columns"][0] == "sample_id" and m["population_metrics"], "a moved export must still resolve"
+    assert m["insights"][0]["errors"] == []
+    os.remove(os.path.join(moved, "insight_4_duplication", "samples.csv"))
+    subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", moved], capture_output=True)
+    m = json.load(open(os.path.join(moved, "insights.json")))
+    assert "missing" in m["insights"][1]["errors"][0]
     empty = tempfile.mkdtemp()
     assert subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", empty], capture_output=True).returncode == 5
     print("all checks passed")
