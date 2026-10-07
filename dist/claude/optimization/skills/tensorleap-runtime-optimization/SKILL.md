@@ -169,9 +169,12 @@ batch size.
 3. Sanity, from the three JSON files: GPU present *and* used; batch size sensible;
    nothing obviously wrong (debug flags, full-dataset work in preprocess, huge per-sample
    tensors). Write each finding to the log.
-4. **Memory symptom.** If the user reports out-of-memory failures (killed workers, OOM),
-   note `--memory-symptom oom`; if they report high memory use, `--memory-symptom high`.
-   Note the server's memory as `--memory-gb` when known. Both go to `tl_perf score`.
+4. **Memory symptom.** Re-read the user's request and quote, in the log, every word it says
+   about memory. Out-of-memory failures, killed or restarted workers, "runs out of memory"
+   → `--memory-symptom oom`. Any other complaint — "uses a lot of memory", "memory-heavy",
+   "workers are big" → `--memory-symptom high`. Only when the request says nothing about
+   memory → `none`. Note the server's memory as `--memory-gb` when known. Both go to
+   every `tl_perf score` call.
 
 **GATE:** a floor exists and no metric/loss fails the batch check.
 
