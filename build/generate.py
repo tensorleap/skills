@@ -262,6 +262,9 @@ def emit_claude(catalog, skills, root):
         }
         _write(os.path.join(plugin_dir, ".claude-plugin", "plugin.json"),
                json.dumps(plugin_json, indent=2, ensure_ascii=False) + "\n")
+        if p.get("mcpServers"):
+            _write(os.path.join(plugin_dir, ".mcp.json"),
+                   json.dumps({"mcpServers": p["mcpServers"]}, indent=2) + "\n")
         for skill_name in p["skills"]:
             canon = skills[skill_name]
             if "claude" not in canon.tools():

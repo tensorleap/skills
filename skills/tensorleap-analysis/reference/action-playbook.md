@@ -15,8 +15,7 @@ class, which metadata slice, how many samples).
 | `severity_metrics` | Per-metric `{metric_name, value, normalized_value}`. | "loss 2.1× the population median" |
 | `metrics_info` | Per-metric statistics. For `low_performance`, "Cluster Median/Average" are the failing group's; "Outside Cluster" is everything beyond the wider cluster. | Table of mean/median per metric |
 | `mutual_info_elements` | What characterizes the cluster: `features[{feature_name, feature_value, direction}]`, `value_in_cluster` vs `value_outside_cluster`, `score`, `is_unique` | "dominated by `weather=night` (78% in-cluster vs 12% outside)", this is the heart of the story |
-| `display_filters` | The dashboard filters that reproduce the cluster. | Internal only, never paste filter JSON into the report |
-| `automatic_tests` | Suggested regression tests `{test_name, filter, metric_name, metric_value, operator}`. | Offer as "add this as a platform test" |
+| `automatic_tests` | Suggested regression tests `{test_name, metric_name, metric_value, operator}`. | Offer as "add this as a platform test" |
 | `latent_space` | Which latent space produced the cluster. | Context only |
 | `top_panel.summary` | Ready-made `title` + `sentence` (low_performance only). | Use as the section heading/lede |
 
@@ -40,8 +39,11 @@ the coherence gate is instead handled by its archive suggestion in Notes.
 the cluster plus its latent neighbourhood, and `n_samples` counts all of it,
 the non-members are frequently healthy: in a measured run the failing group's
 median error was 7.8× the rest of the data while the others sat *below* the
-population median. `is_low_perf_root_member == True` marks the samples that
-actually underperform (the digest pre-counts them as `population.samples`).
+population median. `is_low_perf_root_member == True` marks the root members,
+the group the platform flagged (the digest pre-counts them as
+`population.samples`). They are not proof of failure: when their loss or
+error is within ~1.2x of all data, the grouping does not show a real failure
+mode; say so and do not build a card around it.
 
 - **Characterize, count and contrast on those rows only.** Composition, split
   bar, metadata majorities, metric contrast, the story itself.
@@ -55,8 +57,11 @@ actually underperform (the digest pre-counts them as `population.samples`).
   median (compute it from `samples.csv` when the engine has none) and name the
   baseline you used, the rest of the data, or the whole population.
 
-Insight types other than `low_performance` have no such split: every csv row
-is a member.
+Insight types other than `low_performance` have no root split. Duplication
+and Data Leakage share one sample list; the export narrows it to each
+insight's own members from `cluster.json`, so `population.samples` and the
+exported samples describe that insight alone. Every other type: every csv
+row is a member.
 
 **0. Is the wider metadata population failing too?**
 Look at `mutual_info_elements`: the features characterizing the cluster define
@@ -90,7 +95,8 @@ also recommend rebalancing the splits.
   - **Unlabeled data available?** `aggressor_fixing` says what the platform
     already selected: `num_of_samples_to_label` (chosen via similarity
     search near the cluster, precision-bounded) and
-    `num_of_samples_to_acquire`; its `csv_path` lists the selected samples.
+    `num_of_samples_to_acquire`; the insight's `files.fixing_csv`
+    (`fixing_samples.csv`) lists the selected samples.
     - Enough selected → **label the selected samples** (name the count).
     - Not enough → **label what's available**, plus **collect more real
       data** matching the cluster's metadata profile, or **use/create a

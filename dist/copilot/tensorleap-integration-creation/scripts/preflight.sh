@@ -35,7 +35,10 @@
 #         then re-runs with TL_TOPOLOGY set.
 #      c. A server answers on port 4589 (or unspecified) -> LOCAL.
 # Then:
-#   - LOCAL  -> full local checks (server online + data volume).
+#   - LOCAL  -> full local checks (server online + data volume), plus
+#     informational lines on whether the server release supports the custom
+#     latent space step (DISABLED for <= 1.6.85 or an unreadable version) and
+#     element instances (DISABLED for <= 1.6.74 or an unreadable version).
 #   - REMOTE -> NOT a blocker. The local `server info` cannot describe a remote
 #     host and the data volume cannot be inferred/verified from here, so the
 #     script stops with exit 4 and the skill drives the remote flow (confirm
@@ -208,6 +211,39 @@ if [[ -z "$VOL" ]]; then
   blocked
 fi
 pass "Data volume" "$(printf '%s' "$VOL" | cut -d: -f1)"
+
+# 4b. Custom latent space support (informational, never blocks) --------------
+#     The custom-latent-space step needs a server release newer than
+#     CUSTOM_LS_MAX_UNSUPPORTED; an unreadable version counts as unsupported.
+CUSTOM_LS_MAX_UNSUPPORTED="1.6.85"
+SRV_VER="$(printf '%s\n' "$INFO" | grep -E '(^|[[:space:]])version:' | head -1 | sed -n 's/.*version:[[:space:]]*\([0-9][0-9.]*\).*/\1/p')"
+if [[ -z "$SRV_VER" ]]; then
+  pass "Custom latent space" "DISABLED (server version unknown) — skip the custom latent space step"
+elif awk -v a="$SRV_VER" -v b="$CUSTOM_LS_MAX_UNSUPPORTED" 'BEGIN {
+       n = split(a, x, "."); m = split(b, y, "."); k = (n > m) ? n : m
+       for (i = 1; i <= k; i++) { if (x[i] + 0 < y[i] + 0) exit 0; if (x[i] + 0 > y[i] + 0) exit 1 }
+       exit 0 }'; then
+  pass "Custom latent space" "DISABLED (server $SRV_VER <= $CUSTOM_LS_MAX_UNSUPPORTED) — skip the custom latent space step"
+else
+  pass "Custom latent space" "ENABLED (server $SRV_VER)"
+fi
+
+# 4c. Element instances support (informational, never blocks) ----------------
+#     Instance mode (element-instance preprocess, instance metrics/metadata,
+#     instance custom latent space) needs a server release newer than
+#     ELEMENT_INSTANCES_MAX_UNSUPPORTED; an unreadable version counts as
+#     unsupported.
+ELEMENT_INSTANCES_MAX_UNSUPPORTED="1.6.74"
+if [[ -z "$SRV_VER" ]]; then
+  pass "Element instances" "DISABLED (server version unknown) — skip the instance-mode surface"
+elif awk -v a="$SRV_VER" -v b="$ELEMENT_INSTANCES_MAX_UNSUPPORTED" 'BEGIN {
+       n = split(a, x, "."); m = split(b, y, "."); k = (n > m) ? n : m
+       for (i = 1; i <= k; i++) { if (x[i] + 0 < y[i] + 0) exit 0; if (x[i] + 0 > y[i] + 0) exit 1 }
+       exit 0 }'; then
+  pass "Element instances" "DISABLED (server $SRV_VER <= $ELEMENT_INSTANCES_MAX_UNSUPPORTED) — skip the instance-mode surface"
+else
+  pass "Element instances" "ENABLED (server $SRV_VER)"
+fi
 
 # 5. Auth (setup — the skill guides login; not a hard blocker) ---------------
 if printf '%s\n' "$WHO" | grep -q "^User email:"; then
