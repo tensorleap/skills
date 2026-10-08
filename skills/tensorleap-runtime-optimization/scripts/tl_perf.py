@@ -3149,7 +3149,7 @@ def _evidence(p):
 
 RUNTIME_TOLERANCE = {"RED": 0.15, "AMBER": 0.03, "GREEN": 0.03}   # runtime a memory fix may cost
 PRIORITIES = ("runtime", "memory")
-PRIORITY_MEMORY_TOLERANCE = 0.15     # runtime a memory fix may cost when the user puts memory first
+PRIORITY_MEMORY_TOLERANCE = 0.15     # runtime a memory fix may cost with memory first
 
 
 def _leap_cluster_memory_gb():
@@ -3175,10 +3175,10 @@ def memory_budget(memory_gb=None):
 
 
 def memory_triage(p, budget_gb, budget_source, symptom="none", red_share=0.5, amber_share=0.25,
-                  holder_gb=1.0, priority="runtime"):
+                  holder_gb=1.0, priority="memory"):
     """GREEN / AMBER / RED for the user-code footprint, with the reasons, the loop order and
-    the runtime a memory fix may cost. With priority 'memory' (the user puts memory before
-    runtime) the memory loop runs first whatever the status, a memory fix may cost up to
+    the runtime a memory fix may cost. With priority 'memory' (the default: memory wins
+    conflicts with runtime) the memory loop runs first whatever the status, a memory fix may cost up to
     PRIORITY_MEMORY_TOLERANCE of runtime, and a runtime fix may not grow memory."""
     um = p.get("user_memory") or {}
     fp = um.get("footprint_gb")
@@ -3215,7 +3215,7 @@ def memory_triage(p, budget_gb, budget_source, symptom="none", red_share=0.5, am
     status = state["status"]
     memory_first = status == "RED" or priority == "memory"
     if priority == "memory":
-        reasons.append("priority: the user puts memory before runtime")
+        reasons.append("priority: memory first (memory wins conflicts with runtime)")
     return {"status": status, "reasons": reasons, "footprint_gb": fp, "budget_gb": budget_gb,
             "budget_source": budget_source, "priority": priority,
             "workers_that_fit": (budget_gb / fp) if fp and budget_gb else None,
@@ -3658,6 +3658,16 @@ def validate_report(doc):
         for key in ("component", "evidence"):
             if not rb.get(key):
                 errors.append("remaining_bottleneck missing %r" % key)
+    holder = (mem or {}).get("remaining_holder") if isinstance(mem, dict) else None
+    for where, d in (("remaining_bottleneck", rb), ("memory.remaining_holder", holder)):
+        if isinstance(d, dict) and d.get("owner") is not None and d["owner"] not in OWNERS:
+            errors.append("%s.owner must be one of %s" % (where, ", ".join(OWNERS)))
+    tr = doc.get("tradeoffs")
+    if tr is not None and not isinstance(tr, list):
+        errors.append("'tradeoffs' must be a list")
+    for i, t in enumerate(tr if isinstance(tr, list) else []):
+        if not isinstance(t, dict) or not t.get("change"):
+            errors.append("tradeoffs[%d] needs a 'change'" % i)
     for i, act in enumerate(doc.get("tensorleap_actions") or []):
         if not isinstance(act, dict) or not act.get("need"):
             errors.append("tensorleap_actions[%d] needs a 'need'" % i)
@@ -3665,25 +3675,151 @@ def validate_report(doc):
     return errors
 
 
+OWNERS = {"integration": "your integration", "tensorleap": "Tensorleap", "irreducible": "irreducible"}
+MIN_COMPONENT_SHARE = 0.01
+
+
 def _md_table(headers, rows):
     lines = ["| " + " | ".join(headers) + " |", "|" + "---|" * len(headers)]
     for r in rows:
-        lines.append("| " + " | ".join(str(c) for c in r) + " |")
+        lines.append("| " + " | ".join(str(c).replace("|", "\\|") for c in r) + " |")
     return "\n".join(lines)
 
 
-def _share_rows(before, after, visualized):
-    rows = []
+def _first_sentence(text, n=110):
+    s = re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0].rstrip(".")
+    if len(s) <= n:
+        return s
+    s = s[:n].rsplit(" ", 1)[0]
+    if s.count("`") % 2:
+        s = s[:s.rindex("`")].rstrip()
+    return s + " …"
+
+
+def _latest_profile(out):
+    runs = os.path.join(out, "runs")
+    names = sorted((d for d in os.listdir(runs) if d.isdigit()), reverse=True) if os.path.isdir(runs) else []
+    for name in names:
+        p = _read_json(os.path.join(runs, name, "profile.json"))
+        if p:
+            return p
+    return None
+
+
+def _report_context(doc, out):
+    before = _read_json(os.path.join(out, "baseline", "profile.json"))
+    after = _latest_profile(out)
+    if after and before and after.get("run") == before.get("run") and after.get("created") == before.get("created"):
+        after = None
+    return {"preflight": _read_json(os.path.join(out, "preflight.json")) or {},
+            "floor": _read_json(os.path.join(out, "floor.json")) or {},
+            "fit": _read_json(os.path.join(out, "fit.json")) or {},
+            "before": before, "after": after, "visualized": doc.get("visualized_samples"),
+            "memory_status": (doc.get("memory") or {}).get("status") or
+            (((_read_json(os.path.join(out, "score.json")) or {}).get("memory") or {}).get("status"))}
+
+
+def _n_samples(p):
+    return sum((p.get("dataset") or {}).get("state_lengths", {}).values())
+
+
+def _ratio(x, unit):
+    if not unit or x is None:
+        return "-"
+    r = x / unit
+    return "%.1f×" % r if r < 10 else "{:,.0f}×".format(r)
+
+
+def _report_header(doc, ctx, priority):
+    sv = doc.get("server_validation") or {}
+    mode = {"diagnostics": "offline + online diagnostics", "smoke": "offline + server smoke check"}.get(
+        sv.get("mode"), "offline only")
+    facts = [time.strftime("%Y-%m-%d"), mode]
+    cl = (ctx["preflight"].get("code_loader") or {}).get("version")
+    if cl:
+        facts.append("code-loader %s" % cl)
+    if priority == "memory":
+        why = doc.get("priority_reason") or "the default: memory wins conflicts with runtime, because a smaller " \
+            "footprint usually also makes the run faster"
+        rule = "a memory fix could cost up to %.0f%% runtime; a runtime fix was kept only if it did not grow " \
+               "memory. Each part leads with memory only when there is memory pressure" % (100 * PRIORITY_MEMORY_TOLERANCE)
+    else:
+        why = doc.get("priority_reason") or "requested"
+        rule = "the memory status decided how much runtime a memory fix could cost"
+    return ["_%s_" % " · ".join(facts), "", "**Priority: %s first** — %s. In conflicts, %s." % (priority, why, rule), ""]
+
+
+def _offline_facts(doc, ctx, priority, lead):
+    before, after, vis = ctx["before"], ctx["after"], ctx["visualized"]
+    runtime = memory = None
+    if before:
+        bt = expected_total(before, pipeline_costs(before), vis)
+        n = _n_samples(before)
+        scope = "for %s samples%s, on this machine" % ("{:,}".format(n), ", %s visualized" % "{:,}".format(vis) if vis else "")
+        if after:
+            at = expected_total(after, pipeline_costs(after), vis)
+            runtime = "**Expected runtime:** %.0f s → %.0f s (%+.0f%%) %s." % (bt, at, 100 * (at - bt) / bt if bt else 0, scope)
+        else:
+            runtime = "**Expected runtime:** %.0f s %s (no profile after the changes)." % (bt, scope)
+    ub = (before or {}).get("user_memory") or {}
+    ua = (after or {}).get("user_memory") or {}
+    status = ctx["memory_status"]
+    if ub.get("footprint_gb") is not None:
+        memory = "**Memory per worker process:** %s%s%s." % (
+            _gb(ub["footprint_gb"]), " → %s" % _gb(ua["footprint_gb"]) if ua.get("footprint_gb") is not None else "",
+            " (status %s)" % status if status else "")
+    elif status:
+        memory = "**Memory status:** %s." % status
+    facts = [memory, runtime] if lead else [runtime, memory]
+    if lead:
+        why = [r.split(": ", 1)[-1] for r in (doc.get("memory") or {}).get("reasons") or [] if r.startswith(status)]
+        facts.insert(0, "**Memory leads this part:** memory status %s%s." % (status, " — %s" % why[0] if why else ""))
+    elif priority == "memory" and status == "GREEN":
+        facts.insert(0, "**No memory pressure** (memory status GREEN), so time leads this part.")
+    floor = ctx["floor"].get("t_inf_per_sample_mean_seconds")
+    if floor:
+        facts.append("**Model inference floor:** %s per sample." % fmt_ms(floor))
+    opts = doc["optimizations"]
+    kinds = {}
+    for o in opts:
+        kinds[o.get("kind") or "performance"] = kinds.get(o.get("kind") or "performance", 0) + 1
+    facts.append("**Changes kept:** %d%s." % (len(opts), " (%s)" % ", ".join("%d %s" % (v, k) for k, v in sorted(kinds.items()))
+                                               if kinds else ""))
+    return ["- %s" % f for f in facts if f]
+
+
+def _time_section(doc, ctx):
+    before, after, vis = ctx["before"], ctx["after"], ctx["visualized"]
+    cur = after or before
+    if not cur:
+        return []
     bc = pipeline_costs(before) if before else None
     ac = pipeline_costs(after) if after else None
+    cc = ac or bc
+    n = _n_samples(cur)
+    nv = vis or n
+    counts = {"generation": n, "inference": n, "metrics": n, "visualizers": nv}
+    total = expected_total(cur, cc, vis)
+    unit = ctx["floor"].get("t_inf_per_sample_mean_seconds") or cc["inference"]
+    rows = []
     for block in ("generation", "inference", "metrics", "visualizers"):
-        b = bc[block] if bc else None
-        a = ac[block] if ac else None
-        rows.append([block, fmt_ms(b) if b is not None else "-", fmt_ms(a) if a is not None else "-"])
-    if before:
-        rows.append(["expected total", "%.1f s" % expected_total(before, bc, visualized),
-                     "%.1f s" % expected_total(after, ac, visualized) if after else "-"])
-    return rows
+        rows.append([block, fmt_ms(bc[block]) if bc else "-", fmt_ms(ac[block]) if ac else "-",
+                     _pct_share(cc[block] * counts[block], total), _ratio(cc[block], unit)])
+    su = startup_seconds(cur)
+    rows.append(["start-up (once per worker)", "%.1f s" % startup_seconds(before) if before else "-",
+                 "%.1f s" % startup_seconds(after) if after else "-", _pct_share(su, total), "-"])
+    rows.append(["**expected total**", "%.0f s" % expected_total(before, bc, vis) if before else "-",
+                 "%.0f s" % expected_total(after, ac, vis) if after else "-", "100%", ""])
+    return ["### Where the time goes", "",
+            _md_table(["block", "before (per sample)", "after (per sample)", "share of the total%s" % (" (after)" if after else ""),
+                       "× model floor"], rows), "",
+            "Expected total = %s samples × (generation + inference + metrics) + %s visualized samples × visualizers "
+            "+ start-up, from mean costs on this machine; P50–P99 per component are in Appendix 1." % (
+                "{:,}".format(n), "{:,}".format(nv)), ""]
+
+
+def _pct_share(x, total):
+    return "%.0f%%" % (100 * x / total) if total and x is not None else "-"
 
 
 def _memory_section(mem, before, after):
@@ -3693,7 +3829,7 @@ def _memory_section(mem, before, after):
     ua = (after or {}).get("user_memory") or {}
     if not mem and not ub:
         return []
-    lines = ["## Memory (user code, one worker process)", ""]
+    lines = ["### Where the memory goes (user code, one worker process)", ""]
     if mem:
         lines.append("- Status: **%s**" % mem["status"])
         for r in mem.get("reasons") or []:
@@ -3714,9 +3850,6 @@ def _memory_section(mem, before, after):
         if stage_b:
             lines.append("- The peak is set during: %s%s." % (
                 stage_b, " → %s" % stage_a if stage_a and stage_a != stage_b else ""))
-    rh = (mem or {}).get("remaining_holder")
-    if rh:
-        lines.append("- Largest remaining holder: **%s** — %s" % (rh.get("target", "?"), rh.get("evidence", "")))
     if (mem or {}).get("notes"):
         lines.append("- %s" % mem["notes"])
     lines.append("")
@@ -3725,122 +3858,206 @@ def _memory_section(mem, before, after):
 
 def report_priority(doc, out):
     """runtime or memory: report.json's `priority`, else the one `score` ran with."""
-    return doc.get("priority") or (_read_json(os.path.join(out, "score.json")) or {}).get("priority") or "runtime"
+    return doc.get("priority") or (_read_json(os.path.join(out, "score.json")) or {}).get("priority") or "memory"
+
+
+def _opt_title(o):
+    return o.get("title") or _first_sentence(o["problem"])
+
+
+def _opt_type(o):
+    return " · ".join(t for t in (o.get("kind"), ("catalog %s" % o["catalog"]) if o.get("catalog") else None) if t) or "-"
+
+
+def _opt_runtime(o):
+    if o.get("gain"):
+        return o["gain"]
+    if o.get("before") or o.get("after"):
+        return "%s → %s" % (o.get("before", "?"), o.get("after", "?"))
+    return "-"
+
+
+def _opt_outputs(o):
+    e = o["equivalence"].strip()
+    return "bit-identical" if e.lower().startswith("bit-identical") else _first_sentence(e.split(":")[0], 60)
+
+
+def _changes_section(doc):
+    opts = doc["optimizations"]
+    L = ["### What we changed", ""]
+    if not opts:
+        return L + ["_No change was kept._", ""]
+    rows = [[i, _opt_title(o), _opt_type(o), _opt_runtime(o), o.get("memory") or "-", _opt_outputs(o),
+             "`%s`" % o["commit"] if o.get("commit") else "-"] for i, o in enumerate(opts, 1)]
+    return L + [_md_table(["#", "change", "type", "runtime", "memory", "outputs", "commit"], rows), "",
+                "The problem, evidence, equivalence check and trade-offs of each change are in Appendix 1.", ""]
+
+
+def _tradeoffs_section(doc, priority):
+    tr = doc.get("tradeoffs") or []
+    if not tr and priority != "memory":
+        return []
+    L = ["### Trade-offs taken", ""]
+    if not tr:
+        return L + ["_None recorded: no kept change cost runtime to save memory, and no runtime change was rejected "
+                    "for growing memory._", ""]
+    return L + ["Where memory and runtime pulled in different directions, and what was decided.", "",
+                _md_table(["change", "memory", "runtime", "decision"],
+                          [[t.get("change", ""), t.get("memory", "-"), t.get("runtime", "-"), t.get("decision", "-")]
+                           for t in tr]), ""]
+
+
+def _remaining_section(doc, lead):
+    rb = doc["remaining_bottleneck"]
+    rh = (doc.get("memory") or {}).get("remaining_holder")
+    runtime = {"title": rb["component"], "share": rb.get("share"), "owner": rb.get("owner"),
+               "evidence": rb["evidence"], "why": rb.get("explanation")}
+    memory = {"title": "memory: %s" % rh.get("target", "?"), "share": rh.get("share"), "owner": rh.get("owner"),
+              "evidence": rh.get("evidence"), "why": rh.get("explanation")} if rh else None
+    cards = [c for c in ([memory, runtime] if lead else [runtime, memory]) if c]
+    L = ["### Remaining bottlenecks, ranked", ""]
+    for i, c in enumerate(cards, 1):
+        L += ["**%d. %s**%s%s" % (i, c["title"], " — %s" % c["share"] if c.get("share") else "",
+                                  " · owner: %s" % OWNERS[c["owner"]] if c.get("owner") in OWNERS else ""), ""]
+        if c.get("evidence"):
+            L.append("- Evidence: %s" % c["evidence"])
+        if c.get("why"):
+            L.append("- Why: %s" % c["why"])
+        L.append("")
+    issues = doc.get("remaining_integration_issues") or []
+    if issues:
+        L += ["Also in your integration:", ""] + ["- %s" % x for x in issues] + [""]
+    acts = doc["tensorleap_actions"]
+    if acts:
+        L += ["For Tensorleap:", ""]
+        L += ["- **%s**%s%s" % (a["need"], " — evidence: %s" % a["evidence"] if a.get("evidence") else "",
+                                " — impact: %s" % a["impact"] if a.get("impact") else "") for a in acts] + [""]
+    return L
+
+
+def _server_check(sv):
+    if not sv:
+        return []
+    if sv.get("mode") == "diagnostics":
+        return ["### Server check", "", "The approved online diagnostics run is reported in Part 2.", ""]
+    facts = [x for x in ("job `%s`" % sv["job"] if sv.get("job") else None, sv.get("duration")) if x]
+    return ["### Server check", "",
+            "A small smoke run on the Tensorleap server, to confirm the changed integration runs there: **%s**%s.%s" % (
+                sv.get("status", "unknown"), " (%s)" % ", ".join(facts) if facts else "",
+                " %s" % sv["notes"] if sv.get("notes") else ""), ""]
+
+
+def _component_rows(src):
+    blocks = []
+    for block in ("generation", "metrics", "visualizers"):
+        rows = []
+        hs = list(((src.get(block) or {}).get("handlers") or {}).values())
+        total = sum(h.get("per_sample_mean_seconds") or 0 for h in hs)
+        small = []
+        for h in sorted(hs, key=lambda h: -(h.get("per_sample_mean_seconds") or 0)):
+            mean = h.get("per_sample_mean_seconds") or 0
+            if total and mean < MIN_COMPONENT_SHARE * total:
+                small.append(mean)
+                continue
+            pc = h.get("per_call_seconds") or {}
+            rows.append((mean, [block, "`%s`" % h["name"], fmt_ms(mean), fmt_ms(pc.get("p50", 0)),
+                                fmt_ms(pc["p90"]) if "p90" in pc else "-",
+                                fmt_ms(pc.get("p95", 0)), fmt_ms(pc.get("p99", 0))]))
+        rows.sort(key=lambda r: -r[0])
+        if small:
+            rows.append((sum(small), [block, "other (%d, each under %.0f%% of the block)" % (len(small), 100 * MIN_COMPONENT_SHARE),
+                                      fmt_ms(sum(small)), "-", "-", "-", "-"]))
+        blocks.append((total, [r for _, r in rows]))
+    return [r for _, rows in sorted(blocks, key=lambda b: -b[0]) for r in rows]
+
+
+def _environment_rows(doc, ctx):
+    env = dict(doc.get("environment") or {})
+    pre = ctx["preflight"]
+    if pre:
+        env.setdefault("platform", pre.get("platform"))
+        env.setdefault("cpu cores", (pre.get("cpu") or {}).get("logical_cores"))
+        env.setdefault("RAM (GB)", "%.1f" % ((pre.get("memory") or {}).get("total_gb") or 0))
+        env.setdefault("code-loader", (pre.get("code_loader") or {}).get("version"))
+        if pre.get("model"):
+            env.setdefault("model", "%s on %s" % (pre["model"]["framework"], pre["model"]["device"]["label"]))
+    floor, fit = ctx["floor"], ctx["fit"]
+    if floor:
+        env.setdefault("model inference floor", "%s per sample (mean, batch %s, %s on %s)" % (
+            fmt_ms(floor["t_inf_per_sample_mean_seconds"]), floor["recommended_batch_size"], floor["framework"],
+            floor["device"]["label"]))
+    if fit:
+        env.setdefault("recommended batch size", "%s (model resident %.2f GB, +%.1f MB per sample in a batch)" % (
+            fit.get("recommended_batch_size"), fit["model"]["process_rss_loaded_gb"],
+            1024 * fit["model"]["activation_per_sample_gb"]))
+        for k, v in (fit.get("batch_support") or {}).items():
+            if v != "ok":
+                env.setdefault("batch support: %s" % k, v)
+    return sorted(env.items())
+
+
+def _appendix1(doc, ctx):
+    L = ["### Appendix 1 — offline details", ""]
+    env = _environment_rows(doc, ctx)
+    L += ["**Environment**", "", _md_table(["", ""], env) if env else "_not recorded_", ""]
+    src = ctx["after"] or ctx["before"]
+    if src:
+        L += ["**Component timings** (%s; per sample, and per call for the percentiles)" % ("after the changes" if ctx["after"] else "baseline"), "",
+              _md_table(["block", "component", "mean/sample", "P50/call", "P90/call", "P95/call", "P99/call"],
+                        _component_rows(src)), ""]
+    opts = doc["optimizations"]
+    if opts:
+        L += ["**Each change in detail**", ""]
+    for i, o in enumerate(opts, 1):
+        L += ["%d. **%s**" % (i, _opt_title(o)), "",
+              "- **Problem:** %s" % o["problem"],
+              "- **Type:** %s" % _opt_type(o),
+              "- **Change:** %s" % o["change"],
+              "- **Evidence:** %s" % o["evidence"],
+              "- **Equivalence:** %s" % o["equivalence"]]
+        if o.get("before") or o.get("after") or o.get("gain"):
+            L.append("- **Runtime:** %s" % _opt_runtime(o) if not (o.get("before") or o.get("after")) else
+                     "- **Runtime:** %s → %s%s" % (o.get("before", "?"), o.get("after", "?"),
+                                                   " (%s)" % o["gain"] if o.get("gain") else ""))
+        if o.get("memory"):
+            L.append("- **Memory:** %s" % o["memory"])
+        if o.get("side_effects"):
+            L.append("- **Trade-offs:** %s" % o["side_effects"])
+        if o.get("commit"):
+            L.append("- **Commit:** `%s`" % o["commit"])
+        L.append("")
+    return L
+
+
+def _part1(doc, ctx, priority):
+    L = ["## Part 1 — Offline: your integration's code", "", "### Summary", ""]
+    if doc.get("summary"):
+        L += [doc["summary"], ""]
+    lead = priority == "memory" and ctx["memory_status"] in ("AMBER", "RED")
+    L += _offline_facts(doc, ctx, priority, lead) + [""]
+    mem = _memory_section(doc.get("memory"), ctx["before"], ctx["after"])
+    tim = _time_section(doc, ctx)
+    L += (mem + tim) if lead else (tim + mem)
+    L += _changes_section(doc) + _tradeoffs_section(doc, priority) + _remaining_section(doc, lead)
+    if doc.get("lossy_options"):
+        L += ["### Decisions for you", "",
+              "Options that would change outputs; none is applied without your consent.", "",
+              _md_table(["option", "expected gain", "what changes", "decision"],
+                        [[o.get("option", ""), o.get("gain", ""), o.get("cost", ""), o.get("decision", "pending")]
+                         for o in doc["lossy_options"]]), ""]
+    L += _server_check(doc.get("server_validation"))
+    if doc.get("coverage_caveats"):
+        L += ["### Not verified", ""] + ["- %s" % x for x in doc["coverage_caveats"]] + [""]
+    return L + _appendix1(doc, ctx)
 
 
 def render_report(doc, out):
-    lines = ["# %s" % doc["title"], ""]
     priority = report_priority(doc, out)
-    if priority == "memory":
-        lines += ["**Priority: memory.** Memory was optimized first: a memory fix could cost up to %.0f%% runtime, "
-                  "and a runtime fix was kept only if it did not grow memory." % (100 * PRIORITY_MEMORY_TOLERANCE), ""]
-    if doc.get("summary"):
-        lines += [doc["summary"], ""]
-    preflight = _read_json(os.path.join(out, "preflight.json")) or {}
-    floor = _read_json(os.path.join(out, "floor.json")) or {}
-    fit = _read_json(os.path.join(out, "fit.json")) or {}
-    before = _read_json(os.path.join(out, "baseline", "profile.json"))
-    latest_dir = _latest_run(out)
-    after = _read_json(os.path.join(latest_dir, "profile.json")) if latest_dir else None
-    if after and before and after.get("run") == before.get("run") and after.get("created") == before.get("created"):
-        after = None
-
-    lines += ["## Environment", ""]
-    env = doc.get("environment") or {}
-    if preflight:
-        env.setdefault("platform", preflight.get("platform"))
-        env.setdefault("cpu cores", (preflight.get("cpu") or {}).get("logical_cores"))
-        env.setdefault("RAM (GB)", "%.1f" % ((preflight.get("memory") or {}).get("total_gb") or 0))
-        env.setdefault("code-loader", (preflight.get("code_loader") or {}).get("version"))
-        if preflight.get("model"):
-            env.setdefault("model", "%s on %s" % (preflight["model"]["framework"],
-                                                  preflight["model"]["device"]["label"]))
-    lines += [_md_table(["", ""], sorted(env.items())) if env else "_not recorded_", ""]
-
-    lines += ["## Performance floor and fit", ""]
-    if floor:
-        lines.append("- Model inference floor: **%s per sample** (mean, batch %s, %s on %s)." % (
-            fmt_ms(floor["t_inf_per_sample_mean_seconds"]), floor["recommended_batch_size"],
-            floor["framework"], floor["device"]["label"]))
-    if fit:
-        lines.append("- Recommended batch size: **%s**; model resident %.2f GB, +%.1f MB per sample "
-                     "in a batch (measured)." % (
-                         fit.get("recommended_batch_size"), fit["model"]["process_rss_loaded_gb"],
-                         1024 * fit["model"]["activation_per_sample_gb"]))
-        bad = {k: v for k, v in (fit.get("batch_support") or {}).items() if v != "ok"}
-        for k, v in bad.items():
-            lines.append("- Batch support: `%s` — %s." % (k, v))
-    lines.append("")
-
-    if priority == "memory":
-        lines += _memory_section(doc.get("memory"), before, after)
-    lines += ["## Runtime breakdown (per sample)", ""]
-    visualized = doc.get("visualized_samples")
-    lines += [_md_table(["block", "before", "after"], _share_rows(before, after, visualized)), ""]
-    if before or after:
-        src = after or before
-        handlers = []
-        for block in ("generation", "metrics", "visualizers"):
-            for h in ((src.get(block) or {}).get("handlers") or {}).values():
-                pc = h.get("per_call_seconds") or {}
-                mean = h.get("per_sample_mean_seconds") or 0
-                handlers.append((mean, [block, "`%s`" % h["name"], fmt_ms(mean), fmt_ms(pc.get("p50", 0)),
-                                        fmt_ms(pc.get("p95", 0)), fmt_ms(pc.get("p99", 0))]))
-        handlers.sort(key=lambda r: -r[0])
-        lines += ["Components (%s):" % ("after" if after else "before"), "",
-                  _md_table(["block", "component", "mean/sample", "P50/call", "P95/call", "P99/call"],
-                            [row for _, row in handlers]), ""]
-
-    if priority != "memory":
-        lines += _memory_section(doc.get("memory"), before, after)
-    lines += ["## Optimizations applied", ""]
-    if not doc["optimizations"]:
-        lines += ["_None._", ""]
-    for i, opt in enumerate(doc["optimizations"], 1):
-        lines += ["### %d. %s" % (i, opt["problem"]), ""]
-        tags = [t for t in (opt.get("kind"), ("catalog %s" % opt["catalog"]) if opt.get("catalog") else None) if t]
-        if tags:
-            lines.append("- **Type:** %s" % " · ".join(tags))
-        lines += ["- **Change:** %s" % opt["change"],
-                  "- **Evidence:** %s" % opt["evidence"],
-                  "- **Equivalence:** %s" % opt["equivalence"]]
-        if opt.get("before") or opt.get("after"):
-            lines.append("- **Runtime:** %s → %s%s" % (opt.get("before", "?"), opt.get("after", "?"),
-                                                       " (%s)" % opt["gain"] if opt.get("gain") else ""))
-        if opt.get("side_effects"):
-            lines.append("- **Trade-offs:** %s" % opt["side_effects"])
-        if opt.get("commit"):
-            lines.append("- **Commit:** `%s`" % opt["commit"])
-        lines.append("")
-
-    rb = doc["remaining_bottleneck"]
-    lines += ["## Remaining bottleneck", "",
-              "**%s**%s" % (rb["component"], " — %s" % rb["share"] if rb.get("share") else ""),
-              "", "- Evidence: %s" % rb["evidence"]]
-    if rb.get("explanation"):
-        lines.append("- Why: %s" % rb["explanation"])
-    lines.append("")
-
-    if doc.get("lossy_options"):
-        lines += ["## Options that would change behavior (not applied without consent)", ""]
-        lines += [_md_table(["option", "expected gain", "cost / behavior change", "decision"],
-                            [[o.get("option", ""), o.get("gain", ""), o.get("cost", ""), o.get("decision", "pending")]
-                             for o in doc["lossy_options"]]), ""]
-    if doc.get("server_validation"):
-        lines += _perf_online().render_server_validation(doc["server_validation"], out)
-    if doc.get("remaining_integration_issues"):
-        lines += ["## Remaining issues in the integration", ""] + \
-            ["- %s" % x for x in doc["remaining_integration_issues"]] + [""]
-    lines += ["## Recommended Tensorleap actions", ""]
-    if not doc["tensorleap_actions"]:
-        lines += ["_None._", ""]
-    for act in doc["tensorleap_actions"]:
-        lines.append("- **%s**%s%s" % (act["need"],
-                                       " — evidence: %s" % act["evidence"] if act.get("evidence") else "",
-                                       " — impact: %s" % act["impact"] if act.get("impact") else ""))
-    lines.append("")
-    if doc.get("coverage_caveats"):
-        lines += ["## What was not verified", ""] + ["- %s" % x for x in doc["coverage_caveats"]] + [""]
+    ctx = _report_context(doc, out)
+    lines = ["# %s" % doc["title"], ""] + _report_header(doc, ctx, priority)
+    lines += _part1(doc, ctx, priority)
+    lines += _perf_online().render_online_part(doc, out, priority)
+    lines += [_report_html().run_files_line(out), ""]
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -3863,7 +4080,6 @@ def cmd_report(args):
         return EXIT_BAD_REPORT
     md = render_report(doc, out)
     html_mod = _report_html()
-    md = md.rstrip("\n") + "\n\n" + "\n".join(html_mod.steps_section(doc, out))
     path = os.path.join(out, "report.md")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(md)
@@ -3963,9 +4179,9 @@ def build_parser():
                    help="which candidate list to rank first (memory triage is always computed)")
     p.add_argument("--memory-gb", type=float, default=None,
                    help="memory the integration's workers share (default: local server's, else this machine's RAM)")
-    p.add_argument("--priority", choices=PRIORITIES, default="runtime",
-                   help="what the user wants first: runtime (default) or memory (memory loop first, a memory "
-                        "fix may cost up to 15%% runtime, a runtime fix may not grow memory)")
+    p.add_argument("--priority", choices=PRIORITIES, default="memory",
+                   help="what wins a conflict: memory (default: memory loop first, a memory fix may cost up to "
+                        "15%% runtime, a runtime fix may not grow memory) or runtime (the memory triage decides)")
     p.add_argument("--memory-symptom", choices=("none", "high", "oom"), default="none",
                    help="what the user reports: high memory use (AMBER) or out-of-memory failures (RED)")
     p.add_argument("--red-share", type=float, default=0.5, help="footprint share of the budget that is RED")
