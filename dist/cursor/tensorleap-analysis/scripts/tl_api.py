@@ -164,7 +164,7 @@ def cmd_digest(args):
             with open(csv_path, newline="") as f:
                 reader = csv.DictReader(f)
                 d["csv_columns"] = reader.fieldnames or []
-                d["_ids"] = {r.get("sample_id") for r in reader if r.get("sample_id")}
+                d["_ids"] = {r.get("sample_id") for r in root_rows(list(reader)) if r.get("sample_id")}
             if d["type"] != "low_performance" and d["files"].get("cluster"):
                 members = cluster_members(os.path.join(out_dir, d["files"]["cluster"]))
                 if members:
@@ -265,6 +265,13 @@ def cluster_members(path):
     return {f"{state}_{i}" for state, idx in index.items() for i in idx} or None
 
 
+def root_rows(rows):
+    """A failure mode's csv from an engine before root-only csvs also holds latent
+    neighbours, marked is_low_perf_root_member=False; keep the root members."""
+    root = [r for r in rows if str(r.get("is_low_perf_root_member")).lower() == "true"]
+    return root or rows
+
+
 def walk_insights(insights):
     for d in insights:
         yield d
@@ -287,14 +294,14 @@ def cmd_summarize(args):
         members = (None if d.get("type") == "low_performance"
                    else cluster_members(os.path.join(args.dir, d["dir"], "cluster.json")))
         own = [r for r in rows if r.get("sample_id") in members] if members else []
-        group = own or rows
+        group = own or root_rows(rows)
         split = {}
         for r in group:
             state = (r.get("sample_id") or "").rsplit("_", 1)[0] or "unknown"
             split[state] = split.get(state, 0) + 1
         metrics, metadata = {}, {}
         for col in rows[0].keys():
-            if col == "sample_id":
+            if col in ("sample_id", "is_low_perf_root_member"):
                 continue
             entry = column_stats(group, col)
             if not entry:

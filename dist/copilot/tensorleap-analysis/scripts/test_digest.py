@@ -82,6 +82,18 @@ def main():
     subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", moved], capture_output=True)
     m = json.load(open(os.path.join(moved, "insights.json")))
     assert "missing" in m["insights"][1]["errors"][0]
+    legacy = tempfile.mkdtemp()
+    make_export(legacy)
+    with open(os.path.join(legacy, "insight_1_low_performance", "samples.csv"), "w") as f:
+        f.write("sample_id,metrics.loss,metadata.fog,is_low_perf_root_member\n"
+                "training_1,2.5,yes,True\ntraining_2,1.5,yes,True\ntraining_9,0.2,no,False\n")
+    subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", legacy], capture_output=True, check=True)
+    lp = json.load(open(os.path.join(legacy, "insights.json")))["insights"][0]
+    assert lp["overlaps"] == [{"insight": 4, "shared": 1, "of_this": 0.5}], "a latent neighbour is not a member"
+    summ = subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "summarize", legacy], capture_output=True, text=True)
+    lr = json.loads(summ.stdout)[0]
+    assert lr["group_rows"] == 2 and lr["csv_rows"] == 3 and lr["metrics"]["metrics.loss"]["group_mean"] == 2.0, lr
+    assert "is_low_perf_root_member" not in lr["metadata"]
     empty = tempfile.mkdtemp()
     assert subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", empty], capture_output=True).returncode == 5
     print("all checks passed")
