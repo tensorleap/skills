@@ -11,6 +11,7 @@ Subcommands:
   profile    every integration component, run the way Tensorleap runs it
   score      rank optimization candidates from a profile
   compare    equivalence + timing/memory delta against the baseline
+  restore    put the code back to the last accepted run (perf_code.py)
   report     render report.json into report.md
   online     online diagnostics of one Tensorleap run: plan / collect / analyze
              (perf_online.py)
@@ -626,6 +627,7 @@ def time_batches(lm, specs, batch, warmup, min_iters, max_iters, min_seconds):
 # --------------------------------------------------------------------------- #
 
 def cmd_preflight(args):
+    _perf_code().save_start(args.root, out_dir(args))
     report = {
         "python": platform.python_version(),
         "platform": "%s-%s" % (sys.platform, platform.machine()),
@@ -2696,6 +2698,7 @@ def _next_run_dir(out):
 def cmd_profile(args):
     out = out_dir(args)
     run_dir = _next_run_dir(out)
+    _perf_code().save(run_dir, args.root, out)
     entry = args.entry or read_entry_file(args.root)
     floor = _read_json(os.path.join(out, "floor.json"))
     batch_size = args.batch_size or (floor or {}).get("recommended_batch_size") or 8
@@ -2771,14 +2774,20 @@ def cmd_profile(args):
     profile = _assemble_profile(args, run_dir, entry, batch_size, floor, workers, nondet)
     write_json(os.path.join(run_dir, "profile.json"), profile)
     write_json(os.path.join(out, "profile.json"), profile)
+    early_patch = None
     if set_baseline and nondet is not None:
+        first_baseline = not os.path.isdir(baseline_dir)
         if os.path.isdir(baseline_dir):
             shutil.rmtree(baseline_dir)
         if os.path.exists(os.path.join(out, "accepted.json")):
             os.remove(os.path.join(out, "accepted.json"))   # gains restart from the new baseline
         shutil.copytree(run_dir, baseline_dir,
                         ignore=shutil.ignore_patterns("vis_payload.npz", "snapshot_repeat"))
+        if first_baseline:
+            early_patch = _perf_code().record_baseline(out, baseline_dir)
     _print_profile(profile, set_baseline and nondet is not None, baseline_dir)
+    if early_patch:
+        print("  changes made before the baseline saved: %s" % early_patch)
     for k in ("memory", "memory_repeat"):
         if workers.get(k, {}).get("error"):
             print("  warning: the memory pass failed (runtime results are unaffected):\n%s"
@@ -2975,10 +2984,15 @@ def cmd_compare(args):
     gain — after one big win, a useless or slower change must not ride on it). An exit 0
     makes the current run the new accepted reference."""
     out = out_dir(args)
+    code_mod = _perf_code()
+    if _cap_left(code_mod, args.root, out, "compare"):
+        return EXIT_BLOCKER
     base_dir = args.baseline or os.path.join(out, "baseline")
     cur_dir = args.run or _latest_run(out)
     accepted = _read_json(os.path.join(out, "accepted.json")) or {}
     ref_dir = args.reference or accepted.get("run") or base_dir
+    already_accepted = bool(cur_dir and accepted.get("run")) and \
+        os.path.realpath(accepted["run"]) == os.path.realpath(cur_dir)
     if cur_dir and ref_dir and os.path.realpath(ref_dir) == os.path.realpath(cur_dir):
         ref_dir = base_dir
     base_p = _read_json(os.path.join(base_dir, "profile.json"))
@@ -3061,12 +3075,16 @@ def cmd_compare(args):
         "load_warning": load_warning,
         "thresholds": {"min_gain": args.min_gain, "max_mem_increase": max_mem_increase,
                        "rtol": args.rtol, "atol": args.atol},
+        "code_changed_since_profile": code_mod.changed_since(cur_dir, args.root, out),
     }
     path = os.path.join(cur_dir, "compare.json")
     write_json(path, report)
     write_json(os.path.join(out, "compare.json"), report)
+    patch = None
     if code == EXIT_OK and not args.no_accept:
         write_json(os.path.join(out, "accepted.json"), {"run": cur_dir})
+        if not already_accepted:
+            patch = code_mod.promote(out, ref_dir, cur_dir)
     bw = rw  # printed as the reference column below
 
     print("tl_perf compare: equivalence vs %s; gain vs %s" % (base_dir, ref_dir))
@@ -3099,8 +3117,15 @@ def cmd_compare(args):
             status, mem_needed, 100 * runtime_change, 100 * tolerance))
     if load_warning:
         print("  warning: %s" % load_warning)
+    if report["code_changed_since_profile"]:
+        print("  warning: the code changed after this profile (%s); the saved code is the profiled one"
+              % ", ".join(report["code_changed_since_profile"]))
     if code == EXIT_OK and not args.no_accept:
         print("  accepted: this run is now the reference for the next change")
+        if patch:
+            print("  fix saved: %s" % patch)
+    elif code != EXIT_OK:
+        print("  not accepted: `tl_perf restore` puts the code back to the reference")
     print("  -> %s (exit %d)" % (path, code))
     return code
 
@@ -4063,6 +4088,8 @@ def render_report(doc, out):
 
 def cmd_report(args):
     out = out_dir(args)
+    if _cap_left(_perf_code(), args.root, out, "report"):
+        return EXIT_BLOCKER
     src = args.input or os.path.join(out, "report.json")
     try:
         doc = _read_json(src)
@@ -4112,6 +4139,40 @@ def _perf_online():
 
 def cmd_online(args):
     return _perf_online().run(args, out_dir(args), sys.modules[__name__])
+
+
+# --------------------------------------------------------------------------- #
+# code history (perf_code.py)
+# --------------------------------------------------------------------------- #
+
+def _perf_code():
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import perf_code
+    return perf_code
+
+
+def _cap_left(code_mod, root, out, command):
+    caps = code_mod.cap_markers(root, out)
+    if caps:
+        print("tl_perf %s: a validation cap is still in the code (%s); run `tl_perf restore` first"
+              % (command, ", ".join(caps)), file=sys.stderr)
+    return bool(caps)
+
+
+def cmd_restore(args):
+    res = _perf_code().restore(args.root, out_dir(args))
+    if res is None:
+        print("tl_perf restore: no saved code to return to; run `tl_perf profile` first", file=sys.stderr)
+        return EXIT_BLOCKER
+    print("tl_perf restore: code back to %s (%d file(s) restored, %d new file(s) moved aside)"
+          % (res["run"], len(res["restored"]), len(res["moved_aside"])))
+    for rel in res["restored"]:
+        print("  restored: %s" % rel)
+    for rel in res["moved_aside"]:
+        print("  moved aside: %s -> %s" % (rel, res["aside_dir"]))
+    return EXIT_OK
 
 
 # --------------------------------------------------------------------------- #
@@ -4213,6 +4274,10 @@ def build_parser():
                    help="memory objective: allowed runtime increase (default from score's triage)")
     p.add_argument("--visualized-samples", type=int, default=None)
     p.set_defaults(func=cmd_compare)
+
+    p = sub.add_parser("restore", parents=[common],
+                       help="put the code back to the last accepted run (the baseline before any)")
+    p.set_defaults(func=cmd_restore)
 
     p = sub.add_parser("fit", parents=[common],
                        help="per-sample size and measured memory headroom per batch size")
