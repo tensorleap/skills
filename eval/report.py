@@ -171,6 +171,8 @@ def render(args, m, transcript, notes, where, void):
         lines.append(f"- **Model:** {m['model']}")
     if args.skill_source:
         lines.append(f"- **Skill source:** {args.skill_source}")
+    if args.mode != "blind":
+        lines.append(f"- **Mode:** {args.mode}")
     prov = " · ".join(x for x in (
         (f"skill `{args.skill_fingerprint}`"
          + (f" (git {args.skill_git})" if args.skill_git else ""))
@@ -248,6 +250,7 @@ def sidecar(args, m, transcript, where, out, void):
         "fixture_sha": args.fixture_sha,
         "prompt_sha": args.prompt_sha,
         "skill_source": args.skill_source,
+        "mode": args.mode,
         "note": args.note,
         "transcript": transcript or "",
         "report": out,
@@ -564,6 +567,8 @@ def main():
                     help="hash of the fixture's manifest entry (definition provenance)")
     ap.add_argument("--prompt-sha", default="",
                     help="hash of the operator prompt handed to the agent")
+    ap.add_argument("--mode", default="blind",
+                    help="blind (authored from scratch) or extend (one addition to a finished integration)")
     ap.add_argument("--skill-source", default="",
                     help="which copy of the skill was under test (plugin vs --plugin-dir)")
     ap.add_argument("--note", default="",

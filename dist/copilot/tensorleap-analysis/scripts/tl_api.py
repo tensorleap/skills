@@ -1,197 +1,37 @@
 #!/usr/bin/env python3
-"""Tensorleap analysis client for the tensorleap-analysis skill.
+"""tensorleap-analysis report plumbing.
 
-Talks ONLY to node-server's analysis-export facade (listTargets,
-exportAnalysis, getSampleAssets), a deliberate public contract carrying a
-contractVersion the skill verifies before trusting the shape. Requires a
-Tensorleap server that exposes the analysis-export API; on older servers the
-first call fails with a clear message. Artifact URLs arrive pre-signed in
-batches, so there are no per-file signing round-trips.
+Data comes from the Tensorleap MCP server (`leap mcp`): tl_export_analysis
+writes a version's analysis to a directory with a manifest.json. This script
+turns that directory into the report:
 
-Auth and base URL come from the leap CLI config (~/.config/tensorleap/config.yaml,
-override path with TENSORLEAP_CONFIG): auth.api_url + auth.api_key. The api_key
-may be absent on --disable-auth installs; requests are then sent without a header.
-Stdlib only, no pip dependencies (render-charts alone needs matplotlib and says
-so via its exit code).
-
-Usage:
-  tl_api.py whoami
-  tl_api.py list-versions [--project NAME_OR_ID]
-  tl_api.py fetch --project ID --version ID --out DIR [--top-k 10]
-                  [--rank-by COLUMN] [--asc]
-                  [--cache-dir DIR] [--refresh]
-
-Repeat runs reuse work: blobs are cached under ~/.cache/tensorleap-analysis
-(--cache-dir, empty to disable) and sample dirs already present in --out are
-kept as-is; --refresh re-downloads everything.
-  tl_api.py render-charts DIR
+  tl_api.py digest DIR              # manifest.json -> insights.json (the digest the skill reads)
   tl_api.py summarize DIR           # per-insight composition stats from samples.csv
+  tl_api.py render-charts DIR       # chart.png / boxes.jpg for non-image payloads, thumbnails
   tl_api.py build-report DIR        # assemble report.html + report.txt from DIR/report.json
   tl_api.py inline-html FILE.html   # embed <img src> files as data URIs, in place
 
 Exit codes:
   0  ok
-  2  bad arguments / no matching project
-  3  not authenticated (missing config, or server rejected the key)
-  4  server unreachable, has no analysis-export API, or returned an unexpected error
-  5  version has no insights
+  2  bad arguments
+  5  DIR has no manifest.json or no insights
   6  matplotlib unavailable (render-charts only, fall back to html tables)
   7  inline-html: some src paths did not resolve (listed on stderr)
   8  build-report: report.json invalid or referenced images missing (listed on stderr)
-  9  analysis-export contract mismatch (update the skill or the server, whichever is older)
 """
 import argparse
 import base64
 import csv
-import hashlib
 import html
 import io
-import itertools
 import json
 import os
 import re
 import struct
 import sys
-import tarfile
-import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import zipfile
-from concurrent.futures import ThreadPoolExecutor
-
-API = {"url": None, "key": None}
-CACHE = {"dir": None, "refresh": False}
-# Blob downloads are soft (a missing image must not kill the run), so count
-# them: signed URLs point at the storage host, which a port-forward to
-# node-server alone does not expose. Then the API works and every blob fails.
-BLOBS = {"ok": 0, "failed": 0, "host": None}
-# Must match ANALYSIS_EXPORT_CONTRACT_VERSION in node-server's
-# src/analysis-export/interfaces.ts.
-CONTRACT_VERSION = 1
-SUB_TOP_K = 6
-CANDIDATE_FACTOR = 4
-
-
-def read_config():
-    cfg = os.environ.get("TENSORLEAP_CONFIG") or os.path.expanduser(
-        "~/.config/tensorleap/config.yaml")
-    try:
-        lines = open(cfg).read().splitlines()
-    except Exception as exc:
-        print(f"cannot read {cfg}: {exc}, is the CLI logged in? (leap auth login)",
-              file=sys.stderr)
-        raise SystemExit(3)
-    url = key = None
-    top = None
-    for line in lines:
-        if line[:1] not in (" ", "\t", "", "#"):
-            top = line.split(":", 1)[0].strip()
-        elif top == "auth":
-            k, _, v = line.strip().partition(":")
-            if k == "api_url" and v.strip():
-                url = v.strip().strip("'\"")
-            elif k == "api_key" and v.strip():
-                key = v.strip().strip("'\"")
-    if not url:
-        print(f"no auth.api_url in {cfg}, run: leap auth login", file=sys.stderr)
-        raise SystemExit(3)
-    url = url.rstrip("/")
-    if url.endswith("/api/v2"):
-        url = url[:-len("/api/v2")]
-    API["url"], API["key"] = url, key
-
-
-def api(path, body, soft=False):
-    req = urllib.request.Request(
-        f"{API['url']}/api/v2/{path}",
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST")
-    if API["key"]:
-        req.add_header("Authorization", f"Bearer {API['key']}")
-    for attempt in (1, 2):
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                raw = resp.read()
-                return json.loads(raw) if raw.strip() else {}
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode(errors="replace")[:500]
-            if e.code in (401, 403):
-                print(f"auth rejected by {API['url']} ({e.code}): {detail}", file=sys.stderr)
-                raise SystemExit(3)
-            if e.code == 404 and path.startswith("analysis-export/"):
-                print(f"{API['url']} has no analysis-export API, the "
-                      "tensorleap-analysis skill requires a newer Tensorleap "
-                      "server", file=sys.stderr)
-                raise SystemExit(4)
-            if soft:
-                return None
-            print(f"POST /api/v2/{path} -> {e.code}: {detail}", file=sys.stderr)
-            raise SystemExit(4)
-        except OSError as e:
-            if attempt == 1:
-                time.sleep(2)
-                continue
-            reason = getattr(e, "reason", e)
-            if soft:
-                return None
-            print(f"cannot reach {API['url']}: {reason}", file=sys.stderr)
-            raise SystemExit(4)
-
-
-def fetch_url(url):
-    with urllib.request.urlopen(url, timeout=300) as resp:
-        return resp.read()
-
-
-def write_atomic(path, data):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = f"{path}.part{os.getpid()}.{threading.get_ident()}"
-    with open(tmp, "wb") as f:
-        f.write(data)
-    os.replace(tmp, path)
-
-
-def cache_path(file_name):
-    if not CACHE["dir"]:
-        return None
-    return os.path.join(CACHE["dir"],
-                        hashlib.sha256(file_name.encode()).hexdigest())
-
-
-def check_contract(resp):
-    got = (resp or {}).get("contractVersion")
-    if got != CONTRACT_VERSION:
-        print(f"analysis-export contract mismatch: server v{got}, skill "
-              f"v{CONTRACT_VERSION}, update the older side", file=sys.stderr)
-        raise SystemExit(9)
-    return resp
-
-
-def download_url(url, soft=False):
-    """Fetch a pre-signed artifact URL, caching by its (stable) path, the
-    signature query changes every run, the object path does not."""
-    if not url:
-        return None
-    cp = cache_path(urllib.parse.urlparse(url).path)
-    if cp and not CACHE["refresh"] and os.path.isfile(cp):
-        with open(cp, "rb") as f:
-            return f.read()
-    try:
-        data = fetch_url(url)
-    except Exception as e:
-        BLOBS["failed"] += 1
-        BLOBS["host"] = urllib.parse.urlparse(url).netloc
-        if soft:
-            return None
-        print(f"download failed for {url.split('?')[0]}: {e}", file=sys.stderr)
-        raise SystemExit(4)
-    BLOBS["ok"] += 1
-    if cp:
-        write_atomic(cp, data)
-    return data
 
 
 def image_size(path):
@@ -219,224 +59,41 @@ def image_size(path):
         return None
 
 
-def hash_sample_index(raw):
-    digest = hashlib.sha256(str(raw).encode()).digest()[:16]
-    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
-
-
-def cmd_whoami(_args):
-    me = check_contract(api("analysis-export/listTargets", {})).get("me") or {}
-    print(json.dumps({
-        "api_url": API["url"],
-        "email": me.get("email"),
-        "name": me.get("name"),
-        "teamId": me.get("teamId"),
-        "role": me.get("role"),
-    }, indent=2))
-
-
-def cmd_list_versions(args):
-    resp = check_contract(api("analysis-export/listTargets", {}))
-    projects = resp.get("projects") or []
-    if not args.project:
-        print(json.dumps(projects, indent=2))
-        return
-    needle = args.project.lower()
-    matches = [p for p in projects
-               if p.get("cid") == args.project or (p.get("name") or "").lower() == needle]
-    if not matches:
-        matches = [p for p in projects if needle in (p.get("name") or "").lower()]
-    if len(matches) != 1:
-        names = [p.get("name") for p in matches] or [p.get("name") for p in projects]
-        print(f"project {args.project!r} matched {len(matches)} of: {names}",
-              file=sys.stderr)
-        raise SystemExit(2)
-    project = matches[0]
-    versions = check_contract(
-        api("analysis-export/listTargets", {"projectId": project["cid"]})
-    ).get("versions") or []
-    out = [{
-        "versionId": v.get("cid"),
-        "name": v.get("name"),
-        "serialNumber": v.get("serialNumber"),
-        "createdAt": v.get("createdAt"),
-        "hasInsightsArtifacts": bool(v.get("hasInsights")),
-    } for v in versions if v.get("evaluated")]
-    print(json.dumps({"projectId": project["cid"], "projectName": project.get("name"),
-                      "evaluatedVersions": out}, indent=2))
-
-
-def unzip_csv(blob, csv_path):
-    """Inner csv bytes for a .zip path (pass-through otherwise), or None when
-    the zip is corrupt, e.g. a stale/damaged cache entry."""
-    if not csv_path.endswith(".zip"):
-        return blob
-    try:
-        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-            inner = next((n for n in zf.namelist() if n.endswith(".csv")), None)
-            return zf.read(inner) if inner else b""
-    except zipfile.BadZipFile:
-        return None
-
-
-def sample_ids_from_csv(csv_bytes, rank_by, ascending, k):
-    rows = list(csv.DictReader(io.StringIO(csv_bytes.decode(errors="replace"))))
-    if not rows or "sample_id" not in rows[0]:
-        return None, (rows[0].keys() if rows else []), rows, {}
-    if rank_by and rank_by not in rows[0]:
-        print(f"rank column {rank_by!r} is not in this csv, "
-              f"using automatic ranking", file=sys.stderr)
-        rank_by = None
-    if not rank_by:
-        rank_by = next((c for c in rows[0]
-                        if c.endswith("aggressor_affinity_score")), None)
-    if not rank_by:
-        rank_by = next((c for c in rows[0]
-                        if c.startswith("metrics.")
-                        and ("loss" in c.lower() or "entropy" in c.lower())), None)
-    # A low_performance csv holds the failing group PLUS its latent neighbourhood,
-    # and the neighbours are frequently healthy. Rank only the rows that actually
-    # underperform, so the fetched samples belong to the group the report describes.
-    ranked = [r for r in rows
-              if str(r.get("is_low_perf_root_member")).lower() == "true"] or list(rows)
-    ranks = {}
-    if rank_by:
-        def keyf(r):
-            try:
-                return float(r[rank_by])
-            except (TypeError, ValueError):
-                return None
-        valued = [r for r in ranked if keyf(r) is not None]
-        valued.sort(key=keyf, reverse=not ascending)
-        # rows with no rank value go last in either direction
-        ranked = valued + [r for r in ranked if keyf(r) is None]
-        ranks = {r["sample_id"]: keyf(r) for r in ranked}
-    return [r["sample_id"] for r in ranked[:k]], list(rows[0].keys()), rows, ranks
-
-
-def prefer_rendered(ids, ranks, rendered):
-    """Rank order is preserved; only among equally-ranked candidates do
-    samples with rendered visualizations come first. Ids with no rank
-    (cluster fallback, csv without a rank column) are all tied, so there
-    the rendered ones lead outright."""
-    out = []
-    for _, grp in itertools.groupby(ids, key=lambda i: ranks.get(i)):
-        grp = list(grp)
-        out += [i for i in grp if i in rendered]
-        out += [i for i in grp if i not in rendered]
-    return out
-
-
-def sample_ids_from_cluster(cluster_json, k):
-    ids = []
-    for state, indices in (cluster_json.get("samples_index") or {}).items():
-        ids.extend(f"{state}_{i}" for i in indices)
-    return ids[:k]
-
-
-def fetch_insight_files(insight, out_dir, k, rank_by, ascending, digest):
-    itype = insight.get("insightType") or {}
-    urls = digest.pop("_urls")
-    idir = os.path.join(out_dir, digest["dir"])
-    os.makedirs(idir, exist_ok=True)
-    sample_ids = None
-
-    if urls.get("csv"):
-        blob = download_url(urls["csv"], soft=True)
-        if blob is not None:
-            blob = unzip_csv(blob, itype.get("csv_path") or "")
-            if blob is None:
-                digest["errors"].append("csv zip unreadable (corrupt blob or "
-                                        "stale cache, retry with --refresh)")
-        if blob is not None:
-            local_csv = os.path.join(idir, "samples.csv")
-            with open(local_csv, "wb") as f:
-                f.write(blob)
-            digest["files"]["csv"] = local_csv
-            sample_ids, columns, rows, digest["_ranks"] = \
-                sample_ids_from_csv(blob, rank_by, ascending, k)
-            digest["csv_columns"] = list(columns)
-            core = sum(1 for r in rows
-                       if str(r.get("is_low_perf_root_member")).lower() == "true")
-            digest["population"] = {"samples": core or len(rows),
-                                    "csv_rows": len(rows)}
-            digest["_ids"] = set(r.get("sample_id") for r in rows if r.get("sample_id"))
-            if sample_ids is None:
-                digest["errors"].append("csv has no sample_id column")
-
-    if sample_ids is None and urls.get("cluster"):
-        blob = download_url(urls["cluster"], soft=True)
-        if blob is not None:
-            try:
-                sample_ids = sample_ids_from_cluster(json.loads(blob), k)
-            except Exception as e:
-                digest["errors"].append(f"cluster blob unreadable: {e}")
-
-    if urls.get("top_panel"):
-        blob = download_url(urls["top_panel"], soft=True)
-        if blob is not None:
-            local_tp = os.path.join(idir, "top_panel.json")
-            with open(local_tp, "wb") as f:
-                f.write(blob)
-            digest["files"]["top_panel"] = local_tp
-            try:
-                summary = (json.loads(blob).get("summary") or {})
-                digest["top_panel_summary"] = {"title": summary.get("title"),
-                                               "sentence": summary.get("sentence")}
-            except Exception:
-                pass
-
-    if urls.get("fixing_csv"):
-        blob = download_url(urls["fixing_csv"], soft=True)
-        if blob is not None:
-            local_fix = os.path.join(idir, "fixing_samples.csv")
-            with open(local_fix, "wb") as f:
-                f.write(blob)
-            digest["files"]["fixing_csv"] = local_fix
-        else:
-            digest["errors"].append("aggressor_fixing csv download failed")
-
-    digest["top_samples"] = sample_ids or []
-    if not sample_ids:
-        digest["errors"].append("no sample ids resolved (csv/cluster blob missing)")
-
-
-def ui_base_url():
-    url = API["url"]
-    scheme, _, rest = url.partition("://")
-    host, slash, path = rest.partition("/")
-    if host.startswith("api.") and host.split(":")[0].endswith("tensorleap.ai"):
-        host = host[4:]
-    return f"{scheme}://{host}{slash}{path}".rstrip("/")
-
-
-def population_summary(csv_url):
+def population_summary(csv_path):
     """All-data metric means plus a per-metadata-column baseline (numeric mean,
-    or top value shares) computed from the version's full csv."""
-    if not csv_url:
+    or top value shares) computed from the version's population csv."""
+    if not csv_path or not os.path.isfile(csv_path):
         return {}, {}
-    blob = download_url(csv_url, soft=True)
-    if blob is not None:
-        blob = unzip_csv(blob, urllib.parse.urlparse(csv_url).path)
-    if blob is None:
+    with open(csv_path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    if not rows:
         return {}, {}
-    sums, counts, nonnum, values, total = {}, {}, set(), {}, 0
-    for row in csv.DictReader(io.StringIO(blob.decode(errors="replace"))):
-        total += 1
-        for col, val in row.items():
-            if col == "sample_id" or val in (None, ""):
-                continue
+    metrics, values, sums, counts, nonnum = {}, {}, {}, {}, set()
+    for col in rows[0].keys():
+        if col in ("sample_id", "is_low_perf_root_member") or col.startswith("metadata_is_none"):
+            continue
+        (metrics if col.startswith("metrics.") else values)[col] = {}
+    for r in rows:
+        for col in metrics:
             try:
-                sums[col] = sums.get(col, 0.0) + float(val)
-                counts[col] = counts.get(col, 0) + 1
-            except (TypeError, ValueError):
-                nonnum.add(col)
-            if not col.startswith("metrics."):
-                vc = values.setdefault(col, {})
-                if len(vc) < 5000 or val in vc:
-                    vc[val] = vc.get(val, 0) + 1
-    metrics = {col: sums[col] / counts[col] for col in sums
-               if col.startswith("metrics.") and counts.get(col)}
+                v = float(r.get(col) or "")
+            except ValueError:
+                continue
+            sums[col] = sums.get(col, 0.0) + v
+            counts[col] = counts.get(col, 0) + 1
+        for col, vc in values.items():
+            v = r.get(col, "")
+            if col not in nonnum:
+                try:
+                    float(v)
+                    sums[col] = sums.get(col, 0.0) + float(v)
+                    counts[col] = counts.get(col, 0) + 1
+                except ValueError:
+                    nonnum.add(col)
+            if len(vc) < 5000:
+                vc[v] = vc.get(v, 0) + 1
+    metric_means = {col: round(sums[col] / counts[col], 4) for col in metrics if counts.get(col)}
+    total = len(rows)
     metadata = {}
     for col, vc in values.items():
         if col not in nonnum and counts.get(col) and len(vc) > 12:
@@ -444,236 +101,132 @@ def population_summary(csv_url):
         else:
             top = sorted(vc.items(), key=lambda kv: -kv[1])[:12]
             metadata[col] = {v: round(c / total, 4) for v, c in top}
-    return metrics, metadata
+    return metric_means, metadata
 
 
-def extract_integration_code(export, out_dir):
-    blob = download_url(export.get("integrationCodeUrl"), soft=True)
-    if blob is None:
+def _rel(export_dir, path):
+    # manifests from leap 0.0.163 hold absolute paths; later ones are relative to the export dir
+    if not path:
         return None
-    dest = os.path.join(out_dir, "integration")
-    try:
-        with tarfile.open(fileobj=io.BytesIO(blob), mode="r:*") as tar:
-            members = [m for m in tar.getmembers()
-                       if (m.isfile() or m.isdir())
-                       and not m.name.startswith("/")
-                       and ".." not in m.name.split("/")]
-            tar.extractall(dest, members=members)
-    except (tarfile.TarError, OSError) as e:
-        print(f"integration code extract failed: {e}", file=sys.stderr)
-        return None
-    return {"dir": dest, "entry_file": export.get("integrationEntryFile")}
+    return os.path.relpath(path, export_dir) if os.path.isabs(path) else path
 
 
-def cmd_fetch(args):
-    CACHE["dir"] = args.cache_dir or None
-    CACHE["refresh"] = args.refresh
-    if CACHE["dir"]:
-        os.makedirs(CACHE["dir"], exist_ok=True)
-    export = check_contract(api("analysis-export/exportAnalysis",
-                                {"projectId": args.project,
-                                 "versionId": args.version}))
-    insights = export.get("insights") or []
-    if not insights:
-        print(f"version {args.version} has no insights", file=sys.stderr)
+def cmd_digest(args):
+    out_dir = os.path.abspath(args.dir)
+    manifest_path = os.path.join(out_dir, "manifest.json")
+    if not os.path.isfile(manifest_path):
+        print(f"{out_dir} has no manifest.json; run the tl_export_analysis tool into it first",
+              file=sys.stderr)
         raise SystemExit(5)
-    os.makedirs(args.out, exist_ok=True)
+    manifest = json.load(open(manifest_path))
+    export_dir = manifest.get("dir") or out_dir
+    insights = manifest.get("insights") or []
+    if not insights:
+        print("the export has no insights: generate insights in the UI "
+              "(Population Exploration -> Insights) or pick another version", file=sys.stderr)
+        raise SystemExit(5)
 
-    deep_link = ui_base_url() + export["deepLinkPath"]
-
-    digests = {}
+    digests, order = {}, []
     for ins in insights:
-        itype = ins.get("insightType") or {}
-        itype.pop("min_hash", None)
+        summary = ins.get("summary") or {}
         d = {
-            "cid": ins.get("cid"),
-            "id": itype.get("id_"),
-            "parent_id": itype.get("parent_id"),
             "index": ins.get("index"),
             "status": ins.get("status"),
             "description": ins.get("description"),
-            "type": itype.get("type"),
-            "dir": f"insight_{ins.get('index')}_{itype.get('type')}",
-            "insightType": itype,
-            "_urls": {"csv": ins.get("csvUrl"),
-                      "cluster": ins.get("clusterBlobUrl"),
-                      "top_panel": ins.get("topPanelUrl"),
-                      "fixing_csv": ins.get("fixingCsvUrl")},
-            "_analyze_path": ins.get("analyzeLinkPath"),
-            "files": {},
+            "type": ins.get("type"),
+            "name": ins.get("name"),
+            "dir": _rel(export_dir, ins.get("dir")),
+            "insightType": dict(ins.get("engine") or {}, type=ins.get("type")),
+            "files": {k: _rel(export_dir, ins.get(src)) for k, src in
+                      (("csv", "samplesCsv"), ("cluster", "clusterJson"),
+                       ("top_panel", "topPanelJson"), ("fixing_csv", "fixingCsv"))
+                      if ins.get(src)},
+            "deep_link": ins.get("link"),
+            "samples": {},
             "errors": [],
             "subinsights": [],
+            "summary": summary,
         }
-        digests[itype.get("id_") or ins.get("cid")] = d
-
-    parents, orphans = [], []
-    for d in digests.values():
-        parent = digests.get(d["parent_id"]) if d["parent_id"] else None
-        if parent:
-            d["dir"] = f"{parent['dir']}/sub_{d['index']}_{d['type']}"
-            parent["subinsights"].append(d)
-        elif d["parent_id"]:
-            orphans.append(d)
-        else:
-            parents.append(d)
-
-    def fetch_files(d):
-        k = args.top_k if not d["parent_id"] else min(SUB_TOP_K, args.top_k)
-        d["top_k"] = k
-        fetch_insight_files({"insightType": d["insightType"]}, args.out,
-                            k * CANDIDATE_FACTOR, args.rank_by, args.asc, d)
-
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(fetch_files, digests.values()))
-
-    id_map = {}
-    for d in digests.values():
-        for raw in d["top_samples"]:
-            state, _, idx = raw.partition("_")
-            id_map.setdefault(raw, f"{state}_{hash_sample_index(idx)}")
-
-    available, files_by_sample = set(), {}
-    if id_map:
-        resp = api("analysis-export/getSampleAssets",
-                   {"projectId": args.project, "versionId": args.version,
-                    "sampleIds": sorted(set(id_map.values()))}, soft=True)
-        for sample in (resp or {}).get("samples") or []:
-            if sample.get("files"):
-                available.add(sample["sampleId"])
-                files_by_sample[sample["sampleId"]] = sample["files"]
-
-    jobs = []
-    for d in digests.values():
-        k = d.pop("top_k")
-        d["top_samples"] = prefer_rendered(
-            d["top_samples"], d.pop("_ranks", {}),
-            {r for r in d["top_samples"] if id_map[r] in available})[:k]
-        d["samples"] = {}
-        for raw in d["top_samples"]:
-            hashed = id_map[raw]
-            entry = {"visualization_id": hashed, "files": []}
-            d["samples"][raw] = entry
-            if hashed not in available:
+        if ins.get("createTestLink"):
+            d["add_test_link"] = ins["createTestLink"]
+        if summary:
+            d["population"] = {"samples": summary.get("groupSize"), "csv_rows": summary.get("csvRows")}
+        for smp in ins.get("samples") or []:
+            entry = {"rank": smp.get("rank"), "files": [_rel(export_dir, f) for f in smp.get("files") or []]}
+            if not entry["files"]:
                 entry["missing_visualization"] = True
-                continue
-            jobs.append((d, raw, hashed, entry))
-
-    def choose_paths(paths, hashed):
-        keep = []
-        for p in paths:
-            data_type = p.split(f"{hashed}/", 1)[-1].split("/", 1)[0]
-            if "/assets/" in p or p.endswith((".mp4", ".wav")):
-                keep.append(p)
-            elif p.endswith("payload.json") and data_type not in (
-                    "image", "image_heatmap", "video", "video_heatmap"):
-                keep.append(p)
-        return keep
-
-    def fetch_sample(job):
-        d, raw, hashed, entry = job
-        sample_dir = os.path.join(args.out, d["dir"], "samples", raw)
-        if not args.refresh and os.path.isdir(sample_dir):
-            existing = [os.path.join(root, f)
-                        for root, _dirs, files in os.walk(sample_dir)
-                        for f in files if not f.endswith(".part")]
-            if existing:
-                entry["files"].extend(sorted(existing))
-                return
-        url_by_path = {f["path"]: f["url"]
-                       for f in files_by_sample.get(hashed, [])}
-        try:
-            for path in choose_paths(sorted(url_by_path), hashed):
-                rel = path.split(f"{hashed}/", 1)[-1]
-                local = os.path.join(args.out, d["dir"], "samples", raw, rel)
-                os.makedirs(os.path.dirname(local), exist_ok=True)
-                blob = download_url(url_by_path[path], soft=True)
-                if blob is None:
-                    entry.setdefault("errors", []).append(f"download failed: {path}")
-                    continue
-                with open(local, "wb") as f:
-                    f.write(blob)
-                entry["files"].append(local)
-        except OSError as e:
-            entry.setdefault("errors", []).append(f"sample fetch failed: {raw}: {e}")
-
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(fetch_sample, jobs))
-    for d in digests.values():
-        for entry in d["samples"].values():
-            d["errors"].extend(entry.pop("errors", []))
-
-    for d in digests.values():
-        d.pop("top_samples", None)
+            d["samples"][smp["id"]] = entry
+        for kind, rel in list(d["files"].items()) + [(f"sample {i}", f) for i, e in d["samples"].items() for f in e["files"]]:
+            if not os.path.exists(os.path.join(out_dir, rel)):
+                d["errors"].append(f"{kind}: {rel} is listed in manifest.json but missing; re-run tl_export_analysis")
+        csv_path = d["files"].get("csv") and os.path.join(out_dir, d["files"]["csv"])
+        if csv_path and os.path.isfile(csv_path):
+            with open(csv_path, newline="") as f:
+                reader = csv.DictReader(f)
+                d["csv_columns"] = reader.fieldnames or []
+                d["_ids"] = {r.get("sample_id") for r in reader if r.get("sample_id")}
+            if d["type"] != "low_performance" and d["files"].get("cluster"):
+                members = cluster_members(os.path.join(out_dir, d["files"]["cluster"]))
+                if members:
+                    d["_ids"] &= members
         sizes = [wh for entry in d["samples"].values() for wh in
-                 (image_size(f) for f in entry["files"]
-                  if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif")))
-                 if wh]
+                 (image_size(os.path.join(out_dir, f)) for f in entry["files"]
+                  if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif"))) if wh]
         if sizes:
             d["asset_resolution"] = {"max_width": max(w for w, _ in sizes),
                                      "max_height": max(h for _, h in sizes),
                                      "images": len(sizes)}
+        digests[ins.get("index")] = d
+        order.append((ins.get("parentIndex") or 0, d))
 
-    carded = parents + orphans
-    for a in carded:
-        shared = []
-        for b in carded:
-            if b is a:
-                continue
-            common = (a.get("_ids") or set()) & (b.get("_ids") or set())
-            if common:
-                shared.append({"insight": b["index"], "shared": len(common),
-                               "of_this": round(len(common) / len(a["_ids"]), 3)})
+    parents = []
+    for parent_index, d in order:
+        parent = digests.get(parent_index)
+        if parent and parent is not d:
+            parent["subinsights"].append(d)
+        else:
+            parents.append(d)
+    for a in parents:
+        shared = [{"insight": b["index"], "shared": len(a.get("_ids", set()) & b.get("_ids", set())),
+                   "of_this": round(len(a.get("_ids", set()) & b.get("_ids", set())) / len(a["_ids"]), 3)}
+                  for b in parents if b is not a and a.get("_ids") and (a["_ids"] & b.get("_ids", set()))]
         if shared:
             a["overlaps"] = sorted(shared, key=lambda x: -x["shared"])
     for d in digests.values():
         d.pop("_ids", None)
 
-    for d in digests.values():
-        path = d.pop("_analyze_path", None)
-        d["deep_link"] = ui_base_url() + path if path else deep_link
-        if (d["insightType"].get("automatic_tests") or []) and d.get("cid"):
-            sep = "&" if "?" in d["deep_link"] else "?"
-            d["add_test_link"] = (f'{d["deep_link"]}{sep}'
-                                  f'addTestFromInsight={d["cid"]}')
-
-    pop_metrics, pop_metadata = population_summary(export.get("populationCsvUrl"))
+    pop_rel = _rel(export_dir, manifest.get("populationCsv"))
+    pop_metrics, pop_metadata = population_summary(pop_rel and os.path.join(out_dir, pop_rel))
+    integration = None
+    if manifest.get("integrationDir"):
+        integration = {"dir": _rel(export_dir, manifest["integrationDir"]), "entry_file": manifest.get("entryFile")}
+    all_samples = [s for d in digests.values() for s in d["samples"].values()]
     result = {
-        "projectId": args.project,
-        "versionId": args.version,
-        "links": {"insights_panel": deep_link},
+        "projectId": manifest.get("projectId"),
+        "versionId": manifest.get("versionId"),
+        "version": manifest.get("version"),
+        "links": {"insights_panel": manifest.get("insightsPanelLink") or (parents[0]["deep_link"] if parents else None)},
         "population_metrics": pop_metrics,
         "population_metadata": pop_metadata,
-        "prediction_labels": export.get("predictionLabels") or {},
-        "visualizers": [{"name": v.get("name"), "type": v.get("type"),
-                         "arg_names": v.get("argNames")}
-                        for v in export.get("visualizers") or []],
-        "integration": extract_integration_code(export, args.out),
-        "insights": parents + orphans,
+        "prediction_labels": manifest.get("classLabels") or {},
+        "visualizers": [{"name": v.get("name"), "type": v.get("type"), "arg_names": v.get("argNames")}
+                        for v in manifest.get("visualizers") or []],
+        "integration": integration,
+        "skipped": manifest.get("skipped") or [],
+        "notes": manifest.get("notes") or [],
+        "insights": parents,
         "counts": {
             "total": len(digests),
             "parents": len(parents),
-            "subinsights": len(digests) - len(parents) - len(orphans),
-            "samples_with_visualizations": sum(
-                1 for d in digests.values()
-                for s in d["samples"].values() if s["files"]),
-            "samples_missing_visualizations": sum(
-                1 for d in digests.values()
-                for s in d["samples"].values() if not s["files"]),
+            "subinsights": len(digests) - len(parents),
+            "samples_with_visualizations": sum(1 for s in all_samples if not s.get("missing_visualization")),
+            "samples_missing_visualizations": sum(1 for s in all_samples if s.get("missing_visualization")),
         },
     }
-    result["counts"]["blob_downloads_failed"] = BLOBS["failed"]
-    out_path = os.path.join(args.out, "insights.json")
+    out_path = os.path.join(out_dir, "insights.json")
     open(out_path, "w").write(json.dumps(result, indent=2, default=str))
-    if BLOBS["failed"]:
-        print(f"warning: {BLOBS['failed']} of {BLOBS['ok'] + BLOBS['failed']} "
-              f"artifact downloads failed (host {BLOBS['host']})", file=sys.stderr)
-        if not BLOBS["ok"]:
-            print("the API answered but no artifact was reachable: the signed "
-                  "URLs point at the server's storage host, which a port-forward "
-                  "to node-server alone does not expose. Reach the server through "
-                  "its public URL (the one the UI uses) and re-run with --refresh.",
-                  file=sys.stderr)
-            raise SystemExit(4)
+    for line in result["skipped"]:
+        print(f"warning: {line}", file=sys.stderr)
     print(out_path)
 
 
@@ -703,6 +256,15 @@ def column_stats(rows, col):
     return entry
 
 
+def cluster_members(path):
+    """Sample ids of an insight's own members (cluster.json samples_index), or None."""
+    try:
+        index = json.load(open(path)).get("samples_index") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    return {f"{state}_{i}" for state, idx in index.items() for i in idx} or None
+
+
 def walk_insights(insights):
     for d in insights:
         yield d
@@ -724,7 +286,10 @@ def cmd_summarize(args):
             continue
         root = [r for r in rows
                 if str(r.get("is_low_perf_root_member")).lower() == "true"]
-        group = root or rows
+        members = (None if root or d.get("type") == "low_performance"
+                   else cluster_members(os.path.join(args.dir, d["dir"], "cluster.json")))
+        own = [r for r in rows if r.get("sample_id") in members] if members else []
+        group = root or own or rows
         split = {}
         for r in group:
             state = (r.get("sample_id") or "").rsplit("_", 1)[0] or "unknown"
@@ -1546,12 +1111,18 @@ def cmd_inline_html(args):
             return "image/jpeg", buf.getvalue()
         return mime, data
 
+    root = os.path.realpath(base)
+
+    def inside(path):
+        real = os.path.realpath(path)
+        return os.path.commonpath([root, real]) == root and os.path.isfile(real)
+
     def repl(m):
         src = html.unescape(m.group(2))
         if src.startswith(("data:", "http://", "https://")):
             return m.group(0)
         path = os.path.join(base, urllib.request.url2pathname(src))
-        if not os.path.isfile(path):
+        if not inside(path):
             missing.append(src)
             return m.group(0)
         mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
@@ -1565,7 +1136,7 @@ def cmd_inline_html(args):
     # a remote link is never an option)
     def repl_dl(m):
         path = os.path.join(base, urllib.request.url2pathname(html.unescape(m.group(2))))
-        if not os.path.isfile(path) or os.path.getsize(path) > 5_000_000:
+        if not inside(path) or os.path.getsize(path) > 5_000_000:
             return m.group(0)
         mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
         b64 = base64.b64encode(open(path, "rb").read()).decode()
@@ -1583,21 +1154,8 @@ def cmd_inline_html(args):
 def main():
     parser = argparse.ArgumentParser(prog="tl_api.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("whoami")
-    lv = sub.add_parser("list-versions")
-    lv.add_argument("--project")
-    fe = sub.add_parser("fetch")
-    fe.add_argument("--project", required=True)
-    fe.add_argument("--version", required=True)
-    fe.add_argument("--out", required=True)
-    fe.add_argument("--top-k", type=int, default=24)
-    fe.add_argument("--rank-by")
-    fe.add_argument("--asc", action="store_true")
-    fe.add_argument("--cache-dir",
-                    default=os.path.expanduser("~/.cache/tensorleap-analysis"),
-                    help="blob cache; empty string disables")
-    fe.add_argument("--refresh", action="store_true",
-                    help="re-download everything, ignoring cache and existing files")
+    dg = sub.add_parser("digest")
+    dg.add_argument("dir")
     rc = sub.add_parser("render-charts")
     rc.add_argument("dir")
     sm = sub.add_parser("summarize")
@@ -1607,10 +1165,7 @@ def main():
     ih = sub.add_parser("inline-html")
     ih.add_argument("file")
     args = parser.parse_args()
-    if args.cmd not in ("render-charts", "summarize", "build-report", "inline-html"):
-        read_config()
-    {"whoami": cmd_whoami, "list-versions": cmd_list_versions,
-     "fetch": cmd_fetch, "render-charts": cmd_render_charts,
+    {"digest": cmd_digest, "render-charts": cmd_render_charts,
      "summarize": cmd_summarize, "build-report": cmd_build_report,
      "inline-html": cmd_inline_html}[args.cmd](args)
 

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "tensorleap": {
+      "command": "leap",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}
