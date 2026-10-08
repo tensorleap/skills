@@ -17,9 +17,9 @@ def make_export(root, relative=False):
 
     pop = w("population.csv", "sample_id,metrics.loss,metadata.fog\ntraining_1,2.5,yes\ntraining_2,1.5,yes\ntraining_3,0.1,no\n")
     csv1 = w("insight_1_low_performance/samples.csv",
-             "sample_id,is_low_perf_root_member,metrics.loss,metadata.fog\ntraining_1,true,2.5,yes\ntraining_2,true,1.5,yes\ntraining_3,false,0.1,no\n")
+             "sample_id,metrics.loss,metadata.fog\ntraining_1,2.5,yes\ntraining_2,1.5,yes\n")
     csv2 = w("insight_1_low_performance/sub_2_low_performance/samples.csv",
-             "sample_id,is_low_perf_root_member,metrics.loss\ntraining_1,true,2.5\n")
+             "sample_id,metrics.loss\ntraining_1,2.5\n")
     csv4 = w("insight_4_duplication/samples.csv", "sample_id,metrics.loss\ntraining_1,2.5\ntraining_9,0.2\n")
     fix = w("insight_1_low_performance/fixing_samples.csv", "sample_id\nunlabeled_7\n")
     payload = w("insight_1_low_performance/samples/training_1/image/vis/payload.json", "{}")
@@ -32,7 +32,7 @@ def make_export(root, relative=False):
         "insights": [
             {"index": 1, "type": "low_performance", "name": "Failure Mode", "status": "InReview", "dir": os.path.join(root, "insight_1_low_performance"),
              "samplesCsv": csv1, "fixingCsv": fix, "link": "http://ui/i1", "createTestLink": "http://ui/i1?addTestFromInsight=c1",
-             "summary": {"groupSize": 2, "csvRows": 3, "rankedBy": "metrics.loss"}, "engine": {"n_samples": 3, "is_train_aggressor": True},
+             "summary": {"groupSize": 2, "csvRows": 2, "rankedBy": "metrics.loss"}, "engine": {"n_samples": 2, "is_train_aggressor": True},
              "samples": [{"id": "training_1", "rank": 1, "rendered": True, "files": [payload]}, {"id": "training_2", "rank": 2, "rendered": False},
                          {"id": "training_3", "rank": 3, "rendered": True}]},
             {"index": 2, "type": "low_performance", "name": "Failure Mode", "parentIndex": 1, "dir": os.path.join(root, "insight_1_low_performance", "sub_2_low_performance"),
@@ -58,13 +58,13 @@ def main():
     assert p["subinsights"][0]["index"] == 2 and p["dir"] == "insight_1_low_performance"
     assert p["files"] == {"csv": "insight_1_low_performance/samples.csv", "fixing_csv": "insight_1_low_performance/fixing_samples.csv"}
     assert p["add_test_link"].endswith("addTestFromInsight=c1") and p["deep_link"] == "http://ui/i1"
-    assert p["insightType"] == {"n_samples": 3, "is_train_aggressor": True, "type": "low_performance"}
-    assert p["population"] == {"samples": 2, "csv_rows": 3} and p["csv_columns"][0] == "sample_id"
+    assert p["insightType"] == {"n_samples": 2, "is_train_aggressor": True, "type": "low_performance"}
+    assert p["population"] == {"samples": 2, "csv_rows": 2} and p["csv_columns"][0] == "sample_id"
     assert p["samples"]["training_1"]["files"] == ["insight_1_low_performance/samples/training_1/image/vis/payload.json"]
     assert p["samples"]["training_1"]["rank"] == 1
     assert p["samples"]["training_2"] == {"rank": 2, "files": [], "missing_visualization": True}
     assert p["samples"]["training_3"]["missing_visualization"], "a sample whose downloads failed has nothing to show"
-    assert p["overlaps"] == [{"insight": 4, "shared": 1, "of_this": 0.333}]
+    assert p["overlaps"] == [{"insight": 4, "shared": 1, "of_this": 0.5}]
     assert d["counts"] == {"total": 3, "parents": 2, "subinsights": 1, "samples_with_visualizations": 1, "samples_missing_visualizations": 2}
     summ = subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "summarize", root], capture_output=True, text=True)
     rows = json.loads(summ.stdout)

@@ -140,9 +140,8 @@ are relative to that directory. It contains:
   type, argument names), and `integration` (where the pushed code was
   extracted; null when the server has no snapshot or an admin turned
   integration code off). Each insight also carries
-  `population` (`samples` = the group the report describes, for a failure
-  mode the root members the platform flagged, otherwise the insight's own
-  members; and
+  `population` (`samples` = the group the report describes, the insight's
+  own members; and
   `csv_rows`, the raw row count, internal only), `asset_resolution` (the
   pixel size of the largest downloaded sample image, the report's sample
   grid is sized from it) and, when its samples appear in another insight too, `overlaps`
@@ -158,11 +157,8 @@ are relative to that directory. It contains:
   `top_panel.json` and `fixing_samples.csv`, and `samples/<sample_id>/<dataType>/<visualizer>/…` with
   `payload.json` and any image assets.
 
-For a failure mode, only the root members (`is_low_perf_root_member`) are
-eligible, the latent neighbours the cluster also holds are often healthy, and
-a card must not illustrate a failure with a passing sample. Root members are
-the group the platform flagged, not proof of failure: check `summary.contrast`
-first, and when the group's loss or error is within ~1.2x of all data, say
+A failure mode's csv rows are the group the platform flagged, not proof of
+failure: check `summary.contrast` first, and when the group's loss or error is within ~1.2x of all data, say
 the platform's grouping does not show a real failure instead of describing
 one. Duplication and Data Leakage share one sample list across insights; the
 export narrows it to each insight's own members (`cluster.json`) and ranks
@@ -224,9 +220,8 @@ action items, metadata proposals (playbook: "The domain lens").
 ## Step 5: Analyze
 
 Read `insights.json`, then per insight read its `top_panel.json`
-(`summary.title`/`summary.sentence` when present; the title counts the wider
-cluster and the sentence is a template, so never quote either before the
-contrast check) and skim `samples.csv` headers for the metric/metadata
+(`summary.title`/`summary.sentence` when present; the sentence is a
+template, so never quote either before the contrast check) and skim `samples.csv` headers for the metric/metadata
 columns.
 
 **Where the errors are.** Before the insights, compute where the model
@@ -251,13 +246,10 @@ fields, not vibes.
 **Count before you characterize.** Run
 `summarize <out-dir>` once and work from its output, per insight it computes
 the composition you would otherwise count by hand: the failing group's size
-(`group_rows`, restricted to `is_low_perf_root_member == True` rows when the
-column exists, the rest are latent neighbours the platform swept in, and
-they are often healthy), split states, per-metadata-column value shares with
+(`group_rows`), split states, per-metadata-column value shares with
 the all-data share beside them (over-representation is the ratio between the
 two), and group-vs-all-data metric means. Characterize, contrast and act on
-that group, and quote `group_rows` as its size, never `n_samples` (playbook:
-"The cluster's csv is wider than the failing group"). Open `samples.csv`
+that group, and quote `group_rows` as its size. Open `samples.csv`
 itself only for a question the summary can't answer (e.g. a per-sample
 cross-column join). The
 worst samples are the tail, never present the tail's traits as the group's

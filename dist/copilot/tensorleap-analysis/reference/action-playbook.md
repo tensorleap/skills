@@ -11,9 +11,9 @@ class, which metadata slice, how many samples).
 | Field | Meaning | How to cite it |
 |---|---|---|
 | `severity` | Integer, higher = worse. Order the report by it. | "Severity 3 (highest in this run)" |
-| `n_samples` | The cluster plus its latent neighbourhood. For `low_performance` this is NOT the failing group, never quote it (see below). | Internal only |
+| `n_samples` | The cluster's size. Quote `population.samples` instead, the count the rest of the report is built on. | Internal only |
 | `severity_metrics` | Per-metric `{metric_name, value, normalized_value}`. | "loss 2.1× the population median" |
-| `metrics_info` | Per-metric statistics. For `low_performance`, "Cluster Median/Average" are the failing group's; "Outside Cluster" is everything beyond the wider cluster. | Table of mean/median per metric |
+| `metrics_info` | Per-metric statistics. For `low_performance`, "Cluster Median/Average" are the failing group's; "Outside Cluster" is everything else. | Table of mean/median per metric |
 | `mutual_info_elements` | What characterizes the cluster: `features[{feature_name, feature_value, direction}]`, `value_in_cluster` vs `value_outside_cluster`, `score`, `is_unique` | "dominated by `weather=night` (78% in-cluster vs 12% outside)", this is the heart of the story |
 | `automatic_tests` | Suggested regression tests `{test_name, metric_name, metric_value, operator}`. | Offer as "add this as a platform test" |
 | `latent_space` | Which latent space produced the cluster. | Context only |
@@ -35,29 +35,18 @@ the label audit"), never omit it. This binds every insight that has a card
 (a sub-based card cites its parent's payload); an insight ignored through
 the coherence gate is instead handled by its archive suggestion in Notes.
 
-**The cluster's csv is wider than the failing group.** `samples.csv` holds
-the cluster plus its latent neighbourhood, and `n_samples` counts all of it,
-the non-members are frequently healthy: in a measured run the failing group's
-median error was 7.8× the rest of the data while the others sat *below* the
-population median. `is_low_perf_root_member == True` marks the root members,
-the group the platform flagged (the digest pre-counts them as
-`population.samples`). They are not proof of failure: when their loss or
+**The csv is the failing group.** `samples.csv` holds exactly the samples
+the platform flagged (the digest pre-counts them as `population.samples`).
+They are not proof of failure: when their loss or
 error is within ~1.2x of all data, the grouping does not show a real failure
 mode; say so and do not build a card around it.
 
-- **Characterize, count and contrast on those rows only.** Composition, split
-  bar, metadata majorities, metric contrast, the story itself.
-  Mutual-information features are computed over the wider csv, re-check every
-  one against the failing rows before naming the group by it.
-- **The group's size is that count.** Never quote `n_samples`, and never quote
-  the number the panel's filter shows; they describe the wider cluster, which
-  the report does not discuss.
 - **Compare like with like.** `metrics_info` "Cluster Median" is a median;
   `population_metrics` values are population *means*. Contrast median with
   median (compute it from `samples.csv` when the engine has none) and name the
   baseline you used, the rest of the data, or the whole population.
 
-Insight types other than `low_performance` have no root split. Duplication
+Duplication
 and Data Leakage share one sample list; the export narrows it to each
 insight's own members from `cluster.json`, so `population.samples` and the
 exported samples describe that insight alone. Every other type: every csv

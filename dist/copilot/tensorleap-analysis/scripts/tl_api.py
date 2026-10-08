@@ -70,7 +70,7 @@ def population_summary(csv_path):
         return {}, {}
     metrics, values, sums, counts, nonnum = {}, {}, {}, {}, set()
     for col in rows[0].keys():
-        if col in ("sample_id", "is_low_perf_root_member") or col.startswith("metadata_is_none"):
+        if col == "sample_id" or col.startswith("metadata_is_none"):
             continue
         (metrics if col.startswith("metrics.") else values)[col] = {}
     for r in rows:
@@ -284,19 +284,17 @@ def cmd_summarize(args):
             rows = list(csv.DictReader(f))
         if not rows:
             continue
-        root = [r for r in rows
-                if str(r.get("is_low_perf_root_member")).lower() == "true"]
-        members = (None if root or d.get("type") == "low_performance"
+        members = (None if d.get("type") == "low_performance"
                    else cluster_members(os.path.join(args.dir, d["dir"], "cluster.json")))
         own = [r for r in rows if r.get("sample_id") in members] if members else []
-        group = root or own or rows
+        group = own or rows
         split = {}
         for r in group:
             state = (r.get("sample_id") or "").rsplit("_", 1)[0] or "unknown"
             split[state] = split.get(state, 0) + 1
         metrics, metadata = {}, {}
         for col in rows[0].keys():
-            if col in ("sample_id", "is_low_perf_root_member"):
+            if col == "sample_id":
                 continue
             entry = column_stats(group, col)
             if not entry:
@@ -321,7 +319,6 @@ def cmd_summarize(args):
                         (p.get("index") for p in walk_insights(digest["insights"])
                          if d in (p.get("subinsights") or [])), None),
                     "csv_rows": len(rows), "group_rows": len(group),
-                    "group_is_root_members": bool(root),
                     "split": split, "metrics": metrics, "metadata": metadata})
     print(json.dumps(out, indent=1))
 

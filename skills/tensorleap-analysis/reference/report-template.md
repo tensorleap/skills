@@ -58,12 +58,8 @@ write every field in full.
   `insights.json` for whoever wants them; the report speaks English.
 - Any platform term you do use gets a one-line translation the first time
   (e.g. "severity 3, the platform's highest").
-- **A failure mode's sample count is its root members, the group the platform flagged**
-  (`population.samples` in the digest), and it is written plainly: "314
-  samples". The platform's `n_samples` counts a wider latent neighbourhood
-  the report does not discuss, never quote it, and never invent vocabulary
-  for the difference ("core", "affected", "extended population", "root
-  members" are all payload-side words that mean nothing to the reader).
+- **An insight's sample count is `population.samples` in the digest**, and
+  it is written plainly: "314 samples".
 - Your own analysis is presented on its own merits: say what you found and
   how ("profiling the group's metadata against the full run shows objects 3×
   smaller than average"), never as a comparison with what the platform did
@@ -187,8 +183,7 @@ restate severity in `chips`. Card content, in render order:
 2. **Chips** (`chips`): sample count, key metric, latent space (the severity
    chip is script-generated, and an "insight #N" chip is dropped, the
    header already carries the number). The count chip is
-   `population.samples`, for a failure mode, the root members the platform
-   flagged, and every other number on the card (composition, contrast,
+   `population.samples`, and every other number on the card (composition, contrast,
    action items) describes that same set.
 3. **Bottom line** (`lede`): ONE bold sentence, what is going
    wrong and why it matters. A reader who stops here still got the point.
