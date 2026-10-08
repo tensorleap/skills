@@ -14,6 +14,7 @@ from test_tl_perf import SyntheticEnv, tl_perf  # noqa: E402
 
 FAST = ["--samples", "16", "--vis-samples", "6", "--diagnose-samples", "8",
         "--snapshot-samples", "4", "--batch-size", "4", "--memory-samples", "16", "--no-import-costs"]
+FAST_WITH_IMPORT_COSTS = [a for a in FAST if a != "--no-import-costs"]
 HAS_PANDAS = importlib.util.find_spec("pandas") is not None
 HAS_MPL = importlib.util.find_spec("matplotlib") is not None
 
@@ -35,9 +36,14 @@ class MemoryPassFindsPlantedProblems(unittest.TestCase):
             env["SYNTH_MEM_IMPORT"] = "1"
         if HAS_MPL:
             env["SYNTH_MEM_FIG"] = "1"
-        proc = cls.synth.run("profile", *FAST, **env)
+            env["SYNTH_MEM_LATE_IMPORT"] = "1"
+        proc = cls.synth.run("profile", *FAST_WITH_IMPORT_COSTS, **env)
         assert proc.returncode == 0, proc.stdout + proc.stderr
         cls.um = user_memory(cls.synth)
+        proc = cls.synth.run("score")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        with open(os.path.join(cls.synth.out, "score.json")) as fh:
+            cls.score = json.load(fh)
         cls.by_class = {}
         for f in cls.um["findings"]:
             cls.by_class.setdefault(f["class"], []).append(f)
@@ -86,6 +92,26 @@ class MemoryPassFindsPlantedProblems(unittest.TestCase):
     @unittest.skipUnless(HAS_PANDAS, "pandas not installed")
     def test_unused_import(self):
         self.assertIn("pandas", self.paths("M1"))
+        f = next(f for f in self.by_class["M1"] if f["path"] == "pandas")
+        self.assertEqual(f["variant"], "unused")
+        self.assertIn("never referenced at leap_integration.py:", f["detail"])
+        self.assertIn("pandas", self.um["import_costs_mb"])
+        self.assertGreater(self.um["import_costs_seconds"]["pandas"], 0)
+        # an import no sample needs is start-up every worker pays: a runtime candidate too
+        c = next(c for c in self.score["candidates"] if c["handler"] == "startup:import:pandas")
+        self.assertEqual(c["block"], "startup")
+        self.assertAlmostEqual(c["expected_seconds"], self.um["import_costs_seconds"]["pandas"])
+        m = next(c for c in self.score["memory"]["candidates"] if c["target"] == "pandas")
+        self.assertTrue(any("importing it alone" in e for e in m["evidence"]))
+
+    @unittest.skipUnless(HAS_MPL, "matplotlib not installed")
+    def test_an_import_only_the_visualizers_need(self):
+        f = next(f for f in self.by_class["M1"] if f["path"] == "matplotlib")
+        self.assertEqual((f["variant"], f["stage"]), ("lazy", "visualizers"))
+        self.assertIn("matplotlib", self.um["packages"]["used_by_stage"]["visualizers"])
+        self.assertNotIn("matplotlib", self.um["packages"]["used_by_stage"].get("generation", []))
+        # moving it only moves its cost: never a runtime candidate
+        self.assertFalse(any(c["handler"] == "startup:import:matplotlib" for c in self.score["candidates"]))
 
     def test_per_handler_transient_peaks(self):
         h = self.um["handlers"]

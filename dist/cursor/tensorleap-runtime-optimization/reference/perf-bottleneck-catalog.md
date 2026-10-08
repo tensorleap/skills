@@ -279,12 +279,23 @@ findings, per-handler `tracemalloc` peaks, the RSS trace) and to `score.json` �
 
 ## M1. Unneeded imports
 
-- **Signal:** finding `M1` — a package the integration imports directly, none of whose code
-  ran in preprocess or any sample; `import_costs_mb` gives its RSS cost alone.
+- **Signal:** finding `M1` from `profile`, which records the stage each third-party
+  package's code ran in and times each candidate import alone (`import_costs_mb`,
+  `import_costs_seconds`):
+  - `variant: unused` — the integration imports it directly, and none of its code ran in
+    preprocess or any sample. Also a start-up candidate in `score`
+    (`startup:import:<package>`).
+  - `variant: lazy` — imported at start-up, but its code ran only in the metrics or only in
+    the visualizers (`stage`).
 - **Static tell:** imports pulled in by a helper module (training, plotting, experiment
-  tracking, data-prep tools) that evaluation never calls.
-- **Fix:** remove the import, or move it inside the function that needs it.
-- **Verify:** the integration still loads; startup drops too (a both-win).
+  tracking, data-prep tools) that evaluation never calls; `packages.static_unused_imports`
+  lists imported names a file never references.
+- **Fix:** unused → remove the import, or move it inside the one function that needs it.
+  Lazy → import it inside the metric or visualizer that uses it.
+- **Verify:** the integration still loads and every output is identical. Unused: memory
+  and startup both drop (a both-win). Lazy: the footprint before that stage drops and
+  startup shortens, but the stage pays the import once per worker — a memory gain, not a
+  runtime one.
 
 ## M2. Data loaded but not used
 

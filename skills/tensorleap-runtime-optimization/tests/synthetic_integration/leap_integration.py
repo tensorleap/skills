@@ -23,6 +23,7 @@ Memory pathologies (user-code memory pass):
   SYNTH_MEM_VIEW       MB: only a 10-element slice is kept of a big array of this size
   SYNTH_MEM_FIG        "1": every visualizer call opens a pyplot figure and never closes it
   SYNTH_MEM_IMPORT     "1": imports pandas at module level and never uses it
+  SYNTH_MEM_LATE_IMPORT "1": imports matplotlib at module level; only the visualizer uses it
   SYNTH_MEM_UNBOUNDED  "1": with SYNTH_CACHE, the shared decode cache is unbounded
 """
 import functools
@@ -34,6 +35,8 @@ import onnxruntime as ort
 
 if os.environ.get("SYNTH_MEM_IMPORT") == "1":
     import pandas  # noqa: F401  (deliberately unused)
+if os.environ.get("SYNTH_MEM_LATE_IMPORT") == "1":
+    import matplotlib.colors as mcolors  # only the visualizer needs it
 from code_loader.contract.datasetclasses import PredictionTypeHandler, PreprocessResponse
 from code_loader.contract.enums import DataStateType, LeapDataType
 from code_loader.contract.visualizer_classes import LeapHorizontalBar
@@ -174,6 +177,8 @@ def mse(prediction, ground_truth):
 def bar(prediction):
     row = prediction[0]
     _post(row)
+    if os.environ.get("SYNTH_MEM_LATE_IMPORT") == "1":
+        mcolors.to_rgb("red")
     if os.environ.get("SYNTH_MEM_FIG") == "1":
         import matplotlib
         matplotlib.use("Agg")

@@ -2279,6 +2279,68 @@ def _direct_imports(root):
     return direct
 
 
+HEAVY_PACKAGE_MODULES = 20      # a package with this many modules is worth an import finding
+LATE_STAGES = ("metrics", "visualizers")
+
+
+class _StageProfiles(object):
+    """One cProfile per stage of the memory pass, so a package's use can be placed in the
+    stage that needed it."""
+
+    def __init__(self):
+        self.profiles, self._on = {}, None
+
+    def start(self, stage):
+        self.stop()
+        self._on = self.profiles.setdefault(stage, cProfile.Profile())
+        self._on.enable()
+
+    def stop(self):
+        if self._on is not None:
+            self._on.disable()
+            self._on = None
+
+
+def _static_unused_imports(root):
+    """Imports in the integration's own files whose bound name is never referenced in that
+    file (names listed in `__all__` and `__init__.py` re-exports count as used)."""
+    import ast
+    root = os.path.realpath(root)
+    files = set()
+    for _name, space in user_namespaces(root):
+        f = space.get("__file__") or ""
+        if f.endswith(".py") and os.path.realpath(f).startswith(root + os.sep):
+            files.add(os.path.realpath(f))
+    out = []
+    for f in sorted(files):
+        if os.path.basename(f) == "__init__.py":
+            continue
+        try:
+            with open(f, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read(), filename=f)
+        except (OSError, SyntaxError, ValueError):
+            continue
+        bound = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    bound.append((a.asname or a.name.split(".")[0], a.name, node.lineno))
+            elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                for a in node.names:
+                    if a.name != "*":
+                        bound.append((a.asname or a.name, node.module, node.lineno))
+        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        exported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets):
+                exported |= {c.value for c in ast.walk(node.value) if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+        for name, module, line in bound:
+            if name not in names and name not in exported:
+                out.append({"file": os.path.relpath(f, root), "line": line, "name": name, "module": module,
+                            "package": module.split(".")[0]})
+    return out
+
+
 def _used_packages(prof, pkgs):
     """Packages whose code ran while profiling (preprocess + every sample phase)."""
     import pstats
@@ -2309,14 +2371,14 @@ def worker_memory(plan, result):
     import code_loader  # noqa: F401  (part of the baseline, not of the integration)
     rss = {"baseline": rss_now_gb()}
     modules_before = set(sys.modules)
-    prof = cProfile.Profile()
+    prof = _StageProfiles()
     lens = {}
 
     def on_stage(name):
         rss[name] = rss_now_gb()
         rss[name + "_peak"] = peak_rss_gb()        # high-water so far (transients inside the stage)
         if name == "import":
-            prof.enable()        # preprocess and the samples count as "use"; import alone doesn't
+            prof.start("preprocess")   # preprocess and the samples count as "use"; import alone doesn't
         if name == "first_calls":
             lens.update(_container_lengths(plan["root"]))
 
@@ -2331,6 +2393,7 @@ def worker_memory(plan, result):
     selection = select_samples(integ, plan["samples_per_state"], plan["seed"], "random")
     trace, n_rows = [], 0
     step = max(1, len(selection) // 50)
+    prof.start("generation")
     for i, (state, sid) in enumerate(selection):
         fetch(integ, state, sid)                  # result dropped: hold nothing
         n_rows += entry_rows(sid)
@@ -2377,14 +2440,16 @@ def worker_memory(plan, result):
             del p, preds
 
     all_idx = list(range(len(vis_samples))) if payload is not None else []
+    prof.start("metrics")
     if all_idx:
         run_metrics(all_idx)
     rss["metrics"] = rss_now_gb()
     rss["metrics_peak"] = peak_rss_gb()
+    prof.start("visualizers")
     if all_idx:
         run_visualizers(all_idx)
     rss["visualizers"] = rss_now_gb()
-    prof.disable()
+    prof.stop()
     peak = peak_rss_gb()
     rss["peak"] = peak
     lens_end = _container_lengths(plan["root"])
@@ -2448,14 +2513,34 @@ def worker_memory(plan, result):
                          "detail": "%d model/session objects loaded by the integration itself (the main model "
                                    "is not loaded in this pass)" % sessions})
     pkgs = _new_packages(modules_before)
-    used = _used_packages(prof, pkgs)
+    used_by = {stage: _used_packages(pr, pkgs) for stage, pr in prof.profiles.items()}
+    used = set().union(*used_by.values()) if used_by else set()
     direct = _direct_imports(plan["root"])
     unused = {p: i for p, i in pkgs.items() if p not in used and p in direct}
+    static_unused = _static_unused_imports(plan["root"])
+    where = {}
+    for imp in static_unused:
+        where.setdefault(imp["package"], []).append("%s:%d" % (imp["file"], imp["line"]))
     for p, info in sorted(unused.items(), key=lambda kv: -kv[1]["modules"]):
-        if info["modules"] >= 20:
-            findings.append({"class": "M1", "path": p, "bytes": 0, "lossless_hint": True,
+        if info["modules"] >= HEAVY_PACKAGE_MODULES:
+            findings.append({"class": "M1", "path": p, "bytes": 0, "lossless_hint": True, "variant": "unused",
                              "detail": "imported directly by the integration (%d modules) but none of its code "
-                                       "ran in preprocess or any sample" % info["modules"]})
+                                       "ran in preprocess or any sample%s" % (
+                                           info["modules"], "; never referenced at %s" % ", ".join(where[p][:3])
+                                           if where.get(p) else "")})
+    # used, but only by the metrics or only by the visualizers: imported inside them, it leaves
+    # every worker's start-up and the memory of the phases before it
+    late = {}
+    for p, info in pkgs.items():
+        stages = [st for st, us in used_by.items() if p in us]
+        if p in direct and len(stages) == 1 and stages[0] in LATE_STAGES and info["modules"] >= HEAVY_PACKAGE_MODULES:
+            late[p] = stages[0]
+            findings.append({"class": "M1", "path": p, "bytes": 0, "lossless_hint": True, "variant": "lazy",
+                             "stage": stages[0],
+                             "detail": "imported at start-up (%d modules) but its code ran only in the %s: imported "
+                                       "inside them it leaves every worker's start-up and the memory of the phases "
+                                       "before them (the %s still pay it once per worker)" % (
+                                           info["modules"], stages[0], stages[0])})
 
     slope, late_slope, late_r2 = None, None, None
     steady = [(n, r) for n, r in (trace[len(trace) // 5:] if len(trace) >= 5 else trace) if r is not None]
@@ -2518,7 +2603,9 @@ def worker_memory(plan, result):
         "findings": sorted(findings, key=lambda f: -f["bytes"]),
         "caches": caches,
         "objects": {"start": objects_start, "end": objects_end},
-        "packages": {"imported": {p: i["modules"] for p, i in pkgs.items()}, "unused": sorted(unused)},
+        "packages": {"imported": {p: i["modules"] for p, i in pkgs.items()}, "unused": sorted(unused),
+                     "used_by_stage": {st: sorted(us) for st, us in used_by.items()}, "late_only": late,
+                     "static_unused_imports": static_unused[:50]},
         "unsupported": unsupported,
     }
 
@@ -2528,18 +2615,19 @@ def _delta(d, a, b):
 
 
 def import_costs(python, packages, limit=6):
-    """RSS cost of importing each package alone, in a fresh interpreter (MB)."""
-    code = ("import resource,sys\n"
+    """RSS (MB) and wall time (s) of importing each package alone, in a fresh interpreter."""
+    code = ("import resource,sys,time\n"
             "m=lambda: resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/(2**20 if sys.platform=='darwin' else 2**10)\n"
-            "a=m()\nimport %s\nprint(m()-a)\n")
+            "a=m();t=time.perf_counter()\nimport %s\nprint(m()-a, time.perf_counter()-t)\n")
     out = {}
     for p in packages[:limit]:
         try:
             v = subprocess.check_output([python, "-c", code % p], stderr=subprocess.DEVNULL,
                                         universal_newlines=True, timeout=120)
-            out[p] = round(float(v.strip().splitlines()[-1]), 1)
+            mb, sec = v.strip().splitlines()[-1].split()
+            out[p] = {"mb": round(float(mb), 1), "seconds": round(float(sec), 2)}
         except (OSError, subprocess.SubprocessError, ValueError, IndexError):
-            out[p] = None
+            out[p] = {"mb": None, "seconds": None}
     return out
 
 
@@ -2669,8 +2757,11 @@ def cmd_profile(args):
         if set_baseline and not workers["memory"].get("error"):
             workers["memory_repeat"] = run_worker("memory", mem_plan, run_dir, "memory_repeat", timeout)
         um = workers["memory"].get("user_memory")
-        if um and um["packages"]["unused"] and not args.no_import_costs:
-            um["import_costs_mb"] = import_costs(sys.executable, um["packages"]["unused"])
+        heavy = [f["path"] for f in (um or {}).get("findings") or [] if f["class"] == "M1"]
+        if um and heavy and not args.no_import_costs:
+            ic = import_costs(sys.executable, heavy)
+            um["import_costs_mb"] = {k: v["mb"] for k, v in ic.items()}
+            um["import_costs_seconds"] = {k: v["seconds"] for k, v in ic.items()}
         if um:
             write_json(os.path.join(run_dir, "memory.json"), um)
 
@@ -2831,8 +2922,13 @@ def _print_user_memory(um):
     for f in (um.get("findings") or [])[:8]:
         print("    [%s] %s — %s" % (f["class"], f["path"][:60], f["detail"]))
     if um.get("import_costs_mb"):
-        print("    unused imports, RSS cost alone: %s" % ", ".join(
-            "%s %s MB" % (k, v) for k, v in um["import_costs_mb"].items()))
+        secs = um.get("import_costs_seconds") or {}
+        print("    import cost alone (unused or late-only packages): %s" % ", ".join(
+            "%s %s MB, %s s" % (k, v, secs.get(k, "?")) for k, v in um["import_costs_mb"].items()))
+    st_unused = (um.get("packages") or {}).get("static_unused_imports") or []
+    if st_unused:
+        print("    imported but never referenced: %s" % ", ".join(
+            "%s (%s:%d)" % (i["name"], i["file"], i["line"]) for i in st_unused[:8]))
 
 
 # --------------------------------------------------------------------------- #
@@ -3134,12 +3230,15 @@ def memory_candidates(p):
                       "confidence": confidence, "priority": nbytes * confidence,
                       "evidence": evidence, "lossless_hint": hint, "size_known": sized})
 
+    secs = um.get("import_costs_seconds") or {}
     for f in um.get("findings") or []:
         nbytes = f["bytes"]
+        ev = [f["detail"]]
         if f["class"] == "M1" and costs.get(f["path"]):
             nbytes = costs[f["path"]] * 2 ** 20
+            ev.append("importing it alone: %s MB, %s s" % (costs[f["path"]], secs.get(f["path"], "?")))
         conf = {True: 0.8, None: 0.5, False: 0.3}.get(f.get("lossless_hint"), 0.5)
-        add(f["class"], f["path"], nbytes, conf, [f["detail"]], f.get("lossless_hint"), sized=nbytes > 0)
+        add(f["class"], f["path"], nbytes, conf, ev, f.get("lossless_hint"), sized=nbytes > 0)
         covered.add(f["path"])
     leaves = [o for o in um.get("large_objects") or [] if o.get("type") in ("ndarray", "DataFrame", "Series")]
     for o in leaves:
@@ -3217,6 +3316,17 @@ def cmd_score(args):
     if startup.get("n"):
         add("startup", "startup:preprocess", {"kind": "startup", "name": "import + preprocess",
                                               "per_sample_mean_seconds": startup["mean"]}, 1)
+    # an import no sample needs is start-up every worker pays for nothing (a lazy import of a
+    # package the metrics or visualizers need only moves that cost: a memory candidate, not this)
+    um = p.get("user_memory") or {}
+    for f in um.get("findings") or []:
+        sec = (um.get("import_costs_seconds") or {}).get(f["path"])
+        if f["class"] == "M1" and f.get("variant", "unused") == "unused" and sec:
+            add("startup", "startup:import:%s" % f["path"], {"kind": "startup", "name": "import %s" % f["path"],
+                                                             "per_sample_mean_seconds": sec}, 1)
+            c = candidates[-1]
+            c["evidence"] = [f["detail"], "importing it alone takes %s s per worker process" % sec]
+            c["confidence"], c["priority"] = 0.8, c["expected_seconds"] * 0.8
     candidates.sort(key=lambda c: -c["priority"])
     for i, c in enumerate(candidates, 1):
         c["rank"] = i
