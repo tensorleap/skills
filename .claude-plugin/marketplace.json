@@ -37,6 +37,17 @@
       },
       "homepage": "https://github.com/tensorleap/skills",
       "license": "Apache-2.0"
+    },
+    {
+      "name": "optimization",
+      "source": "./dist/claude/optimization",
+      "description": "Tensorleap's AI-assistant skills for measuring and optimizing integration runtime: model inference floor, component-level profiling, lossless fixes with equivalence checks, and a bottleneck report.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Tensorleap"
+      },
+      "homepage": "https://github.com/tensorleap/skills",
+      "license": "Apache-2.0"
     }
   ]
 }
