@@ -20,6 +20,19 @@ Anything that changes outputs belongs in `perf-lossy-options.md` instead.
 | **Remove debug work** | prints/statistics on large arrays in hot paths (catalog H) | delete them | none |
 | **Crop before heavy ops** | volumetric ops over sparse foreground (catalog G) | bounding box + margin, scatter back | margin must cover the op's reach, `compare` bit-identical |
 
+### Memory levers (user-code footprint per worker; `compare --objective memory`)
+
+| Lever | Use when | How | Verify / watch out |
+|---|---|---|---|
+| **Read only what you use** | whole files / all columns loaded, few used (M2) | `read_parquet(columns=…)`, row filters at read time, per-sample lazy loading, memory-mapped arrays (`np.load(mmap_mode="r")`) | every output identical; memory-mapped data is file-backed, not held |
+| **One copy per array** | raw + transformed + per-split copies all kept (M3) | keep the form the components read; index with a permutation instead of a reordered copy; `del` intermediates; build them inside a function so they die with it | check nothing still reads the dropped form |
+| **Release preprocess temporaries** | the worker's peak is set inside preprocess (M3/M7) | avoid several full-size intermediates alive at once: read column subsets, transform in place or in chunks, drop the source frame before building the next | lowers the peak and what allocators keep afterwards |
+| **Compact representations** | wide dtypes, object columns, millions of small Python objects (M4, M5, M10) | exactly-representable narrower dtypes; integer codes + a vocabulary (or categorical) for repeated strings; a directory stored once + basenames; numpy/arrow columns instead of lists of objects | narrower only when `compare` is bit-identical; strings stay recoverable |
+| **Bounded, reduced caches** | caches unbounded, dataset-sized, or holding full-resolution data (M6) | `lru_cache(maxsize≈components per sample)`; cache the reduced form actually reused; no caches in components that never hit | memory × worker processes |
+| **Lazy heavy imports** | a library imported but unused in evaluation (M1) | import it inside the function that needs it (e.g. an offline-only tool) | also shortens startup |
+| **Leak hygiene** | memory grows with the samples (M8) | close figures (`plt.close(fig)`), create sessions/models once, `torch.no_grad()` / `.detach()`, no global append per call | growth trace flat after the fix |
+| **Short-lived views** | a small slice keeps a big array alive (M9) | `.copy()` the slice, drop the base | — |
+
 ## Things you do **not** control (report them instead)
 
 How Tensorleap schedules, batches and scales work internally, storage and transfer inside

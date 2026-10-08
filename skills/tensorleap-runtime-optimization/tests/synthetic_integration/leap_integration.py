@@ -15,6 +15,15 @@ Driven entirely by environment variables so each test can plant a runtime pathol
   SYNTH_ALTER        "1": change one metadata value (a behavior change, for compare tests)
   SYNTH_CACHE        "1": the lossless fix — decode through a small shared lru_cache
   SYNTH_BAD_BATCH    "1": the metric returns one value per batch (breaks at batch > 1)
+Memory pathologies (user-code memory pass):
+  SYNTH_MEM_UNUSED     MB: a float64 global built at import, never used (values exact in float32)
+  SYNTH_MEM_DUP        MB: preprocess keeps two identical float64 copies in module globals
+  SYNTH_MEM_STRINGS    N: a global list of N long, repeated file-path strings
+  SYNTH_MEM_LEAK       KB: every input-encoder call appends an array of this size to a global list
+  SYNTH_MEM_VIEW       MB: only a 10-element slice is kept of a big array of this size
+  SYNTH_MEM_FIG        "1": every visualizer call opens a pyplot figure and never closes it
+  SYNTH_MEM_IMPORT     "1": imports pandas at module level and never uses it
+  SYNTH_MEM_UNBOUNDED  "1": with SYNTH_CACHE, the shared decode cache is unbounded
 """
 import functools
 import os
@@ -22,6 +31,9 @@ import time
 
 import numpy as np
 import onnxruntime as ort
+
+if os.environ.get("SYNTH_MEM_IMPORT") == "1":
+    import pandas  # noqa: F401  (deliberately unused)
 from code_loader.contract.datasetclasses import PredictionTypeHandler, PreprocessResponse
 from code_loader.contract.enums import DataStateType, LeapDataType
 from code_loader.contract.visualizer_classes import LeapHorizontalBar
@@ -37,8 +49,21 @@ def _env_int(name, default=0):
     return int(os.environ.get(name, str(default)) or default)
 
 
+_MB = 2 ** 20
+UNUSED_TABLE = np.full(_env_int("SYNTH_MEM_UNUSED") * _MB // 8, 1.5) if _env_int("SYNTH_MEM_UNUSED") else None
+SAMPLE_PATHS = ["/data/a/very/long/dataset/root/for/the/synthetic/integration/split_%d/sample_%06d.npy"
+                % (i % 3, i % 50) for i in range(_env_int("SYNTH_MEM_STRINGS"))]
+LEAKED = []
+KEPT_SLICE = np.full(_env_int("SYNTH_MEM_VIEW") * _MB // 8, 3.5)[:10] if _env_int("SYNTH_MEM_VIEW") else None
+DUP_A = DUP_B = None
+
+
 @tensorleap_preprocess()
 def preprocess():
+    global DUP_A, DUP_B
+    if _env_int("SYNTH_MEM_DUP"):
+        DUP_A = np.full(_env_int("SYNTH_MEM_DUP") * _MB // 8, 2.5)
+        DUP_B = DUP_A.copy()
     n = _env_int("SYNTH_N", 16)
     return [
         PreprocessResponse(length=n, data={"split": "train"}, state=DataStateType.training),
@@ -65,12 +90,18 @@ def _decode_cached(split, idx):
     return _decode(split, idx)
 
 
+@functools.lru_cache(maxsize=None)
+def _decode_unbounded(split, idx):
+    return _decode(split, idx)
+
+
 def _load(idx, preprocess_response):
     """SYNTH_CACHE=1 is the lossless fix: one small cache shared by the encoder and the
     metadata of a sample (they run in the same process for the same sample)."""
     split = preprocess_response.data["split"]
     if os.environ.get("SYNTH_CACHE") == "1":
-        return _decode_cached(split, int(idx)).copy()
+        cached = _decode_unbounded if os.environ.get("SYNTH_MEM_UNBOUNDED") == "1" else _decode_cached
+        return cached(split, int(idx)).copy()
     return _decode(split, int(idx))
 
 
@@ -78,6 +109,8 @@ def _load(idx, preprocess_response):
 def input_encoder(idx, preprocess_response):
     if os.environ.get("SYNTH_BREAK") == "1":
         raise RuntimeError("synthetic integration deliberately broken")
+    if _env_int("SYNTH_MEM_LEAK"):
+        LEAKED.append(np.ones(_env_int("SYNTH_MEM_LEAK") * 1024 // 8))
     x = _load(idx, preprocess_response)
     if os.environ.get("SYNTH_NOISE") == "1":
         x = (x + np.random.normal(0, 0.01, x.shape)).astype(np.float32)
@@ -141,6 +174,11 @@ def mse(prediction, ground_truth):
 def bar(prediction):
     row = prediction[0]
     _post(row)
+    if os.environ.get("SYNTH_MEM_FIG") == "1":
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        plt.figure()                     # never closed: pyplot keeps every figure alive
     return LeapHorizontalBar(body=row.astype(np.float32), labels=LABELS)
 
 
