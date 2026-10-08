@@ -1,0 +1,210 @@
+"""Synthetic Tensorleap integration used by the tl_perf tests.
+
+Driven entirely by environment variables so each test can plant a runtime pathology:
+  SYNTH_DATA_DIR     directory of <split>_<idx>.npy float32 vectors (written by the tests)
+  SYNTH_MODEL_PATH   ONNX model: input "x" [batch, 8] -> output [batch, 4]
+  SYNTH_N            samples per state (default 16)
+  SYNTH_BREAK        "1" makes the input encoder raise (an invalid integration)
+  SYNTH_DECODE_MS    extra cost of decoding one sample file
+  SYNTH_REDUNDANT    "1": metadata re-invokes the input encoder (a second decode per sample)
+  SYNTH_SCAN_SIZE    >0: metadata does a linear list scan of this size per sample (O(n^2) total)
+  SYNTH_NOISE        "1": the input encoder adds unseeded noise (nondeterministic output)
+  SYNTH_POST_LOG     file: every real (uncached) run of the prediction post-processing appends
+                     "<pid>" — shared by the metric and the visualizer through an lru_cache
+  SYNTH_POST_MS      cost of that post-processing
+  SYNTH_ALTER        "1": change one metadata value (a behavior change, for compare tests)
+  SYNTH_CACHE        "1": the lossless fix — decode through a small shared lru_cache
+  SYNTH_BAD_BATCH    "1": the metric returns one value per batch (breaks at batch > 1)
+Memory pathologies (user-code memory pass):
+  SYNTH_MEM_UNUSED     MB: a float64 global built at import, never used (values exact in float32)
+  SYNTH_MEM_DUP        MB: preprocess keeps two identical float64 copies in module globals
+  SYNTH_MEM_STRINGS    N: a global list of N long, repeated file-path strings
+  SYNTH_MEM_LEAK       KB: every input-encoder call appends an array of this size to a global list
+  SYNTH_MEM_VIEW       MB: only a 10-element slice is kept of a big array of this size
+  SYNTH_MEM_FIG        "1": every visualizer call opens a pyplot figure and never closes it
+  SYNTH_MEM_IMPORT     "1": imports pandas at module level and never uses it
+  SYNTH_MEM_LATE_IMPORT "1": imports matplotlib at module level; only the visualizer uses it
+  SYNTH_MEM_UNBOUNDED  "1": with SYNTH_CACHE, the shared decode cache is unbounded
+"""
+import functools
+import os
+import time
+
+import numpy as np
+import onnxruntime as ort
+
+if os.environ.get("SYNTH_MEM_IMPORT") == "1":
+    import pandas  # noqa: F401  (deliberately unused)
+if os.environ.get("SYNTH_MEM_LATE_IMPORT") == "1":
+    import matplotlib.colors as mcolors  # only the visualizer needs it
+from code_loader.contract.datasetclasses import PredictionTypeHandler, PreprocessResponse
+from code_loader.contract.enums import DataStateType, LeapDataType
+from code_loader.contract.visualizer_classes import LeapHorizontalBar
+from code_loader.inner_leap_binder.leapbinder_decorators import (
+    tensorleap_custom_loss, tensorleap_custom_metric, tensorleap_custom_visualizer,
+    tensorleap_gt_encoder, tensorleap_input_encoder, tensorleap_integration_test,
+    tensorleap_load_model, tensorleap_metadata, tensorleap_preprocess)
+
+LABELS = ["a", "b", "c", "d"]
+
+
+def _env_int(name, default=0):
+    return int(os.environ.get(name, str(default)) or default)
+
+
+_MB = 2 ** 20
+UNUSED_TABLE = np.full(_env_int("SYNTH_MEM_UNUSED") * _MB // 8, 1.5) if _env_int("SYNTH_MEM_UNUSED") else None
+SAMPLE_PATHS = ["/data/a/very/long/dataset/root/for/the/synthetic/integration/split_%d/sample_%06d.npy"
+                % (i % 3, i % 50) for i in range(_env_int("SYNTH_MEM_STRINGS"))]
+LEAKED = []
+KEPT_SLICE = np.full(_env_int("SYNTH_MEM_VIEW") * _MB // 8, 3.5)[:10] if _env_int("SYNTH_MEM_VIEW") else None
+DUP_A = DUP_B = None
+
+
+@tensorleap_preprocess()
+def preprocess():
+    global DUP_A, DUP_B
+    if _env_int("SYNTH_MEM_DUP"):
+        DUP_A = np.full(_env_int("SYNTH_MEM_DUP") * _MB // 8, 2.5)
+        DUP_B = DUP_A.copy()
+    n = _env_int("SYNTH_N", 16)
+    return [
+        PreprocessResponse(length=n, data={"split": "train"}, state=DataStateType.training),
+        PreprocessResponse(length=n, data={"split": "val"}, state=DataStateType.validation),
+    ]
+
+
+def _burn(ms):
+    """Deterministic CPU work (millisecond sleeps are unreliable under OS timer coalescing)."""
+    end = time.perf_counter() + ms / 1000.0
+    while time.perf_counter() < end:
+        pass
+
+
+def _decode(split, idx):
+    path = os.path.join(os.environ["SYNTH_DATA_DIR"], "%s_%d.npy" % (split, idx))
+    x = np.load(path).astype(np.float32)
+    _burn(_env_int("SYNTH_DECODE_MS"))
+    return x
+
+
+@functools.lru_cache(maxsize=4)
+def _decode_cached(split, idx):
+    return _decode(split, idx)
+
+
+@functools.lru_cache(maxsize=None)
+def _decode_unbounded(split, idx):
+    return _decode(split, idx)
+
+
+def _load(idx, preprocess_response):
+    """SYNTH_CACHE=1 is the lossless fix: one small cache shared by the encoder and the
+    metadata of a sample (they run in the same process for the same sample)."""
+    split = preprocess_response.data["split"]
+    if os.environ.get("SYNTH_CACHE") == "1":
+        cached = _decode_unbounded if os.environ.get("SYNTH_MEM_UNBOUNDED") == "1" else _decode_cached
+        return cached(split, int(idx)).copy()
+    return _decode(split, int(idx))
+
+
+@tensorleap_input_encoder("x")
+def input_encoder(idx, preprocess_response):
+    if os.environ.get("SYNTH_BREAK") == "1":
+        raise RuntimeError("synthetic integration deliberately broken")
+    if _env_int("SYNTH_MEM_LEAK"):
+        LEAKED.append(np.ones(_env_int("SYNTH_MEM_LEAK") * 1024 // 8))
+    x = _load(idx, preprocess_response)
+    if os.environ.get("SYNTH_NOISE") == "1":
+        x = (x + np.random.normal(0, 0.01, x.shape)).astype(np.float32)
+    return x
+
+
+@tensorleap_gt_encoder("label")
+def gt_encoder(idx, preprocess_response):
+    y = np.zeros(len(LABELS), dtype=np.float32)
+    y[int(idx) % len(LABELS)] = 1.0
+    return y
+
+
+@tensorleap_metadata("mean_value")
+def meta_mean(idx, preprocess_response):
+    if os.environ.get("SYNTH_REDUNDANT") == "1":
+        x = input_encoder(idx, preprocess_response)   # re-runs another component's decode
+    else:
+        x = _load(idx, preprocess_response)
+    return float(np.mean(x))
+
+
+@tensorleap_metadata("scan_position")
+def meta_scan(idx, preprocess_response):
+    size = _env_int("SYNTH_SCAN_SIZE")
+    shift = 1 if os.environ.get("SYNTH_ALTER") == "1" else 0   # a behavior change
+    if size <= 0:
+        return shift
+    ids = list(range(size))
+    return ids.index(size - 1 - (int(idx) % 2)) + shift
+
+
+@functools.lru_cache(maxsize=256)
+def _postprocess(key):
+    log = os.environ.get("SYNTH_POST_LOG")
+    if log:
+        with open(log, "a") as fh:
+            fh.write("%d\n" % os.getpid())
+    _burn(_env_int("SYNTH_POST_MS"))
+    return float(np.frombuffer(key, dtype=np.float32).max())
+
+
+def _post(row):
+    return _postprocess(np.ascontiguousarray(row, dtype=np.float32).tobytes())
+
+
+@tensorleap_custom_metric("confidence")
+def confidence(prediction):
+    values = np.array([_post(row) for row in prediction], dtype=np.float32)
+    if os.environ.get("SYNTH_BAD_BATCH") == "1":
+        return values[:1]          # a metric that only handles batch size 1
+    return values
+
+
+@tensorleap_custom_loss("mse")
+def mse(prediction, ground_truth):
+    return ((prediction - ground_truth) ** 2).mean(axis=1)
+
+
+@tensorleap_custom_visualizer("bar", LeapDataType.HorizontalBar)
+def bar(prediction):
+    row = prediction[0]
+    _post(row)
+    if os.environ.get("SYNTH_MEM_LATE_IMPORT") == "1":
+        mcolors.to_rgb("red")
+    if os.environ.get("SYNTH_MEM_FIG") == "1":
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        plt.figure()                     # never closed: pyplot keeps every figure alive
+    return LeapHorizontalBar(body=row.astype(np.float32), labels=LABELS)
+
+
+@tensorleap_load_model([PredictionTypeHandler("classes", LABELS)])
+def load_model():
+    return ort.InferenceSession(os.environ["SYNTH_MODEL_PATH"], providers=["CPUExecutionProvider"])
+
+
+@tensorleap_integration_test()
+def integration_test(idx, preprocess_response):
+    x = input_encoder(idx, preprocess_response)
+    gt = gt_encoder(idx, preprocess_response)
+    model = load_model()
+    prediction = model.run(None, {"x": x})[0]
+    confidence(prediction)
+    mse(prediction, gt)
+    bar(prediction)
+    meta_mean(idx, preprocess_response)
+    meta_scan(idx, preprocess_response)
+
+
+if __name__ == "__main__":
+    responses = preprocess()
+    integration_test(0, responses[0])

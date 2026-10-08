@@ -1,0 +1,919 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Runtime Optimization Skill Guide</title>
+<style>
+/* Layout: a documentation page. A contents rail on the left on wide screens, one reading
+   column, every flow chart at full column width. Offline-safe: system fonts, no external files. */
+:root {
+  --paper: #f3f4f1;
+  --surface: #ffffff;
+  --ink: #1b2220;
+  --ink-2: #505b57;
+  --line: #d4d9d3;
+  --accent: #0d6a59;
+  --accent-wash: #e1eee9;
+  --good: #2b7638;
+  --warn: #93590a;
+  --crit: #ad2f29;
+  --code-bg: #ebeeea;
+  --f-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --f-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --f-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111614; --surface: #19201d; --ink: #e6ebe8; --ink-2: #9ba7a2; --line: #2d3733;
+    --accent: #62c3ac; --accent-wash: #1c332d; --good: #7ec58a; --warn: #e2a64c; --crit: #ef8077;
+    --code-bg: #212a26; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #111614; --surface: #19201d; --ink: #e6ebe8; --ink-2: #9ba7a2; --line: #2d3733;
+  --accent: #62c3ac; --accent-wash: #1c332d; --good: #7ec58a; --warn: #e2a64c; --crit: #ef8077;
+  --code-bg: #212a26; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 16px/1.6 var(--f-body);
+  padding-inline: 16px; padding-block: 0 64px;
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+code, kbd { font-family: var(--f-mono); font-size: 0.86em; background: var(--code-bg); padding: 0.08em 0.35em; border-radius: 4px; }
+pre { font-family: var(--f-mono); font-size: 0.82rem; line-height: 1.5; background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; }
+pre code { background: none; padding: 0; font-size: inherit; }
+h1, h2, h3, h4 { font-family: var(--f-display); text-wrap: balance; line-height: 1.2; }
+h1 { font-size: clamp(1.8rem, 4vw, 2.5rem); letter-spacing: -0.02em; margin: 0 0 12px; }
+h2 { font-size: 1.5rem; letter-spacing: -0.01em; margin: 0 0 12px; }
+h3 { font-size: 1.08rem; margin: 26px 0 8px; }
+h4 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-2); margin: 0 0 4px; }
+p, li { max-width: 72ch; }
+.shell { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 48px; }
+.rail { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; padding-top: 40px; max-height: 100vh; overflow-y: auto; }
+.rail h4 { margin-bottom: 10px; }
+.rail ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; font-size: 0.88rem; }
+.rail a { display: block; padding: 3px 8px; border-radius: 4px; color: var(--ink-2); text-decoration: none; }
+.rail a:hover { background: var(--accent-wash); color: var(--ink); }
+.rail .sub a { padding-left: 20px; font-size: 0.84rem; }
+main { min-width: 0; padding-top: 40px; }
+@media (max-width: 960px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .rail { position: static; max-height: none; padding-top: 24px; }
+  .rail ol { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+}
+header.top { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 36px; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.8rem; color: var(--ink-2); letter-spacing: 0.02em; margin: 0 0 10px; }
+.lead { font-size: 1.12rem; color: var(--ink); max-width: 66ch; }
+.tenets { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 20px; }
+.tenet { border-top: 2px solid var(--accent); padding-top: 8px; }
+.tenet b { display: block; font-family: var(--f-display); }
+.tenet span { color: var(--ink-2); font-size: 0.92rem; }
+section { margin-bottom: 56px; scroll-margin-top: 16px; }
+section > p:first-of-type { margin-top: 0; }
+.phase-tag { font-family: var(--f-mono); font-size: 0.8rem; color: var(--accent); letter-spacing: 0.04em; display: block; margin-bottom: 4px; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; margin: 18px 0; }
+.facts > div { min-width: 0; }
+.facts p, .facts ul { margin: 0; font-size: 0.95rem; }
+.facts ul { padding-left: 18px; }
+@media (max-width: 640px) { .facts { grid-template-columns: minmax(0, 1fr); } }
+.example { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin: 18px 0; }
+.example > h4 { color: var(--accent); }
+.example p, .example li { font-size: 0.94rem; }
+.example ul { padding-left: 18px; margin: 6px 0 0; }
+figure { margin: 22px 0; }
+figure .canvas { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 520px; height: auto; }
+figcaption { font-size: 0.86rem; color: var(--ink-2); margin-top: 8px; max-width: 72ch; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--f-display); font-weight: 600; color: var(--ink-2); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+td.num { text-align: right; white-space: nowrap; }
+.pill { display: inline-block; font-family: var(--f-mono); font-size: 0.75rem; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.good { color: var(--good); } .pill.warn { color: var(--warn); } .pill.crit { color: var(--crit); } .pill.neutral { color: var(--ink-2); }
+details { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin: 14px 0; }
+details > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-family: var(--f-display); }
+details > div { padding: 0 14px 12px; }
+.note { font-size: 0.9rem; color: var(--ink-2); }
+.cols2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; }
+@media (max-width: 640px) { .cols2 { grid-template-columns: minmax(0, 1fr); } }
+footer { border-top: 1px solid var(--line); padding-top: 16px; color: var(--ink-2); font-size: 0.86rem; }
+
+/* SVG flow charts: every color from the tokens */
+svg .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.4; }
+svg .box.key { stroke: var(--accent); stroke-width: 2; fill: var(--accent-wash); }
+svg .box.soft { fill: var(--paper); }
+svg .gate { fill: var(--paper); stroke: var(--ink-2); stroke-width: 1.3; }
+svg .edge { fill: none; stroke: var(--ink-2); stroke-width: 1.4; }
+svg .edge.dash { stroke-dasharray: 5 4; }
+svg .edge.accent { stroke: var(--accent); }
+svg .arrow { fill: var(--ink-2); }
+svg .arrow.accent { fill: var(--accent); }
+svg text { fill: var(--ink); font-family: var(--f-body); }
+svg .t { font-size: 14px; font-weight: 650; }
+svg .s { font-size: 12px; fill: var(--ink-2); }
+svg .lbl { font-size: 11.5px; fill: var(--ink-2); font-family: var(--f-mono); }
+svg .lbl.accent { fill: var(--accent); }
+svg .band { fill: var(--accent-wash); }
+svg .band.quiet { fill: var(--paper); }
+svg .curve { fill: none; stroke: var(--accent); stroke-width: 2.4; }
+svg .axis { stroke: var(--ink-2); stroke-width: 1.2; }
+svg .grid { stroke: var(--line); stroke-width: 1; }
+svg .good { fill: var(--good); } svg .crit { fill: var(--crit); }
+</style>
+</head>
+<body>
+<div class="shell">
+<nav class="rail" aria-label="Contents">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#glance">At a glance</a></li>
+    <li><a href="#flow">The whole flow</a></li>
+    <li><a href="#model">How Tensorleap runs your code</a></li>
+    <li><a href="#p0">Phase 0 · Preflight</a></li>
+    <li><a href="#p1">Phase 1 · Floor and fit</a></li>
+    <li><a href="#p2">Phase 2 · Read the code</a></li>
+    <li><a href="#p3">Phase 3 · Baseline profile</a></li>
+    <li class="sub"><a href="#memory">Memory measurement and triage</a></li>
+    <li class="sub"><a href="#imports">Import check</a></li>
+    <li><a href="#p4">Phase 4 · Lossless loops</a></li>
+    <li class="sub"><a href="#equivalence">What “lossless” means</a></li>
+    <li><a href="#p5">Phase 5 · Options that change outputs</a></li>
+    <li><a href="#p6">Phase 6 · On the server</a></li>
+    <li class="sub"><a href="#p6a">6A · Smoke validation</a></li>
+    <li class="sub"><a href="#p6b">6B · Online diagnostics</a></li>
+    <li class="sub"><a href="#stability">Steady pace</a></li>
+    <li class="sub"><a href="#attribution">What sets the pace</a></li>
+    <li class="sub"><a href="#rootcause">Root causes and mechanisms</a></li>
+    <li class="sub"><a href="#settings">Server settings</a></li>
+    <li><a href="#p7">Phase 7 · The report</a></li>
+    <li><a href="#history">Code history without git</a></li>
+    <li><a href="#catalog">What it can catch</a></li>
+    <li><a href="#results">Results on the test integrations</a></li>
+    <li><a href="#never">What it never does</a></li>
+    <li><a href="#reference">Commands, exit codes, files</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <p class="eyebrow">tensorleap/skills · skills/tensorleap-runtime-optimization · v0.1.0</p>
+  <h1>How the runtime optimization skill works</h1>
+  <p class="lead">The skill takes a working Tensorleap integration from “it’s slow and nobody knows why” to a measured, component-by-component picture. It applies every change the evidence supports that leaves the outputs identical, can check the result on a Tensorleap server, and writes a report naming what limits runtime and memory now.</p>
+  <div class="tenets">
+    <div class="tenet"><b>Measured the way Tensorleap runs it</b><span>Each component runs in its own fresh process, on the data shapes and order the platform uses.</span></div>
+    <div class="tenet"><b>Scored against the model</b><span>Every cost is a multiple of the model’s own inference time per sample: the floor.</span></div>
+    <div class="tenet"><b>Lossless unless you say yes</b><span>A change stays only if every output is identical and it is faster or smaller.</span></div>
+    <div class="tenet"><b>Evidence before conclusion</b><span>Each claim carries its measurement and, on the server, the log lines it came from.</span></div>
+  </div>
+</header>
+
+<section id="glance">
+  <h2>At a glance</h2>
+  <div class="cols2">
+    <div>
+      <h4>What you give it</h4>
+      <ul>
+        <li>A working integration at the repo root: <code>leap_integration.py</code> and <code>leap.yaml</code>.</li>
+        <li>The Python environment that runs it (poetry by default).</li>
+        <li>Optionally, a Tensorleap server, for the validation push and the online diagnostics.</li>
+      </ul>
+    </div>
+    <div>
+      <h4>What you get back</h4>
+      <ul>
+        <li>The optimized code: one git commit per fix, or <code>fixes/NN.patch</code> files when the repo has no git.</li>
+        <li><code>optimization-log.md</code>: every candidate, the evidence, what was tried, the verdict.</li>
+        <li><code>report.md</code> and <code>report.html</code>: Part 1 offline, Part 2 online when diagnostics ran.</li>
+      </ul>
+    </div>
+  </div>
+  <p>Everything the skill measures comes from one tool, <code>tl_perf.py</code>, run inside the integration’s own environment. The agent reads code, reasons, and makes one change at a time; <code>tl_perf</code> decides whether the change stays. Artifacts go to <code>tensorleap/runtime-optimization/</code> in the integration repo.</p>
+</section>
+
+<section id="flow">
+  <h2>The whole flow</h2>
+  <p>Eight phases, in order. Each one ends at a gate that must pass before the next starts. The loops of Phase 4 repeat until no candidate is worth another try.</p>
+  <figure>
+    <div class="canvas">
+    <svg viewBox="0 0 720 860" role="img" aria-labelledby="flowTitle">
+      <title id="flowTitle">The skill’s phases from preflight to report</title>
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0 0L10 5L0 10z"/></marker>
+        <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow accent" d="M0 0L10 5L0 10z"/></marker>
+      </defs>
+      <!-- edges -->
+      <path class="edge" d="M360 78V104" marker-end="url(#ah)"/>
+      <path class="edge" d="M360 162V188" marker-end="url(#ah)"/>
+      <path class="edge" d="M360 246V272" marker-end="url(#ah)"/>
+      <path class="edge" d="M360 330V356" marker-end="url(#ah)"/>
+      <path class="edge" d="M360 426V452" marker-end="url(#ah)"/>
+      <path class="edge" d="M360 510V528" marker-end="url(#ah)"/>
+      <path class="edge accent" d="M580 374H624V408H584" marker-end="url(#aha)"/>
+      <path class="edge" d="M250 568H200V648" marker-end="url(#ah)"/>
+      <path class="edge" d="M470 568H520V648" marker-end="url(#ah)"/>
+      <path class="edge" d="M200 718V744H330V770" marker-end="url(#ah)"/>
+      <path class="edge" d="M520 718V744H390V770" marker-end="url(#ah)"/>
+      <!-- boxes -->
+      <g><rect class="box" x="140" y="20" width="440" height="58" rx="8"/>
+        <text class="t" x="360" y="44" text-anchor="middle">0 · Preflight and setup</text>
+        <text class="s" x="360" y="64" text-anchor="middle">environment, GPU actually used, integration valid</text></g>
+      <g><rect class="box" x="140" y="104" width="440" height="58" rx="8"/>
+        <text class="t" x="360" y="128" text-anchor="middle">1 · Floor and fit</text>
+        <text class="s" x="360" y="148" text-anchor="middle">model speed per batch size = the unit for every cost</text></g>
+      <g><rect class="box" x="140" y="188" width="440" height="58" rx="8"/>
+        <text class="t" x="360" y="212" text-anchor="middle">2 · Read the code</text>
+        <text class="s" x="360" y="232" text-anchor="middle">static tells become hypotheses, never conclusions</text></g>
+      <g><rect class="box" x="140" y="272" width="440" height="58" rx="8"/>
+        <text class="t" x="360" y="296" text-anchor="middle">3 · Baseline profile and score</text>
+        <text class="s" x="360" y="316" text-anchor="middle">every component, memory triage, import check, ranking</text></g>
+      <g><rect class="box key" x="140" y="356" width="440" height="70" rx="8"/>
+        <text class="t" x="360" y="382" text-anchor="middle">4 · Lossless loops: memory (4M), then runtime (4R)</text>
+        <text class="s" x="360" y="402" text-anchor="middle">one change → profile → compare → keep or restore</text>
+        <text class="s" x="360" y="418" text-anchor="middle">order follows the priority (memory first by default)</text></g>
+      <text class="lbl accent" x="632" y="395">repeat</text>
+      <g><rect class="box" x="140" y="452" width="440" height="58" rx="8"/>
+        <text class="t" x="360" y="476" text-anchor="middle">5 · Options that change outputs</text>
+        <text class="s" x="360" y="496" text-anchor="middle">only if one component still dominates · your yes</text></g>
+      <g><polygon class="gate" points="360,528 470,568 360,608 250,568"/>
+        <text class="t" x="360" y="564" text-anchor="middle" style="font-size:13px">6.0 · Diagnose on</text>
+        <text class="t" x="360" y="582" text-anchor="middle" style="font-size:13px">the server?</text></g>
+      <text class="lbl" x="96" y="560">no, or unattended</text>
+      <text class="lbl" x="490" y="560">yes, asked once</text>
+      <g><rect class="box" x="60" y="648" width="280" height="70" rx="8"/>
+        <text class="t" x="200" y="672" text-anchor="middle">6A · Smoke validation</text>
+        <text class="s" x="200" y="692" text-anchor="middle">about 50 samples per state</text>
+        <text class="s" x="200" y="708" text-anchor="middle">default · minutes</text></g>
+      <g><rect class="box key" x="380" y="648" width="280" height="70" rx="8"/>
+        <text class="t" x="520" y="672" text-anchor="middle">6B · Online diagnostics</text>
+        <text class="s" x="520" y="692" text-anchor="middle">whole dataset, or your cap</text>
+        <text class="s" x="520" y="708" text-anchor="middle">collect → analyze</text></g>
+      <g><rect class="box" x="140" y="770" width="440" height="58" rx="8"/>
+        <text class="t" x="360" y="794" text-anchor="middle">7 · Report</text>
+        <text class="s" x="360" y="814" text-anchor="middle">Part 1 offline · Part 2 online (only when 6B ran)</text></g>
+    </svg>
+    </div>
+    <figcaption>The phases and their gates. Phase 4 holds the work; everything before it makes the measurements trustworthy, everything after it checks the result where it matters: on the server.</figcaption>
+  </figure>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Phase</th><th>Job</th><th>Tool</th><th>Gate to move on</th></tr></thead>
+    <tbody>
+      <tr><td>0 Preflight</td><td>Right environment, valid integration, model loads</td><td><code>preflight</code></td><td>exit 0 (or 4 with a CPU-floor caveat)</td></tr>
+      <tr><td>1 Floor and fit</td><td>The model’s own speed and memory; batch support</td><td><code>floor</code>, <code>fit</code></td><td>a floor exists; every metric and loss takes a batch</td></tr>
+      <tr><td>2 Read the code</td><td>Static tells as hypotheses</td><td>reading → <code>static.json</code></td><td>written down</td></tr>
+      <tr><td>3 Baseline</td><td>Measure every component and its memory</td><td><code>profile</code>, <code>score</code></td><td>no failing component; baseline taken</td></tr>
+      <tr><td>4 Lossless loops</td><td>One change at a time, verified</td><td><code>profile</code>, <code>compare</code>, <code>restore</code></td><td>nothing left worth it, or 3 tries each</td></tr>
+      <tr><td>5 Options</td><td>Faster but different outputs, by consent</td><td>presentation + <code>compare</code></td><td>your answer recorded</td></tr>
+      <tr><td>6 Server</td><td>Smoke validation, or diagnostics with your yes</td><td><code>leap push</code>, <code>online collect</code>/<code>analyze</code></td><td>the Evaluate reaches a terminal state</td></tr>
+      <tr><td>7 Report</td><td>One shareable page</td><td><code>report</code></td><td>valid <code>report.json</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="model">
+  <h2>How Tensorleap runs your code, and why it matters</h2>
+  <p>Tensorleap does not run an integration as one script. It runs its pieces in separate worker processes, on batches or single samples, in an order you don’t control. An optimization is real only if it helps there, so the skill measures under the same conditions.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>How the platform runs it</th><th>What that means for a fix</th></tr></thead>
+    <tbody>
+      <tr><td>Encoders and metadata of the same sample run together, in one process</td><td>A small cache they share is the standard lossless fix for repeated work</td></tr>
+      <tr><td>Visualizers run later, one sample at a time, in a process where nothing else ran first</td><td>They must be efficient on their own; they never see caches from encoders, metadata or metrics</td></tr>
+      <tr><td>Metrics and loss run on batches, in their own process, fed the batch’s tensors</td><td>A cache warmed by encoders doesn’t help them; a metric that reloads source data should compute from its tensors</td></tr>
+      <tr><td>Samples are not processed in preprocess order</td><td>Per-file caches over a flat sample list mostly miss; group samples by file instead</td></tr>
+      <tr><td>Preprocess runs again in every worker process</td><td>Keep it light; its memory and time are paid once per worker</td></tr>
+      <tr><td>Dataset code runs on CPU; only the model uses the GPU</td><td>A slow encoder is CPU work, whatever GPU the server has</td></tr>
+      <tr><td>Caches are per worker process</td><td>Their memory multiplies by the number of workers; keep them small</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p><b>The cost model.</b> Every component is scored by its mean cost per sample relative to the model’s mean inference time per sample. A component at 450× the floor limits the run; one at 0.01× is noise, however ugly its code. For memory, the unit is the footprint of the integration’s own code in one worker process: imports, globals, the preprocess result, caches. Every worker pays it.</p>
+</section>
+
+<section id="p0">
+  <span class="phase-tag">PHASE 0</span>
+  <h2>Preflight and setup</h2>
+  <div class="facts">
+    <div><h4>What it checks</h4><ul>
+      <li>The integration’s own Python environment, found from <code>pyproject.toml</code> or <code>requirements.txt</code>.</li>
+      <li>Devices, and whether the model actually runs on the GPU when one is present.</li>
+      <li>code-loader version and features (grouped preprocess needs ≥ 1.0.196).</li>
+      <li>That the integration passes the dataset check and the model loads on its own.</li>
+      <li>Free disk and how busy the machine is. Separately, whether a server is reachable for Phase 6.</li></ul></div>
+    <div><h4>What it can catch</h4><ul>
+      <li>A GPU that is there but unused: the model silently on CPU (catalog R, exit 4).</li>
+      <li>An integration that doesn’t work yet (exit 3): optimizing stops until it does.</li>
+      <li>A model that only loads inside the platform (exit 6).</li>
+      <li>A busy machine that would skew every timing.</li></ul></div>
+    <div><h4>How</h4><p><code>tl_perf preflight</code> runs inside the integration’s environment, loads the model, runs the dataset check and probes the devices. It writes <code>preflight.json</code> and answers with an exit code the skill acts on. <code>perf_preflight.sh</code> checks the <code>leap</code> CLI, login and server without blocking the local work.</p></div>
+    <div><h4>Why</h4><p>Every later number is only as good as the environment it was measured in. A floor taken on CPU when the server has a GPU changes every ratio in the report. In a git repo, the skill also asks before mixing your uncommitted work with its own changes, then works on its own branch.</p></div>
+  </div>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li>All nine blind runs passed preflight with a “CPU floor” note: the test machine was a 16-core laptop CPU with 64 GB of RAM and no GPU.</li>
+<li><b>DET-128</b>: a fixed model batch of 1, read from the input shape <code>[1,3,640,640]</code>. An earlier tool version took the model as dynamic and would have tried batch sizes the model rejects.</li>
+<li><b>TS-480</b>: a warning of load 8.0 on 16 cores and under 20% of RAM free.</li>
+<li>Why the load warning exists: on a busy machine, one early run measured the floor at 2.98 instead of 1.42 ms per sample, and the recommended batch moved from 4 to 16.</li>
+</ul></div>
+</section>
+
+<section id="p1">
+  <span class="phase-tag">PHASE 1</span>
+  <h2>Floor and fit</h2>
+  <div class="facts">
+    <div><h4>What it checks</h4><ul>
+      <li><b>floor</b>: the model alone, after a warm-up, at several batch sizes: P50, P90, P95 and P99 per batch, and the batch size where throughput stops improving much.</li>
+      <li><b>fit</b>: per-sample tensor size, rows per state, the model’s measured memory per batch size, and whether every metric and the loss accept a batch.</li></ul></div>
+    <div><h4>What it can catch</h4><ul>
+      <li>A metric or loss that fails on a batch (catalog D). The local integration test runs batch 1, so it never shows this; the platform does.</li>
+      <li>A configured batch size past the throughput knee, or one that won’t fit in memory (exit 5).</li>
+      <li>Huge per-sample tensors, debug flags, full-dataset work in preprocess.</li></ul></div>
+    <div><h4>How</h4><p>Times inference with nothing else running, sweeps batch sizes to find the knee (and says when a larger sweep is needed), measures memory per batch, and calls each metric and the loss with a real batch. The <b>floor</b> is the mean inference time per sample at the recommended batch size.</p></div>
+    <div><h4>Why</h4><p>The floor is the unit every later cost is expressed in. A component at 1× the floor matters; one at 0.01× doesn’t. This phase also records your words about memory (out-of-memory, “memory-heavy”, nothing) and the priority: memory first by default, runtime first only when you say speed matters more.</p></div>
+  </div>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li><b>IMG-480</b>: 4.20 ms per sample at batch 1, 1.54 at batch 4 (the knee), 1.27 at batch 64. Floor: 1.545 ms per sample. Two measurements on a quiet machine agreed within 1%.</li>
+<li><b>PARQ-70k</b>: the knee wasn’t reached by batch 64. A wider sweep found batch 256 at 0.078 ms per sample; batch 512 was no faster (0.081).</li>
+<li><b>Batch support</b>: PARQ-70k’s loss failed on a batch of 2 (“broadcast (2,10) (2,)”) and worked only at batch 1 and 10; it was fixed first. DET-128’s ground truth broke when stacking images with 1 to 42 boxes.</li>
+<li><b>DET-INST</b>: 19.7 MB of tensors per sample and a model that rejects batch 2, so the server push used batch 1.</li>
+</ul></div>
+</section>
+
+<section id="p2">
+  <span class="phase-tag">PHASE 2</span>
+  <h2>Read the code</h2>
+  <div class="facts">
+    <div><h4>What it checks</h4><p>Preprocess, every encoder, metadata function, metric, the loss, every visualizer, and everything they call.</p></div>
+    <div><h4>What it can catch</h4><ul>
+      <li>One component calling another’s function, or the same file opened by several components.</li>
+      <li>Python loops over rows, per-call model or table loading, per-sample <code>list.index</code>.</li>
+      <li>Debug statistics on large arrays, unbounded caches, unseeded randomness.</li>
+      <li>Round trips between representations (PIL ↔ numpy, float64 ↔ float32, DataFrame ↔ dict).</li>
+      <li>Imports evaluation never uses; heavy imports only one visualizer needs.</li>
+      <li>Bugs: code wrong for some shapes or batch sizes, silent <code>except:</code> blocks.</li></ul></div>
+    <div><h4>How</h4><p>The agent reads the code and writes each tell to <code>static.json</code> with the component, a catalog class and a one-line message. A tell raises the confidence of a measured candidate. It never creates a candidate by itself.</p></div>
+    <div><h4>Why</h4><p>Measurement says <i>where</i> the time goes; the code says <i>why</i>. Data-dependent branches are noted separately, because the equivalence check covers only the branches the sampled data executes.</p></div>
+  </div>
+</section>
+
+<section id="p3">
+  <span class="phase-tag">PHASE 3</span>
+  <h2>Baseline profile and score</h2>
+  <div class="facts">
+    <div><h4>What it checks</h4><ul>
+      <li>Sample generation (encoders and metadata together, per sample).</li>
+      <li>Metrics and loss, in their own process, on batches.</li>
+      <li>Visualizers, in a fresh process, fed the sample’s tensors.</li>
+      <li>Per-worker start-up: imports plus preprocess.</li>
+      <li>Diagnostics: hot functions, repeated calls, file reads per sample, a sorted-order what-if.</li>
+      <li>An output snapshot of every component, and the integration’s memory.</li></ul></div>
+    <div><h4>What it can catch</h4><ul>
+      <li>Components that crash on some samples or can’t be wired (exit 7).</li>
+      <li>Outputs that differ between two runs of unchanged code (catalog T).</li>
+      <li>Which share of the expected runtime is generation, inference, metrics, visualizers or start-up, and the generation-to-inference ratio.</li>
+      <li>Work repeated across components, cache thrash, per-call loading: the catalog classes.</li></ul></div>
+    <div><h4>How</h4><p><code>tl_perf profile</code> (200 samples per state and 50 visualized samples by default) runs each pass in a fresh process. The first run becomes the <b>baseline</b> for equivalence and is taken twice to detect nondeterminism. <code>tl_perf score</code> ranks candidates by expected seconds removable × confidence, with the evidence for each.</p></div>
+    <div><h4>Why</h4><p>A fair, repeatable baseline makes every later verdict meaningful. The ranking comes from measurement, so a problem the catalog doesn’t describe still rises to the top. The agent then finds its cause from the hot path and logs it as new.</p></div>
+  </div>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li><b>DET-TIFF</b> baseline: generation 219.2 ms per sample (metadata 132.3), inference 21.9, two metrics at 44.9 and 44.1, visualizers 6.1, start-up 0.91 s per worker. Generation was 64% of the expected runtime. The same file was read 5 times per sample, exactly what the code reading predicted.</li>
+<li><b>PARQ-70k</b>: 1.00 file reads per sample in the platform’s order against 0.03 in sorted order, and generation 0.697 against 0.175 ms: cache thrash from the storage layout (class B).</li>
+<li><b>TAB-3.7M</b>, where percentiles matter: generation mean 2.263 ms, but P50 0.29 and P95 10.2 ms. Unlabeled samples cost 5.84 ms against 0.26 for labeled ones: a membership check scanned a 2.6M-element list for every unlabeled sample.</li>
+<li><b>score</b> on IMG-480 ranked a metadata function first: 19.6 ms per sample, 13.7× the floor, 9.42 s expected, confidence 0.80. It re-invoked an encoder and read the same file up to 3 times. Confidence starts at 0.5, gains 0.3 with profile evidence and 0.2 when the code reading agrees.</li>
+<li>Why the process boundaries matter: when an early tool version ran metrics inside the generation process, a shared cache made one metric look 95 → 8 ms. In its own process, the same fix gave 95 → 52 ms, and a separate fix was needed to reach 8.6 ms.</li>
+</ul></div>
+
+  <h3 id="memory">Memory measurement and triage</h3>
+  <p>The memory unit is the <b>user-code footprint of one worker process</b>: what the integration’s own code holds (imported libraries, module globals, the preprocess result, caches, per-call temporaries), measured with the model not loaded. The profile splits it by holder and by stage, notes how much more preprocess needs at its peak than it keeps, and marks the unattributed part (memory freed but kept by an allocator) so nobody chases it.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Status</th><th>When</th><th>What happens with runtime first</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill crit">RED</span></td><td>Out-of-memory reported or seen, or one worker’s footprint over half the memory budget</td><td>Memory loop first; a memory fix may cost up to +15% runtime</td></tr>
+      <tr><td><span class="pill warn">AMBER</span></td><td>A large footprint, a structure over 1 GB per worker, or growth with the samples</td><td>Runtime loop first, then memory fixes within noise (3%)</td></tr>
+      <tr><td><span class="pill good">GREEN</span></td><td>None of the above</td><td>Runtime loop, then only free memory wins</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">By default memory is the priority: the memory loop runs first and a memory fix may cost up to +15% runtime, because a smaller footprint usually also makes the run faster (more workers fit, no out-of-memory restarts). The report leads with memory only where there is memory pressure.</p>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li><b>TAB-3.7M</b>: 16.02 GB per worker, the peak set inside preprocess (10.06 GB kept plus 5.88 GB transient). The request said “run out of memory”: <span class="pill crit">RED</span>. Repeat measurements differed by 0.3%.</li>
+<li><b>TS-110k</b> (the time-series integration at 110k rows): 1.56 GB, of which the preprocess result is only 0.04 GB. The request said “a lot of memory”: <span class="pill warn">AMBER</span>.</li>
+<li><b>DET-128</b>: 0.23 GB, <span class="pill good">GREEN</span>, no candidates. Run-to-run spread stayed under the 64 MB minimum gain, and early growth was correctly not called a leak.</li>
+<li>A miss that changed the skill: on BIO-258k the request said “workers use a lot of memory”, but the agent scored it GREEN. The skill now quotes every memory phrase in the request and maps it to out-of-memory, high or none.</li>
+</ul></div>
+
+  <h3 id="imports">Import check</h3>
+  <p>The profile records which stage really runs each third-party package (preprocess, generation, metrics and loss, visualizers). It times each candidate import alone in a fresh interpreter, for memory and seconds, and lists imported names its files never reference.</p>
+  <ul>
+    <li><b>Unused</b>: imported, but no stage ran it. Remove it; every worker pays its import memory and time for nothing. It is a memory candidate and a start-up candidate at once.</li>
+    <li><b>Lazy</b>: only the metrics or only the visualizers run it. Import it inside them. That keeps it out of every worker’s start-up memory, but each worker still imports it once, so it counts as memory, never as a runtime gain.</li>
+    <li><b>Names never referenced</b>: cosmetic, tidied only alongside a real fix. Packages under 20 modules are not worth a change.</li>
+  </ul>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li><b>BIO-258k</b>: a helper module imported for one unused name pulled in heavy libraries costing 110, 64, 47 and 29 MB alone. Removing it took the footprint from 1.73 to 1.63 GB per worker and start-up from 2.66 to 1.92 s; runtime −1.2%.</li>
+<li><b>PARQ-70k</b>: moving the deep-learning framework import into the model loader took the footprint from 0.58 to 0.35 GB (−40%) and start-up from 1.51 to 0.49 s. Importing a table library only where needed saved 48 MB, under the 64 MB minimum, so it was rejected (exit 9).</li>
+<li>Both fixes came from the earlier unused-import finding that this check extends. A package used only at import time, or only through another library, can still look unused: the agents caught two such cases before acting.</li>
+</ul></div>
+</section>
+
+<section id="p4">
+  <span class="phase-tag">PHASE 4</span>
+  <h2>Lossless loops: memory (4M) and runtime (4R)</h2>
+  <p>The core of the skill. One candidate, one change, one measurement, one verdict, repeated until no candidate is worth another try. The memory loop runs first by default; with runtime first, the memory status decides the order.</p>
+  <figure>
+    <div class="canvas">
+    <svg viewBox="0 0 720 312" role="img" aria-labelledby="loopTitle">
+      <title id="loopTitle">The lossless optimization loop</title>
+      <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0 0L10 5L0 10z"/></marker></defs>
+      <path class="edge" d="M140 140H165" marker-end="url(#ah2)"/>
+      <path class="edge" d="M285 140H310" marker-end="url(#ah2)"/>
+      <path class="edge" d="M430 140H455" marker-end="url(#ah2)"/>
+      <path class="edge" d="M575 140H602" marker-end="url(#ah2)"/>
+      <path class="edge" d="M650 174V210" marker-end="url(#ah2)"/>
+      <path class="edge" d="M650 186H425V210" marker-end="url(#ah2)"/>
+      <path class="edge" d="M425 270V292H712V40H80V110" marker-end="url(#ah2)"/>
+      <path class="edge" d="M635 270V292"/>
+      <path class="edge dash" d="M80 170V210" marker-end="url(#ah2)"/>
+      <text class="lbl" x="250" y="32">next candidate · re-score after every kept fix</text>
+      <text class="lbl" x="658" y="204">exit 0</text>
+      <text class="lbl" x="436" y="180">exit 8 · 9 · 10 · 12</text>
+      <text class="lbl" x="88" y="194">nothing left</text>
+      <g><rect class="box" x="20" y="110" width="120" height="60" rx="8"/><text class="t" x="80" y="136" text-anchor="middle">Pick</text><text class="s" x="80" y="155" text-anchor="middle">top candidate</text></g>
+      <g><rect class="box" x="165" y="110" width="120" height="60" rx="8"/><text class="t" x="225" y="136" text-anchor="middle">Explain</text><text class="s" x="225" y="155" text-anchor="middle">why, from evidence</text></g>
+      <g><rect class="box" x="310" y="110" width="120" height="60" rx="8"/><text class="t" x="370" y="136" text-anchor="middle">Change</text><text class="s" x="370" y="155" text-anchor="middle">one fix only</text></g>
+      <g><rect class="box" x="455" y="110" width="120" height="60" rx="8"/><text class="t" x="515" y="136" text-anchor="middle">Measure</text><text class="s" x="515" y="155" text-anchor="middle">profile + compare</text></g>
+      <g><polygon class="gate" points="650,106 698,140 650,174 602,140"/><text class="t" x="650" y="145" text-anchor="middle" style="font-size:13px">Verdict</text></g>
+      <g><rect class="box key" x="560" y="210" width="150" height="60" rx="8"/><text class="t" x="635" y="234" text-anchor="middle">Keep</text><text class="s" x="635" y="253" text-anchor="middle">commit or patch;</text><text class="s" x="635" y="266" text-anchor="middle">the new reference</text></g>
+      <g><rect class="box" x="330" y="210" width="190" height="60" rx="8"/><text class="t" x="425" y="234" text-anchor="middle">Restore</text><text class="s" x="425" y="253" text-anchor="middle">tl_perf restore;</text><text class="s" x="425" y="266" text-anchor="middle">try another fix</text></g>
+      <g><rect class="box soft" x="20" y="210" width="180" height="60" rx="8"/><text class="t" x="110" y="234" text-anchor="middle">Stop</text><text class="s" x="110" y="253" text-anchor="middle">nothing worth it, or</text><text class="s" x="110" y="266" text-anchor="middle">3 tries per candidate</text></g>
+    </svg>
+    </div>
+    <figcaption>Each kept fix becomes the new reference, so the next change must beat it, not the original baseline. Every rejected change is undone with <code>tl_perf restore</code>.</figcaption>
+  </figure>
+  <div class="facts">
+    <div><h4>What it checks</h4><p>For each change: are all outputs identical to the baseline, and is it faster (4R) or smaller (4M) than the last accepted run?</p></div>
+    <div><h4>What it can catch</h4><ul>
+      <li>A “fix” that changes outputs (exit 8).</li>
+      <li>A change that doesn’t matter: under 5% faster, or for memory, under max(5%, 64 MB) smaller (exit 9).</li>
+      <li>A runtime fix that grows the footprint over 10%, or 5% when memory is AMBER or RED (exit 10).</li>
+      <li>A memory fix that costs more runtime than allowed (exit 12).</li></ul></div>
+    <div><h4>How</h4><ol>
+      <li><b>Pick</b> the top candidate worth it: at least 1× the floor, or at least 10% of the expected runtime.</li>
+      <li><b>Explain</b> why it is slow or large, from its evidence and the code. No explanation, no change.</li>
+      <li><b>Change</b> one thing, from the catalog or the levers. A cache is used only where Tensorleap shares it.</li>
+      <li><b>Measure</b> with <code>profile</code>, then <code>compare</code>.</li>
+      <li><b>Decide</b> on the exit code.</li></ol></div>
+    <div><h4>Why</h4><p>One change per measurement keeps every verdict attributable. A change that wins only in sorted order depends on processing order and isn’t delivered on the platform, so the skill prefers changes that win in both orders.</p></div>
+  </div>
+  <div class="example"><h4>From the test integrations</h4><p><b>Runtime loop (4R)</b></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Integration</th><th>Change</th><th>Result</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td>DET-TIFF</td><td>One shared image decode per sample</td><td>generation 219.2 → 46.7 ms; expected 123.7 → 46.9 s (−62%); 1,344 values bit-identical</td><td><span class="pill good">exit 0</span></td></tr>
+<tr><td>DET-TIFF</td><td>Metrics read labels without decoding the image</td><td>metrics 52.4 → 8.6 ms; −34% more</td><td><span class="pill good">exit 0</span></td></tr>
+<tr><td>PARQ-70k</td><td>Grouped preprocess, one group per shard</td><td>0.286 → 0.027 ms per sample; file reads per sample 1.00 → 0.01</td><td><span class="pill good">exit 0</span></td></tr>
+<tr><td>BIO-258k</td><td>Feature calculators called directly</td><td>metadata 9.72 → 2.93 ms (−38%)</td><td><span class="pill good">exit 0</span></td></tr>
+<tr><td>IMG-480</td><td>Two percentile calls merged into one</td><td>−4.1% against the last accepted run</td><td><span class="pill neutral">exit 9</span></td></tr>
+<tr><td>TAB-3.7M</td><td>Preprocess rewrite</td><td>start-up 20.18 → 7.04 s per worker, but +1.1% on the expected total over 3.7M samples</td><td><span class="pill neutral">exit 9</span></td></tr>
+<tr><td>PARQ-70k</td><td>Grouping (first attempt)</td><td>predictions differed by up to 2.4e-7, because the model ran at a different batch size; cause reproduced, then accepted with a recorded tolerance (rtol 1e-5, atol 1e-6)</td><td><span class="pill warn">exit 8</span></td></tr>
+</tbody></table></div>
+<p class="note">The IMG-480 merge would have passed against the original baseline. That is why a gain counts against the last accepted run. Faster JPEG decoders never reached <code>compare</code>: they matched on 0 of 480 files.</p>
+<p><b>Memory loop (4M)</b>, on TAB-3.7M (RED), every fix bit-identical:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Fix</th><th class="num">Footprint per worker</th><th>Runtime</th></tr></thead>
+<tbody>
+<tr><td>Stream features into float32 instead of a float64 table</td><td class="num">16.02 → 10.41 GB</td><td>+3.2%</td></tr>
+<tr><td>Scale each sample when it is read instead of storing a scaled copy</td><td class="num">→ 7.41 GB</td><td>−4.1%</td></tr>
+<tr><td>Order rows by split, so each split is a slice and not a copy</td><td class="num">→ 5.92 GB</td><td>+3.4%</td></tr>
+<tr><td>Store strings as integer codes plus a vocabulary</td><td class="num">→ 3.54 GB</td><td>start-up 16.8 → 3.6 s</td></tr>
+<tr><td>Read repeated-string columns as dictionaries</td><td class="num">→ 3.22 GB</td><td>not recorded</td></tr>
+</tbody></table></div>
+<p>In total 16.0 → 3.3 GB (−80%): the workers that fit in 64 GB went from about 4 to about 19. A memory-mapped cache was rejected: measured memory moved only 3.22 → 3.18 GB (exit 9).</p>
+<p><b>The gates both ways.</b> On BIO-258k, computing the loss’s class centroids on first use cut start-up from 176 s to 2.7 s, but grew memory from 1.71 to 2.72 GB by loading a 1 GB file again: rejected (exit 10). Reworked to share one loaded copy, it cost +1.2% and was kept. On TS-110k, two measurements taken on a busy machine were rejected for runtime (exit 12, +17.8% and +54%) and re-taken on a quiet one: 1.33 → 1.03 GB at −1.4% runtime.</p></div>
+
+  <h3 id="equivalence">What “lossless” means</h3>
+  <ul>
+    <li><b>Bit-identical by default</b>, for every input, ground truth, metadata value, prediction, metric, loss and visualizer output on the snapshot samples. A tolerance is allowed only with a stated reason, such as a reordered float sum, and goes into the report.</li>
+    <li><b>Nondeterministic outputs</b> are checked by distribution and reported. Seeding them changes behavior, so it is your decision.</li>
+    <li><b>Only exercised code is verified.</b> Branches the snapshot samples never run are listed as coverage caveats.</li>
+    <li><b>No claim of equivalence is trusted</b>, whether a commit message or “it should be the same”. Only <code>compare</code> decides.</li>
+  </ul>
+</section>
+
+<section id="p5">
+  <span class="phase-tag">PHASE 5</span>
+  <h2>Options that change outputs</h2>
+  <div class="facts">
+    <div><h4>When</h4><p>Only if, after Phase 4, one component still dominates (roughly more than half the expected runtime, or many times the floor) with no lossless fix left. Or memory is still RED or AMBER and the remaining holders can only shrink by changing values.</p></div>
+    <div><h4>What it offers</h4><p>For example: work at lower precision or resolution than the outputs need, narrower dtypes that round, fewer visualizers of the same source, dropped columns an output reads. Each comes with what changes, the expected gain from the profile, and the cost.</p></div>
+    <div><h4>How</h4><p>Asked once. Only what you accept is applied, one commit each, and <code>compare</code> must show that only the declared fields changed.</p></div>
+    <div><h4>Why</h4><p>Speed bought by changing results is your call, never the tool’s. Declining every option is a valid, recorded outcome.</p></div>
+  </div>
+  <div class="example"><h4>From the test integrations</h4><p>Every test run was unattended, so no option was accepted and <b>none was applied</b>. What was offered:</p>
+<ul>
+<li><b>BIO-258k</b>: compute the loss from the latent it receives instead of re-running the model: 2.8 → about 0.03 ms per sample, about −30% of the runtime. Loss values change at rounding level.</li>
+<li><b>TAB-3.7M</b>: merge or drop 101 metadata fields: about −60 to −75%. Those columns disappear from the analysis.</li>
+<li><b>DET-TIFF</b>: decode at reduced resolution: up to about −50%. Input pixels, and so predictions, change.</li>
+</ul></div>
+</section>
+
+<section id="p6">
+  <span class="phase-tag">PHASE 6</span>
+  <h2>On the Tensorleap server</h2>
+  <p>Two modes. <b>6A smoke validation</b> is the default and proves the optimized integration still works on the server. <b>6B online diagnostics</b> also measures what limits the run there, from the run’s own logs. It is long and server-heavy, so it runs only after you say yes when asked (6.0), and never when the skill runs unattended. Diagnostics read the run; they never change server settings.</p>
+
+  <h3 id="p6a">6A · Smoke validation</h3>
+  <div class="facts">
+    <div><h4>What it checks</h4><p>Every component runs on the server without errors, and the Evaluate reaches a terminal state.</p></div>
+    <div><h4>What it can catch</h4><p>Problems the local run can’t see: a data path that differs on the server, a credential not injected, a file missing from <code>leap.yaml</code>’s include, a dependency missing from <code>requirements.txt</code>, a server-side rejection.</p></div>
+    <div><h4>How</h4><p>Caps each state to about 50 samples in place on the accepted code, pushes and evaluates, then removes the cap with <code>tl_perf restore</code> once the code is uploaded. It writes the report before waiting, then watches that Evaluate. A server-side rejection gets exactly one retry.</p></div>
+    <div><h4>Why</h4><p>A fast integration that fails on the platform is worth nothing. The smoke run takes minutes and doesn’t measure runtime; Phases 1–4 did that.</p></div>
+  </div>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li>8 of 8 smoke Evaluates finished in the six-integration validation round.</li>
+<li><b>TAB-3.7M</b>: the first push failed. A new sample-id class couldn’t be unpickled on the server, where the integration isn’t importable. After a correctness fix, the re-push finished in 2 min 50 s with 150 of 150 samples. The smoke push caught a bug that every local check had passed.</li>
+<li><b>DET-INST</b>: the server rejected the Evaluate at creation. The one retry finished: 287 of 287 rows in 3 min 20 s.</li>
+<li>The one-retry rule came from testing: against a broken server, an early version pushed 5 times.</li>
+<li>Unattended runs stay in smoke mode: the PARQ-70k blind run recorded <code>"mode": "smoke", "authorized_by_user": false</code>, and its smoke Evaluate finished in 53 s on 100 samples.</li>
+</ul></div>
+
+  <h3 id="p6b">6B · Online diagnostics</h3>
+  <p>With your yes, the skill pushes the <b>whole dataset</b>, or a per-state cap you give for a shorter test run (like the integration skill’s <code>sample_limit_per_split</code>). It follows that one run and reads its logs. The analysis covers the <b>evaluation</b>, with the start-up that leads into it, and the <b>visualization</b>. The platform’s analysis after evaluation (post-processing) appears as one row of time and is not analyzed.</p>
+  <figure>
+    <div class="canvas">
+    <svg viewBox="0 0 720 250" role="img" aria-labelledby="diagTitle">
+      <title id="diagTitle">The online diagnostics flow</title>
+      <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0 0L10 5L0 10z"/></marker></defs>
+      <path class="edge" d="M150 120H190" marker-end="url(#ah3)"/>
+      <path class="edge" d="M340 120H380" marker-end="url(#ah3)"/>
+      <path class="edge" d="M530 120H570" marker-end="url(#ah3)"/>
+      <path class="edge" d="M235 90V50H295V90" marker-end="url(#ah3)"/>
+      <path class="edge" d="M230 150V184" marker-end="url(#ah3)"/>
+      <path class="edge" d="M300 184V150" marker-end="url(#ah3)"/>
+      <text class="lbl" x="196" y="40">exit 20 · still running: run it again</text>
+      <text class="lbl" x="360" y="82" text-anchor="middle">exit 0</text>
+      <text class="lbl" x="12" y="176">exit 21 · visualization steady</text>
+      <g><rect class="box" x="10" y="90" width="140" height="60" rx="8"/><text class="t" x="80" y="115" text-anchor="middle">Push + Evaluate</text><text class="s" x="80" y="134" text-anchor="middle">whole dataset, or cap</text></g>
+      <g><rect class="box key" x="190" y="90" width="150" height="60" rx="8"/><text class="t" x="265" y="115" text-anchor="middle">online collect</text><text class="s" x="265" y="134" text-anchor="middle">polls every 30 s</text></g>
+      <g><rect class="box key" x="380" y="90" width="150" height="60" rx="8"/><text class="t" x="455" y="115" text-anchor="middle">online analyze</text><text class="s" x="455" y="134" text-anchor="middle">pace, cause, settings</text></g>
+      <g><rect class="box" x="570" y="90" width="140" height="60" rx="8"/><text class="t" x="640" y="115" text-anchor="middle">Report</text><text class="s" x="640" y="134" text-anchor="middle">Part 2 · online</text></g>
+      <g><rect class="box soft" x="190" y="184" width="150" height="50" rx="8"/><text class="s" x="265" y="205" text-anchor="middle">you stop the run</text><text class="s" x="265" y="222" text-anchor="middle">in the Tensorleap UI</text></g>
+    </svg>
+    </div>
+    <figcaption><code>online collect</code> polls the run’s progress and every pod’s recent log lines and merges them, because the CLI returns only the latest lines of each log and removed workers disappear. When the visualization’s pace has held over enough samples, it asks you to stop the run: the rest would repeat the same measurements.</figcaption>
+  </figure>
+  <div class="facts">
+    <div><h4>What it checks</h4><ul>
+      <li>Each phase’s warm-up, steady pace and tail.</li>
+      <li>Per-component statistics with percentiles, over the steady window only.</li>
+      <li>Who waits on whom, and whether that is on the critical path.</li>
+      <li>Memory per pod: peaks, limits, restarts, out-of-memory.</li>
+      <li>Online against offline: inference, generation, metrics, visualizers, memory.</li>
+      <li>Whether the server’s CPU, memory, worker and GPU settings fit the run.</li></ul></div>
+    <div><h4>What it can catch</h4><ul>
+      <li>Which side sets the pace: sample generation, metrics, the model, or work on the evaluation pod.</li>
+      <li>A visualization paced by one serial worker, or visualizers run twice per sample.</li>
+      <li>Work repeated per row that could run once per sample, or once per batch.</li>
+      <li>A server that runs the same code many times slower than your machine.</li>
+      <li>Another run sharing the server, which slows this one.</li>
+      <li>Settings that limited the run, or sat mostly unused.</li></ul></div>
+    <div><h4>How</h4><p><code>online collect</code> keeps the merged logs under <code>online/</code> with identity fields removed, resumes after any interruption, records other runs in flight and why a run failed. <code>online analyze</code> turns them into <code>online/analysis.json</code>; <code>tl_perf report</code> renders it.</p></div>
+    <div><h4>Why</h4><p>Locally, the skill can only model the platform. Online, it sees the real run: worker counts, the server’s speed, data movement between pods. A claim about the platform needs that evidence.</p></div>
+  </div>
+
+  <div class="example"><h4>From the test integrations</h4>
+<ul>
+<li><b>DET-INST</b>: 28 polls over 16 pods with no gaps, resumed twice while the run was live. The evaluation pod’s kept log was 4,570 lines, complete from its start: more than twice the 2,000 lines the CLI returns per pod.</li>
+<li><b>BIO-258k</b>: 764 polls and 3 gaps over 6.3 hours. Another push shared the server for about 4 hours, and the report says so.</li>
+<li>A guard that came from a mistake: a suspected stall every 11 seconds was the server logger’s rate limit. Rate-limited lines are now dropped before anything is counted.</li>
+</ul></div>
+
+  <h3 id="stability">Finding the steady pace</h3>
+  <p>Tensorleap adds workers while an evaluation runs, so the first minutes are slower. The evaluation and the visualization each speed up on their own. Statistics count only once a phase’s pace stops rising.</p>
+  <figure>
+    <div class="canvas">
+    <svg viewBox="0 0 720 240" role="img" aria-labelledby="stabTitle">
+      <title id="stabTitle">Warm-up, steady window and tail of one phase (schematic)</title>
+      <rect class="band quiet" x="60" y="30" width="200" height="160"/>
+      <rect class="band" x="260" y="30" width="300" height="160"/>
+      <rect class="band quiet" x="560" y="30" width="130" height="160"/>
+      <line class="grid" x1="320" y1="40" x2="320" y2="190"/><line class="grid" x1="380" y1="40" x2="380" y2="190"/>
+      <line class="grid" x1="440" y1="40" x2="440" y2="190"/><line class="grid" x1="500" y1="40" x2="500" y2="190"/>
+      <line class="axis" x1="60" y1="190" x2="690" y2="190"/><line class="axis" x1="60" y1="30" x2="60" y2="190"/>
+      <path class="curve" d="M60 184 L95 172 L110 152 L140 148 L160 124 L190 120 L210 98 L240 92 L260 80 L290 74 L320 79 L350 72 L380 77 L410 70 L440 76 L470 73 L500 78 L530 71 L560 75 L590 96 L620 128 L650 158 L690 182"/>
+      <text class="lbl" x="70" y="48">warm-up</text>
+      <text class="s" x="70" y="64">workers start,</text><text class="s" x="70" y="78">pace climbs</text>
+      <text class="lbl accent" x="272" y="48">steady window</text>
+      <text class="s" x="272" y="124">≥ 3 windows of 60 s, each within ±10%</text>
+      <text class="s" x="272" y="140">of the median, worker count unchanged,</text>
+      <text class="s" x="272" y="156">the pace not still climbing</text>
+      <text class="lbl" x="570" y="48">tail</text>
+      <text class="s" x="22" y="114" transform="rotate(-90 22 114)">rows/s</text>
+      <text class="s" x="666" y="210">time</text>
+    </svg>
+    </div>
+    <figcaption>Schematic. The detector cuts a phase’s progress into 60-second windows and takes the highest plateau: an early plateau before more workers arrive is still warm-up. If no run of steady windows exists, the report says the phase never reached a steady pace and shows the numbers it saw. An unstable run is never treated as stable.</figcaption>
+  </figure>
+  <p>The visualization stop (exit 21) needs a steady pace over enough samples: a fifth of the visualization, at least 200 and at most 1,000. Stopping must also save at least a quarter of the samples and at least 5 minutes. A short or nearly finished visualization runs to the end; the analysis then projects the full visualization time from the steady pace.</p>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li><b>TAB-3.7M</b> evaluation: warm-up 120 s, then 96.38 rows/s for 300 s (5 windows, 1 worker, 58% of the phase), tail 97 s. Its visualization: warm-up 300 s, then 1.70 samples/s for 3,720 s (91% of the phase).</li>
+<li><b>BIO-258k</b>, a 6.3-hour run: 14 early plateaus at 2.91–3.70 rows/s over about 109 minutes, while workers were still being added, counted as warm-up. Steady: 22.78 rows/s for 52 minutes with 6 workers. The tail ran at about 10 rows/s while another push shared the server, and the report says so.</li>
+<li>Not reached: <b>DET-INST</b>’s evaluation moved between 2.30 and 6.71 rows/s over 186 s; <b>DET-TIFF</b>’s phases were shorter than three 60-second windows. Both matched expectations written before the runs.</li>
+<li>Stopping early: on TAB-3.7M the rule asks to stop at 1,526 of 10,000 visualized samples, saving about 85 minutes. In the real run the user stopped at 6,940; the analysis projected about 5,866 s for the full visualization (4,069 s measured). DET-INST (688 visualized samples) and DET-TIFF (359) were never asked to stop.</li>
+</ul></div>
+
+  <h3 id="attribution">What sets the pace of the evaluation</h3>
+  <p>One evaluation step is pull a batch, then infer, extract embeddings and hand off the metrics. Over the steady window, the shares of that loop say who waits on whom.</p>
+  <figure>
+    <div class="canvas">
+    <svg viewBox="0 0 720 372" role="img" aria-labelledby="attrTitle">
+      <title id="attrTitle">How the evaluation’s bottleneck is attributed</title>
+      <defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0 0L10 5L0 10z"/></marker></defs>
+      <path class="edge" d="M360 56V64H190V74" marker-end="url(#ah4)"/>
+      <path class="edge" d="M340 99H420" marker-end="url(#ah4)"/>
+      <path class="edge" d="M190 124V150" marker-end="url(#ah4)"/>
+      <path class="edge" d="M340 175H420" marker-end="url(#ah4)"/>
+      <path class="edge" d="M190 200V226" marker-end="url(#ah4)"/>
+      <path class="edge" d="M340 251H420" marker-end="url(#ah4)"/>
+      <path class="edge" d="M190 276V302" marker-end="url(#ah4)"/>
+      <text class="lbl" x="366" y="92">yes</text><text class="lbl" x="366" y="168">yes</text><text class="lbl" x="366" y="244">yes</text>
+      <text class="lbl" x="198" y="142">no</text><text class="lbl" x="198" y="218">no</text><text class="lbl" x="198" y="294">no</text>
+      <g><rect class="box soft" x="230" y="10" width="260" height="46" rx="8"/><text class="t" x="360" y="38" text-anchor="middle">Evaluation loop, steady window</text></g>
+      <g><rect class="gate" x="40" y="74" width="300" height="50" rx="8"/><text class="t" x="190" y="96" text-anchor="middle" style="font-size:13px">Waits for samples</text><text class="s" x="190" y="114" text-anchor="middle">≥ 30% of the loop?</text></g>
+      <g><rect class="box key" x="420" y="74" width="280" height="50" rx="8"/><text class="t" x="560" y="96" text-anchor="middle">Producer-bound</text><text class="s" x="560" y="114" text-anchor="middle">sample generation sets the pace</text></g>
+      <g><rect class="gate" x="40" y="150" width="300" height="50" rx="8"/><text class="t" x="190" y="172" text-anchor="middle" style="font-size:13px">Waits to hand off metrics</text><text class="s" x="190" y="190" text-anchor="middle">≥ 20% of the loop?</text></g>
+      <g><rect class="box key" x="420" y="150" width="280" height="50" rx="8"/><text class="t" x="560" y="172" text-anchor="middle">Metrics-bound</text><text class="s" x="560" y="190" text-anchor="middle">metrics and loss on the workers</text></g>
+      <g><rect class="gate" x="40" y="226" width="300" height="50" rx="8"/><text class="t" x="190" y="248" text-anchor="middle" style="font-size:13px">Inference</text><text class="s" x="190" y="266" text-anchor="middle">≥ 70% of the loop?</text></g>
+      <g><rect class="box key" x="420" y="226" width="280" height="50" rx="8"/><text class="t" x="560" y="248" text-anchor="middle">Inference floor</text><text class="s" x="560" y="266" text-anchor="middle">the model itself sets the pace</text></g>
+      <g><rect class="box key" x="40" y="302" width="300" height="50" rx="8"/><text class="t" x="190" y="324" text-anchor="middle">Consumer-bound</text><text class="s" x="190" y="342" text-anchor="middle">other work on the evaluation pod</text></g>
+    </svg>
+    </div>
+    <figcaption>The checks run in this order. When inference is the floor but waiting for samples is already 10% or more, the report says sample generation is close behind. A metrics-bound evaluation is split further: if your metrics are cheap per batch, the metrics pipeline is the limit, not your code.</figcaption>
+  </figure>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li><b>Inference floor</b>, DET-INST: inference 97% of the loop, waiting for samples 0%, workers idle 97%. Pod CPU readings agreed independently: the evaluation pod used about 4.7 cores, all 6 workers together about 2.0.</li>
+<li><b>Metrics-bound, owned by the integration</b>, BIO-258k: inference 58%, waiting 5%, metrics hand-off 35% of the loop, with 1,826 back-pressure waits totalling 1,856 s. The 6 workers used 12.1 cores, the evaluation pod 0.9. The cause: the integration’s loss re-runs the model, which ran about 19× slower on the server.</li>
+<li><b>Metrics-bound, not your metrics</b>, TAB-3.7M: hand-off 21%, output conversion 52%, waiting 15%. The user’s metrics and loss took 0.28 ms per batch against 2.11 ms of hand-off wait, so the report says the metrics pipeline limits throughput, not the user’s metrics.</li>
+<li><b>Close behind</b>, DET-TIFF: an inference floor with sample generation close behind (17% waiting). Online inference was 6.6× slower than offline (140 against 21 ms per row), generation only 1.5×.</li>
+<li>No full diagnostics run ended producer-bound. Expectations written beforehand predicted it for two integrations; the measurements showed why it didn’t happen.</li>
+</ul></div>
+
+  <h3 id="rootcause">Root causes and mechanisms</h3>
+  <p>For each phase that took at least a tenth of the run, the analysis builds a <b>root cause</b>: which side set the pace, where that side’s time went, the mechanism, the part to change, what is ruled out, how much of the phase is explained, and a confidence. Links inferred rather than measured are marked.</p>
+  <p>Under each root cause, generic rules list the <b>mechanisms</b> they find in that phase’s own measurements. The rules read shapes, not known problems:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Rule</th><th>Looks for</th></tr></thead>
+    <tbody>
+      <tr><td>Who waits on whom</td><td>A hand-off one side waits on, on the evaluation’s own thread</td></tr>
+      <tr><td>Dominant step</td><td>One step that takes most of a phase</td></tr>
+      <tr><td>Count × unit cost</td><td>Work done once per row where the unit is a sample or a batch</td></tr>
+      <tr><td>Repeated work</td><td>The same data loaded, generated or computed again</td></tr>
+      <tr><td>Growth over time</td><td>Memory or a backlog that keeps rising</td></tr>
+      <tr><td>Serial work beside idle capacity</td><td>One core of many, one busy pod among idle ones</td></tr>
+    </tbody>
+  </table></div>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li><b>TAB-3.7M visualization</b> (76% of the run, 94% explained): the evaluation pod waits 582 ms per batch, 99% of the phase, while one worker process spends 85% of its time rendering. <i>Repeated work</i>: the heatmap overlay re-runs two of the user’s visualizers on the same input (13,600 calls each), 1,605 s or 39% of the phase. <i>Serial work beside idle capacity</i>: the workers setting the pace used 1.0 of their 4 cores. Ruled out: queue back-pressure (1.9 s).</li>
+<li><b>DET-INST visualization</b> (40% of the run, 96% explained, measured): 265 forward passes × 585 ms on CPU = 155 s, 86% of the phase, while the workers were busy 23% of the time. Off the pace: each object row regenerated its source sample to fetch a mask (505 rows × 40 ms), and the mask applied only 20% of the time.</li>
+<li><b>TAB-3.7M evaluation</b>: <i>count × unit cost</i>: 46,335 steps × 8 ms of per-step work around a 1 ms forward pass = 354 s, 68% of the phase, the largest part output conversion at 5 ms per step. <i>Repeated work</i>: a replaced worker pod loaded the integration again (38 s) while the evaluation waited 60.7 s for samples.</li>
+<li><b>Forward passes per source sample</b>: in a replay of DET-INST with one of the platform’s own optimizations turned off, the rule found 944 passes for 261 source samples, 3.6 per source. The 683 extra passes × 730 ms = 498 s, 63% of the evaluation. This rule exists because the first version could only say “the forward pass is slow”.</li>
+</ul></div>
+
+  <h3 id="settings">Server settings, the floor, and offline against online</h3>
+  <ul>
+    <li><b>Server settings</b>: what each pod got (CPU, memory, worker pods and processes, GPUs) against what the run used, with a verdict: limited the run, at its limit, fits, or mostly unused. Advice is given for automatic and for manual resource settings. CPU is judged during the evaluation and the visualization; memory over the whole run, since a limit has to hold every step.</li>
+    <li><b>Gap to the floor</b>: the steady online time per row against the offline floor. A gap close to the inference slowdown means the model runs slower on the server, not that there is overhead around it.</li>
+    <li><b>Offline against online</b>: the same components measured both ways. A large ratio says the server differs from the machine the optimization ran on.</li>
+  </ul>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li><b>TAB-3.7M</b>: worker pods × processes, 2 × 1, <span class="pill crit">limited the run</span>: the workers set the visualization’s pace and their count didn’t grow. Evaluation-pod CPU, 16 cores with 1.11 used at P95: <span class="pill neutral">mostly unused</span>. Worker memory, 19.0 GB with a 9.3 GB peak: <span class="pill good">fits</span>.</li>
+<li><b>DET-INST</b>: no GPU <span class="pill crit">limited the run</span>, since inference sets the pace and ran on CPU. Worker memory, 2.0 GB with a 0.3 GB peak: lower toward 0.4 GB.</li>
+<li><b>Gap to the floor</b>: DET-INST about ×1.6–1.8. On the first run that matched the model’s own slowdown on the shared machine, so the gap was the model running slower, not overhead. BIO-258k: 43.9 against 1.0 ms per row (×43.8), with inference alone about 19× slower online. TAB-3.7M: 10.4 ms per row against a model of about 0.001 ms; about 8 ms of per-step work surrounds each forward pass.</li>
+</ul></div>
+</section>
+
+<section id="p7">
+  <span class="phase-tag">PHASE 7</span>
+  <h2>The report</h2>
+  <div class="facts">
+    <div><h4>Part 1 · Offline</h4><p>Always present. What limits the integration’s own code, what was changed (each fix with its catalog class, before and after per sample, and its memory effect), the trade-offs between memory and runtime, what remains and who owns it.</p></div>
+    <div><h4>Part 2 · Online</h4><p>Only after an approved diagnostics run; otherwise one line saying it was not run. The primary bottleneck with log evidence, root causes, server settings, memory per pod, the gap to the floor, and what to ask Tensorleap for.</p></div>
+    <div><h4>How it reads</h4><p>Each part is answer-first, with details in a collapsed appendix. Part 2’s appendix keeps the per-component percentiles from the server. A part leads with memory only under memory pressure, otherwise with time.</p></div>
+    <div><h4>What you share</h4><p><code>report.html</code>: one self-contained page that can be mailed or posted as is. It ends with every step that ran and the artifact it left. <code>report.md</code> holds the same content as text.</p></div>
+  </div>
+  <div class="example"><h4>From the test integrations</h4><p>The two-part report for <b>TAB-3.7M</b>, after its diagnostics run:</p>
+<ul>
+<li>Memory leads Part 2: the server warned that the job “needs 36.0 GiB, 35.8 GiB free”. The first card: the worker pod peaked at 9.3 of 19.0 GB, almost all of it the integration’s own memory (offline peak 10.5 GB).</li>
+<li>Where the time went: visualization 76%, post-processing (not analyzed) 11%, evaluation 10% of 5,345 s.</li>
+<li>The two parts reconcile: Part 1 had blamed sample generation, assuming 1,000 visualized samples; Part 2 notes this run visualized 6,940 of 10,000.</li>
+<li>On BIO-258k, with no memory pressure, Part 2 opens with “No memory pressure on this run, so time leads this part.”</li>
+<li>The two-part layout cut the TAB-3.7M report from 10,252 to 8,421 words and from 28 to 20 headings.</li>
+</ul></div>
+</section>
+
+<section id="history">
+  <h2>Code history without git</h2>
+  <p>The skill keeps, undoes and shows its changes with any version control, or none.</p>
+  <ul>
+    <li><code>profile</code> saves the integration’s code; an accepted <code>compare</code> writes the fix as <code>fixes/NN.patch</code>. Changes made before the baseline become <code>fixes/00-before-baseline.patch</code>.</li>
+    <li><code>tl_perf restore</code> undoes what wasn’t accepted, including the smoke or diagnostics cap, which is applied in place and never committed.</li>
+    <li>The cap guard reads config files too (<code>.yaml</code>, <code>.toml</code>, <code>.cfg</code>, <code>.ini</code>), so a cap set through a config key is caught.</li>
+    <li>The report flags code that changed after the last profile.</li>
+    <li>In a git repo the skill also commits each accepted fix on its own branch, one commit per fix.</li>
+  </ul>
+  <div class="example"><h4>From the test integrations</h4><ul>
+<li><b>PARQ-70k, blind run without git</b>: fix 1 was accepted and written as patch <code>01</code>. A later candidate was rejected (exit 9), and restore reported “code back to runs/002 (2 file(s) restored)”. The smoke cap was applied in place, pushed and restored, leaving no cap marker. Done in 695 s: expected runtime 257.5 → 181.0 s (−30%), memory 0.61 → 0.31 GB per worker, outputs bit-identical, smoke Evaluate finished (53 s, 100 samples). Applying the patches to the original code reproduced the final code exactly.</li>
+<li>That run found a gap: a correctness fix made before the baseline (the loss failed on batches larger than 1) had no patch. It is now written automatically as <code>00-before-baseline.patch</code>.</li>
+<li><b>PARQ-70k, blind run with git</b>: done in 530 s, with one commit per accepted fix (the pre-baseline correctness fix, an input fix at 0.979 → 0.108 ms per sample, a start-up memory fix at 0.58 → 0.35 GB per worker) and the report. Rejected candidates (exits 12, 9, 8, 9) were undone with restore.</li>
+</ul></div>
+</section>
+
+<section id="catalog">
+  <h2>What it can catch: the bottleneck catalog</h2>
+  <p>The catalog is where the search starts, not where it stops: candidates come from measurement, and a cost no class describes is still investigated and reported as new.</p>
+  <div class="cols2">
+  <div class="table-wrap"><table>
+    <thead><tr><th>Class</th><th>Runtime</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td>Redundant work across components</td></tr>
+      <tr><td>B</td><td>Storage layout against processing order (cache thrash)</td></tr>
+      <tr><td>C</td><td>Opening a data file to read one number</td></tr>
+      <tr><td>D</td><td>Batching problems</td></tr>
+      <tr><td>E</td><td>Preprocess and per-row CPU</td></tr>
+      <tr><td>F</td><td>Memory pressure from activations or workers</td></tr>
+      <tr><td>G</td><td>Heavy metrics</td></tr>
+      <tr><td>H</td><td>Heavy visualizers</td></tr>
+      <tr><td>I</td><td>Heavy metadata</td></tr>
+      <tr><td>J</td><td>Loss, latent or per-call loading</td></tr>
+      <tr><td>K</td><td>Quadratic lookups</td></tr>
+      <tr><td>L–N</td><td>Data crossing into metrics and loss</td></tr>
+      <tr><td>O</td><td>Thread contention</td></tr>
+      <tr><td>P</td><td>Reads not overlapped with compute</td></tr>
+      <tr><td>Q</td><td>Cache writes that are never read</td></tr>
+      <tr><td>R</td><td>Silent accelerator fallback</td></tr>
+      <tr><td>S</td><td>A cache that does not cache</td></tr>
+      <tr><td>T</td><td>Nondeterministic components (reported, not fixed silently)</td></tr>
+      <tr><td>U</td><td>Outdated dependencies</td></tr>
+      <tr><td>V</td><td>Metrics that reload source data</td></tr>
+      <tr><td>W</td><td>Full-size layout and dtype churn in encoders</td></tr>
+    </tbody>
+  </table></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Class</th><th>Memory</th></tr></thead>
+    <tbody>
+      <tr><td>M1</td><td>Unneeded imports</td></tr>
+      <tr><td>M2</td><td>Data loaded but not used</td></tr>
+      <tr><td>M3</td><td>Duplicate copies</td></tr>
+      <tr><td>M4</td><td>Wide dtypes</td></tr>
+      <tr><td>M5</td><td>Long and repeated strings</td></tr>
+      <tr><td>M6</td><td>Caches that hold too much</td></tr>
+      <tr><td>M7</td><td>Large per-call temporaries</td></tr>
+      <tr><td>M8</td><td>Growth with the samples (leaks)</td></tr>
+      <tr><td>M9</td><td>Views keeping big arrays alive</td></tr>
+      <tr><td>M10</td><td>Object-heavy structures</td></tr>
+      <tr><td>M11</td><td>Disk caches and temp files that grow</td></tr>
+      <tr><td>M12</td><td>Extra models or sessions loaded by user code</td></tr>
+    </tbody>
+  </table></div>
+  </div>
+  <h3>Seen in the test runs</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Class</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>IMG-480, DET-TIFF, DET-INST: a component re-doing another’s decode</td></tr>
+<tr><td>B</td><td>PARQ-70k (fixed with grouped preprocess); DET-INST (diagnosed; grouping can’t be used with instance rows)</td></tr>
+<tr><td>C</td><td>DET-INST: the image size read by opening the image</td></tr>
+<tr><td>D</td><td>PARQ-70k’s loss, DET-128’s ground truth</td></tr>
+<tr><td>E, I</td><td>TS-480, BIO-258k, TAB-3.7M: per-row work in preprocess and metadata</td></tr>
+<tr><td>G, H</td><td>DET-128 (metrics); DET-INST and TAB-3.7M (visualizers)</td></tr>
+<tr><td>J, K</td><td>BIO-258k (loading per call); TAB-3.7M (a linear membership check)</td></tr>
+<tr><td>T</td><td>IMG-480: unseeded noise, reported, not fixed</td></tr>
+<tr><td>V, W</td><td>DET-TIFF and DET-128: both classes were added to the catalog from these runs</td></tr>
+<tr><td>M1–M5, M8, M10, M12</td><td>TAB-3.7M, TS-110k, BIO-258k, PARQ-70k</td></tr>
+<tr><td>new</td><td>BIO-258k (ridge-line counting), TAB-3.7M (a reader keeping native memory)</td></tr>
+</tbody></table></div>
+<p class="note">Each class in <code>reference/perf-bottleneck-catalog.md</code> has its measured signal, its static tell, the fix, and the trap to avoid.</p>
+</section>
+
+<section id="results">
+  <h2>Results on the test integrations</h2>
+  <p>Every example on this page comes from these integrations. They are internal test integrations, anonymized here, each with a known before-and-after. The offline numbers come from blind runs: a fresh agent with only this skill and nobody to answer it, on a 16-core laptop CPU with 64 GB of RAM and no GPU. The online numbers come from authorized runs on a local, CPU-only Tensorleap server.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Label</th><th>Integration</th></tr></thead>
+<tbody>
+<tr><td>IMG-480</td><td>Image classification on 1920×1080 grayscale JPEGs, 480 samples</td></tr>
+<tr><td>IMG-480-opt</td><td>The same integration after a human optimized it: the negative control</td></tr>
+<tr><td>PARQ-70k</td><td>Small digit classifier, images stored in Parquet shards, 70,000 samples</td></tr>
+<tr><td>DET-128</td><td>Object detection, 128 images, model with a fixed batch of 1</td></tr>
+<tr><td>DET-TIFF</td><td>Object detection on 15 MB high-resolution TIFFs, 359 images</td></tr>
+<tr><td>DET-INST</td><td>Oriented-object detection with one row per detected object, 261 frames (1,637 rows)</td></tr>
+<tr><td>TS-480 / TS-110k</td><td>Time-series reconstruction (an autoencoder), at 480 samples and at 110k rows</td></tr>
+<tr><td>TAB-3.7M</td><td>Tabular classifier with a tiny model, 3.7M rows</td></tr>
+<tr><td>BIO-258k</td><td>1-D biosignal classifier with a prototype-based loss, 258k samples</td></tr>
+</tbody></table></div>
+<h3>Offline: expected runtime</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Integration</th><th class="num">Before → after</th><th class="num">Change</th><th class="num">Fixes kept</th><th>What limits it now</th></tr></thead>
+<tbody>
+<tr><td>IMG-480</td><td class="num">20.9 → 8.9 s</td><td class="num">−57%</td><td class="num">3</td><td>JPEG decode and image statistics</td></tr>
+<tr><td>IMG-480-opt</td><td class="num">9.70 → 8.73 s</td><td class="num">−10%</td><td class="num">2</td><td>JPEG decode</td></tr>
+<tr><td>PARQ-70k</td><td class="num">58.2 → 12.0 s</td><td class="num">−79%</td><td class="num">4</td><td>model inference (46%)</td></tr>
+<tr><td>DET-128</td><td class="num">2.8 → 2.3 s</td><td class="num">−19%</td><td class="num">3</td><td>inference (69%, fixed batch 1)</td></tr>
+<tr><td>DET-TIFF</td><td class="num">124 → 31 s</td><td class="num">−75%</td><td class="num">2</td><td>one TIFF decode per sample (about 2× the floor)</td></tr>
+<tr><td>DET-INST</td><td class="num">230 → 192 s</td><td class="num">−17%</td><td class="num">2</td><td>inference (70%)</td></tr>
+<tr><td>TS-480</td><td class="num">7.5 → 1.6 s</td><td class="num">−78%</td><td class="num">3</td><td>per-worker start-up</td></tr>
+<tr><td>TAB-3.7M</td><td class="num">10,364 → 2,873 s</td><td class="num">−72%</td><td class="num">3</td><td>per-value metadata conversion inside the Tensorleap library</td></tr>
+<tr><td>BIO-258k</td><td class="num">4,443 → 2,314 s</td><td class="num">−48%</td><td class="num">3</td><td>the loss re-running the model (its fix changes outputs; declined)</td></tr>
+</tbody></table></div>
+<p class="note">Expected runtime counts per-worker start-up once plus each component’s mean cost per sample times the samples it runs on, with visualizers weighted by visualized samples. Rows use each run’s own settings. Every kept change was bit-identical, or carried a recorded tolerance; 8 of 8 smoke Evaluates finished.</p>
+<h3>Offline: user-code memory per worker</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Integration</th><th>Status</th><th class="num">Before → after</th><th>Main fixes</th></tr></thead>
+<tbody>
+<tr><td>TAB-3.7M</td><td><span class="pill crit">RED</span></td><td class="num">16.0 → 3.3 GB (−80%)</td><td>float32 streaming, no scaled or per-split copies, string codes</td></tr>
+<tr><td>TS-110k</td><td><span class="pill warn">AMBER</span></td><td class="num">1.56 → 1.03 GB (−34%)</td><td>read only the needed columns, build the table in chunks</td></tr>
+<tr><td>PARQ-70k</td><td><span class="pill good">GREEN</span></td><td class="num">0.61 → 0.31 GB (−49%)</td><td>framework import moved into the model loader</td></tr>
+<tr><td>DET-128</td><td><span class="pill good">GREEN</span></td><td class="num">0.23 GB</td><td>none needed</td></tr>
+</tbody></table></div>
+<h3>Online: what set the pace on the server</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Integration</th><th>Evaluation</th><th>Visualization</th><th class="num">Gap to floor</th></tr></thead>
+<tbody>
+<tr><td>DET-INST</td><td>inference floor (97% of the loop); no GPU limited it</td><td>40% of the run; forward passes on the evaluation pod</td><td class="num">×1.6</td></tr>
+<tr><td>DET-TIFF</td><td>inference floor, generation close behind</td><td>too short to reach a steady pace</td><td class="num">×8.7</td></tr>
+<tr><td>BIO-258k</td><td>metrics-bound: the loss re-runs the model</td><td>3% of the run</td><td class="num">×43.8</td></tr>
+<tr><td>TAB-3.7M</td><td>metrics pipeline, not the user’s metrics</td><td>76% of the run; one serial worker, visualizers run twice</td><td class="num">×10,602 (a ~1 µs model)</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="never">
+  <h2>What it never does</h2>
+  <ul>
+    <li>Keep a change that <code>compare</code> did not accept, or apply an option that changes outputs without an explicit yes.</li>
+    <li>Measure runtime with the integration test or a hand-written loop: only <code>tl_perf</code> models how Tensorleap runs the components.</li>
+    <li>Make a visualizer depend on a cache filled elsewhere, or assume a cache survives across worker processes.</li>
+    <li>Alter your source data or the model weights.</li>
+    <li>Re-push blind, or commit a smoke or diagnostics cap.</li>
+    <li>Run online diagnostics without your explicit yes, run them unattended, or change server settings.</li>
+    <li>Put secrets, credentials or data paths into the report beyond what your repo already contains.</li>
+    <li>Save memory by changing values without an explicit yes, or let a memory fix cost more runtime than allowed.</li>
+  </ul>
+</section>
+
+<section id="reference">
+  <h2>Commands, exit codes, files</h2>
+  <details><summary>Subcommands</summary><div>
+  <pre><code>poetry run python &lt;scripts_dir&gt;/tl_perf.py &lt;subcommand&gt; [options]</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Subcommand</th><th>Does</th><th>Writes</th></tr></thead>
+    <tbody>
+      <tr><td><code>preflight</code></td><td>Environment, devices, GPU use, code-loader features, integration validity, model load</td><td><code>preflight.json</code></td></tr>
+      <tr><td><code>floor</code></td><td>The model alone: P50–P99 per batch size, recommended batch</td><td><code>floor.json</code></td></tr>
+      <tr><td><code>fit</code></td><td>Tensor sizes, rows per state, model memory per batch, batch support</td><td><code>fit.json</code></td></tr>
+      <tr><td><code>profile</code></td><td>Every component as Tensorleap runs it; user-code memory; the baseline</td><td><code>runs/NNN/</code>, <code>baseline/</code></td></tr>
+      <tr><td><code>score</code></td><td>Ranked runtime and memory candidates; memory triage</td><td><code>score.json</code></td></tr>
+      <tr><td><code>compare</code></td><td>Equivalence vs the baseline; gain and memory vs the last accepted run</td><td><code>runs/NNN/compare.json</code>, <code>fixes/NN.patch</code></td></tr>
+      <tr><td><code>restore</code></td><td>Undo what wasn’t accepted</td><td>(the integration’s code)</td></tr>
+      <tr><td><code>report</code></td><td>Renders <code>report.json</code></td><td><code>report.md</code>, <code>report.html</code></td></tr>
+      <tr><td><code>online collect</code></td><td>Follows one server run, keeps its logs</td><td><code>online/&lt;run&gt;/</code></td></tr>
+      <tr><td><code>online analyze</code></td><td>Steady-window statistics, bottleneck, root causes, settings</td><td><code>online/analysis.json</code></td></tr>
+    </tbody>
+  </table></div></div></details>
+  <details><summary>Exit codes</summary><div><div class="table-wrap"><table>
+    <thead><tr><th>Exit</th><th>Meaning</th><th>The skill then</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td>ok</td><td>continues</td></tr>
+      <tr><td class="num">2</td><td>blocker: missing code-loader, disk, or inputs</td><td>fixes the named cause and re-runs</td></tr>
+      <tr><td class="num">3</td><td>integration invalid</td><td>stops optimizing until the integration works</td></tr>
+      <tr><td class="num">4</td><td>GPU present, model on CPU</td><td>installs the GPU runtime, or continues with a CPU-floor caveat</td></tr>
+      <tr><td class="num">5</td><td>won’t fit even at the smallest batch</td><td>reports a blocker; looks at memory first</td></tr>
+      <tr><td class="num">6</td><td>model can’t load standalone</td><td>fixes the model loader</td></tr>
+      <tr><td class="num">7</td><td>a profiling pass failed</td><td>fixes the component that raises</td></tr>
+      <tr><td class="num">8</td><td>outputs not equivalent</td><td>restores, reads the mismatch</td></tr>
+      <tr><td class="num">9</td><td>no meaningful gain</td><td>restores</td></tr>
+      <tr><td class="num">10</td><td>runtime fix grew the footprint</td><td>restores, or bounds the cache</td></tr>
+      <tr><td class="num">11</td><td>invalid <code>report.json</code></td><td>fixes the listed fields</td></tr>
+      <tr><td class="num">12</td><td>memory fix costs too much runtime</td><td>restores, finds a cheaper fix</td></tr>
+      <tr><td class="num">20</td><td>server run still going</td><td>runs <code>online collect</code> again</td></tr>
+      <tr><td class="num">21</td><td>visualization pace is steady</td><td>asks you to stop the run in the UI, then collects again</td></tr>
+    </tbody>
+  </table></div></div></details>
+  <details><summary>Files in <code>tensorleap/runtime-optimization/</code></summary><div>
+    <p>Kept for commit: <code>report.md</code>, <code>report.json</code>, <code>optimization-log.md</code>, <code>static.json</code>. Everything else is local and ignored by the directory’s own <code>.gitignore</code>: <code>preflight.json</code>, <code>floor.json</code>, <code>fit.json</code>, <code>profile.json</code>, <code>score.json</code>, <code>runs/</code>, <code>baseline/</code>, <code>fixes/</code>, <code>online/</code> (raw server logs with identity fields removed), and <code>report.html</code>, which is rebuilt from <code>report.json</code>.</p>
+  </div></details>
+</section>
+
+<footer>This page lives in the skill’s source at <code>skills/tensorleap-runtime-optimization/docs/how-it-works.html</code>. It opens offline; it doesn’t ship with the installed skill. The authoritative behavior is <code>skill.md</code> and <code>scripts/tl_perf.py</code>.</footer>
+
+
+</main>
+</div>
+</body>
+</html>
