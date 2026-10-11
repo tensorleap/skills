@@ -50,7 +50,9 @@ Duplication
 and Data Leakage share one sample list; the export narrows it to each
 insight's own members from `cluster.json`, so `population.samples` and the
 exported samples describe that insight alone. Every other type: every csv
-row is a member.
+row is a member, except a failure-mode csv from an older engine that carries
+`is_low_perf_root_member`: there only its `True` rows are members, the rest
+are latent neighbours.
 
 **0. Is the wider metadata population failing too?**
 Look at `mutual_info_elements`: the features characterizing the cluster define

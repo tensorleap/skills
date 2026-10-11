@@ -11,7 +11,7 @@ description: >
   self-contained HTML report with evidence, embedded sample visualizations,
   and concrete action items for an ML engineer.
 group: tensorleap
-version: 0.3.1
+version: 0.3.2
 globs: ["leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents]
@@ -164,7 +164,11 @@ are relative to that directory. It contains:
   `payload.json` and any image assets.
 
 A failure mode's csv rows are the group the platform flagged, not proof of
-failure: check `summary.contrast` first, and when the group's loss or error is within ~1.2x of all data, say
+failure. Versions evaluated on an older engine also list the cluster's
+latent neighbours, marked `is_low_perf_root_member == False` and often
+healthy; when that column exists only its `True` rows are the group (the
+export, `summarize` and `overlaps` already count only those, so filter the
+same way when you open `samples.csv` yourself). Either way, check `summary.contrast` first, and when the group's loss or error is within ~1.2x of all data, say
 the platform's grouping does not show a real failure instead of describing
 one. Duplication and Data Leakage share one sample list across insights; the
 export narrows it to each insight's own members (`cluster.json`) and ranks
