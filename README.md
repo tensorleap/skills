@@ -14,8 +14,90 @@ ships the shared scripts each skill needs.
 >   WSL2, cloud VMs; online, proxy, or airgap; CPU or GPU): preflight checks, the right
 >   `leap server` command, first-login verification, a field-sourced failure catalog,
 >   and a per-machine `install-notes.md` so later upgrades start with context.
+> - [`tensorleap-analysis`](skills/tensorleap-analysis/skill.md) — reading an evaluated
+>   model version's results through the Tensorleap MCP server and writing a report:
+>   where the model fails and why, with evidence samples and concrete next steps.
 
 **No clone needed** — every install command below fetches what it needs.
+
+## Connect your AI assistant to Tensorleap (MCP server + skills)
+
+Your assistant reads your Tensorleap analysis through the **Tensorleap MCP server**
+(insights, metrics, samples, integration code, job logs) and uses the **skills** in this
+repo to turn it into answers and reports. One command sets up both.
+
+**1. Install or upgrade the leap CLI** (0.0.163 or newer has `leap mcp`):
+
+```bash
+curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash
+```
+
+Already installed? `leap cli upgrade -s | bash`
+
+**2. Sign in to your Tensorleap server** (skip if you already push with `leap`):
+
+```bash
+leap auth login
+```
+
+**3. Connect your assistant:**
+
+```bash
+leap mcp config
+```
+
+It asks which assistant (the ones on your machine are marked) and, if you use more than
+one Tensorleap server, which one. Then it checks the server answers, writes the
+assistant's MCP settings (keeping everything else in the file, with a `.bak` copy), and
+installs the skills where the assistant loads them. You can also name the assistant:
+`leap mcp config cursor`.
+
+**4. Restart the assistant and ask:**
+
+> What is my model's biggest weakness in project `<name>`?
+>
+> Write a Tensorleap analysis report for project `<name>`
+
+| Assistant | What `leap mcp config` sets up |
+|---|---|
+| Claude Code | the `analysis` plugin: MCP server + skills, updated through the plugin marketplace |
+| Cursor | MCP server in `~/.cursor/mcp.json` + skills in `~/.cursor/skills` |
+| VS Code (GitHub Copilot) | MCP server in your user `mcp.json` + skills in `~/.copilot/skills` |
+| OpenAI Codex | MCP server in `~/.codex/config.toml` |
+| Windsurf | MCP server in `~/.codeium/windsurf/mcp_config.json` |
+| Claude Desktop | MCP server in `claude_desktop_config.json` |
+
+<details>
+<summary>More: manual setup, several servers, AI access, troubleshooting</summary>
+
+- **Set it up by hand or for a whole team:** `leap mcp config <assistant> --print` shows
+  the exact snippet and changes nothing. For Claude Code it also shows a `.mcp.json` you
+  can commit to a repo.
+- **Claude Code from the plugin marketplace instead:** inside Claude Code run
+  `/plugin marketplace add tensorleap/skills` then `/plugin install analysis@tensorleap`.
+  The plugin starts `leap mcp`, so the leap CLI still has to be installed and signed in.
+- **Several Tensorleap servers:** the assistant follows your current `leap auth`
+  environment; switch it with `leap auth select`. `leap mcp config <assistant> --env <name>`
+  pins one server instead (for Claude Code that registers the MCP server without the plugin).
+- **MCP only, no skills:** `leap mcp config <assistant> --no-skills`.
+- **AI access:** an admin decides what assistants may read (gear icon, top right, then
+  **AI ACCESS**). Everything is on by default; when something is off, the setup and the
+  assistant both say so.
+- **Check the connection any time:** run `leap mcp` in a terminal. It shows who you are
+  signed in as, whether the MCP server answers, and what AI access withholds.
+- **Troubleshooting:**
+  - `unknown command "mcp"`: your leap CLI is older than 0.0.163; upgrade it (step 1).
+  - "the server rejected your API key": run `leap auth login` again.
+  - "has no MCP endpoint yet": the Tensorleap server needs an upgrade (ask your admin, or
+    `leap server upgrade` on a server you run).
+  - "Can't reach …": the server isn't reachable from this machine; check the VPN or
+    tunnel you normally use to open the Tensorleap UI.
+  - VS Code with Copilot Business or Enterprise: an organization admin must allow
+    *MCP servers in Copilot*.
+
+</details>
+
+The sections below install the skills for one assistant at a time, without the MCP server.
 
 ## GitHub Copilot (VS Code and Copilot CLI)
 

@@ -11,7 +11,7 @@ description: >
   self-contained HTML report with evidence, embedded sample visualizations,
   and concrete action items for an ML engineer.
 group: tensorleap
-version: 0.3.1
+version: 0.3.2
 globs: ["leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents]
@@ -68,17 +68,19 @@ Then call `tl_status`. If the Tensorleap tools are not available at all:
 - **Claude, installed as the `analysis` plugin**: the plugin already ships
   the MCP server and starts it as `leap mcp`, so the cause is the leap CLI:
   not on PATH, or too old to have `leap mcp` (it answers `unknown command
-  "mcp"`). Tell the user to install or upgrade it (`leap cli upgrade`) and
-  restart Claude, then stop. Do not register a second server.
+  "mcp"`). Tell the user to upgrade it with `leap cli upgrade -s | bash` (or
+  install it: `curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash`)
+  and start a new Claude session, then stop. Do not register a second server.
 - **Any other assistant** (Cursor, Copilot, Codex, Windsurf, Claude Desktop,
-  or Claude without the plugin): tell the user to run
-  `leap mcp config <cursor|vscode|codex|windsurf|claude-desktop|claude-code>`
-  (it prints the exact step; on `unknown command "mcp"`, run
-  `leap cli upgrade` first) and restart the assistant, then stop.
+  or Claude without the plugin): tell the user to run `leap mcp config` in a
+  terminal. It asks which assistant, writes the assistant's MCP settings,
+  installs these skills where the assistant supports them and checks the
+  server. Then restart the assistant and stop. On `unknown command "mcp"`,
+  the CLI is too old: `leap cli upgrade -s | bash` first.
 
 If `tl_status` works but `tl_export_analysis` is not among the tools, the
-leap CLI predates this skill: ask the user to run `leap cli upgrade` and
-restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
+leap CLI predates this skill: ask the user to run `leap cli upgrade -s | bash`
+and restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
 to run `leap auth login`, fix `--env`, or check the tunnel) and stop. Do not
 improvise other auth mechanisms.
 
