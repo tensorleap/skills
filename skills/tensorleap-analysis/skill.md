@@ -11,7 +11,7 @@ description: >
   self-contained HTML report with evidence, embedded sample visualizations,
   and concrete action items for an ML engineer.
 group: tensorleap
-version: 0.3.1
+version: 0.3.2
 globs: ["leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents]
