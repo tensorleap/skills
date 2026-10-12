@@ -1,0 +1,11 @@
+{
+  "name": "optimization",
+  "description": "Tensorleap's AI-assistant skills for measuring and optimizing integration runtime: model inference floor, component-level profiling, lossless fixes with equivalence checks, and a bottleneck report.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Tensorleap",
+    "email": "support@tensorleap.ai"
+  },
+  "homepage": "https://github.com/tensorleap/skills",
+  "license": "Apache-2.0"
+}
