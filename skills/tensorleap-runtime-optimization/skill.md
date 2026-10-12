@@ -200,6 +200,10 @@ Then read for **waste in general**, not only the catalogued patterns:
   DataFrame ↔ dict);
 - Python loops over array elements, and copies of large arrays;
 - I/O, parsing or regex compilation inside per-sample code;
+- **imports**: packages imported at module level that evaluation never uses (training,
+  plotting, experiment-tracking or data-prep tools, often pulled in by a helper module),
+  names imported and never referenced, and heavy packages imported at the top that only one
+  visualizer or metric needs (catalog M1);
 - **bugs**: code that is wrong for some inputs, shapes or batch sizes, dead branches that
   hide errors, silent `except:` blocks.
 
@@ -245,7 +249,26 @@ equivalence check only covers branches the sampled data executes.
       much more preprocess needs at its peak than it keeps, which stage sets the peak, and
       the "unattributed" part (memory freed but kept by an allocator or a native library —
       it shrinks when the peak that grew it shrinks; never chase it as a holder).
-4. Log the baseline breakdown, runtime and memory.
+4. **Import check.** `profile` records which stage really runs each third-party package
+   (preprocess, generation, metrics and loss, visualizers), times each candidate import
+   alone in a fresh interpreter (memory and seconds), and lists imported names its files
+   never reference. Read its `M1` findings:
+   - **unused** — a package the integration imports but no stage ran: remove the import (or
+     move it into the one function that needs it, e.g. an offline tool). Every worker
+     process pays its import memory and time for nothing, so it is a memory candidate and a
+     start-up candidate (`startup:import:<package>`) at once — a both-win.
+   - **lazy** — a package only the metrics or only the visualizers run: import it inside
+     them. That keeps it out of every worker's start-up and out of the memory of the phases
+     before them; it does **not** remove the cost (each worker still imports it once when
+     that stage starts), so judge it as memory, never claim it as a runtime gain.
+   - names imported but never referenced, in files whose package *is* used elsewhere, are
+     cosmetic: tidy them only alongside a real fix.
+   A package below `M1`'s size (fewer than 20 modules) is not worth a change. If
+   `--no-import-costs` was used, re-profile without it before acting on an import. An
+   import kept for what it does at import time (a plugin or registry it fills, a backend it
+   selects) is used even though none of its code runs later: read the import before
+   removing it — a clean load and `compare`'s equivalence check catch a wrong removal.
+5. Log the baseline breakdown, runtime and memory.
 
 ## Phase 4 — Lossless optimization loops (runtime 4R, memory 4M)
 
@@ -260,7 +283,8 @@ kept fix — a fix can change the status.
             inference >= 1, or >= 10% of expected runtime. Skip ones marked (minor).
             Startup (import + preprocess, paid by every worker) counts once in the
             expected total — `score` and `compare` both include it — so a preprocess fix
-            is judged like any other; it earns exit 0 when startup is a real share.
+            is judged like any other; it earns exit 0 when startup is a real share. An
+            unused import is its own start-up candidate (`startup:import:<package>`).
 2. EXPLAIN  why it is slow, from its evidence + the code (profile diagnostics list hot
             functions and repeated calls; if no catalog class fits, profile that component
             with cProfile and read the hot path). No explanation -> no change.
@@ -301,7 +325,8 @@ Rules of the loop:
             it (not marked minor: at least max(5% of the footprint, 64 MB)). Candidates of
             unknown size (a growing container, an unbounded cache, open figures) are worth
             a look when the status is AMBER/RED. GREEN: only candidates whose fix cannot
-            cost runtime (an unused import, columns never read, a duplicate copy, a leak).
+            cost runtime (an unused import, an import only the metrics or visualizers need,
+            columns never read, a duplicate copy, a leak).
 2. EXPLAIN  what holds the memory and why, from the census and the code: which object,
             created where, alive since when, needed by whom. A peak set inside preprocess
             means several large temporaries alive at once — read preprocess for full-width
