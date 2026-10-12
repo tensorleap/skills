@@ -65,6 +65,12 @@ and restart, then stop. If `tl_status` fails, relay its message verbatim (it say
 to run `leap auth login`, fix `--env`, or check the tunnel) and stop. Do not
 improvise other auth mechanisms.
 
+**License.** `tl_status` returns `license` and, on a Free Tier server, a `note`
+with the limits; relay the note to the user once, in your words. On such a
+server `tl_export_analysis` lists the unlabeled (fixing-samples) list under
+`skipped`: say the license withheld it and never reconstruct it from other
+tools.
+
 **AI access.** An admin can turn off what assistants may read (gear icon >
 AI ACCESS). `tl_status` and `tl_list_projects` show what is turned off. If a
 tool refuses, quote its message to the user and continue with what is

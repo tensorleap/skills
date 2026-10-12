@@ -373,10 +373,12 @@ Pick the row, then act:
   configurable cap on the number of samples, applied **balanced across splits**
   (same count per split), read from `project_config.yaml` (e.g.
   `sample_limit_per_split`). **Default to NO limit — the push evaluates the full
-  dataset.** Do **not** set an initial cap on your own; only apply one when the
-  **user explicitly asks** for it (e.g. a small, fast initial evaluation). When
-  they do, tell the user the cap lives at that key in `project_config.yaml` and
-  how to change or remove it. This is separate from the local-test subset above:
+  dataset.** Do **not** set an initial cap on your own; apply one only when the
+  **user explicitly asks** for it (e.g. a small, fast initial evaluation) **or
+  the server's license caps Evaluate** — the **Free Tier** evaluates up to
+  **5,000 samples across all splits** (see *Deploy*, step 4). When you cap, tell
+  the user the cap lives at that key in `project_config.yaml` and how to change
+  or remove it. This is separate from the local-test subset above:
   the limit caps what `preprocess` returns; the local test iterates a few of
   those.
 - **Credentials — don't make the user paste secrets into the session.** Only set
@@ -761,10 +763,18 @@ yes/no question.
 
 1. **Auth (re-check)** — auth was verified in the Preflight gate; quickly
    re-confirm with `leap auth whoami` in case the token expired mid-session. If
-   it no longer returns your user/team, re-run `leap auth login`.
+   it no longer returns your user/team, re-run `leap auth login`. Its
+   `License:` line names the server's license: **`Free Tier`** means Evaluate
+   runs on at most **5,000 samples** (training + validation + test + unlabeled
+   together), a limited number of projects, and no dataset curation or sample
+   analysis — tell the user once and apply step 4's cap. No `License:` line
+   (older CLI or server) → assume no limit.
 2. **Project** — the workspace must point at a project (a `projectId` in
    `leap.yaml`). If `leap projects info` says "No project configured," run
-   `leap projects create <name>` and set its id in `leap.yaml`.
+   `leap projects create <name>` and set its id in `leap.yaml`. If create fails
+   with a license project-limit message, the license's projects are used up:
+   reuse an existing one (`leap projects list`) or relay the message (it names
+   `support@tensorleap.ai`) — never delete a project to make room.
 3. **Remote-server prep (rows 4 & 5 only)** — before pushing, **switch the
    `data_root` in `project_config.yaml` from the local test path to the remote
    data-volume path** (leave the local path as a commented line with a note — see
@@ -780,6 +790,15 @@ yes/no question.
    dataset** (no `sample_limit_per_split`); apply a cap only if the **user
    explicitly asked** for a smaller initial evaluation, in which case that key in
    `project_config.yaml` holds it.
+   **Free Tier exception.** When step 1 showed `Free Tier` and the dataset has
+   more than 5,000 samples, cap it **before** pushing: sum the real split sizes
+   (what `preprocess` returns on the server's data — on a local server
+   `tl_check.py`'s `setup.preprocess` lengths; on a remote server the local check
+   ran on a 1-sample subset, so count the actual splits), then set
+   `sample_limit_per_split` so the total is ≤ 5,000 (balanced: ⌊5000 / number of
+   splits⌋ each). Say that you did, why, and where the key lives. Without the cap
+   the push itself succeeds but the Evaluate is refused with a `LICENSE_LIMIT`
+   message naming the counts.
 5. **Run the push and get the Evaluate started.** A push (model upload + build)
    can take well over 10 minutes — longer than the harness allows a foreground
    command — so run it as a **background shell**, capturing output to a file:
@@ -818,6 +837,11 @@ yes/no question.
    ```
    - **No `Evaluate` job exists at all** → the eval was **not triggered**. Re-push
      `leap push -o <version> --eval` and re-check.
+   - **`push.log` ends with a `LICENSE_LIMIT` / Free Tier message** (or `leap run
+     info <push-id>` shows one for a server-dispatched eval) → the push
+     succeeded but the dataset is over the license's sample cap. Apply the cap
+     from step 4 and re-push with `-o <version> --eval`; this is a license limit,
+     not an integration bug.
    - Once an `Evaluate` job exists and is running (`PENDING` / `INITIALIZING` /
      `STARTED`), the integration is wired up and the evaluation is underway.
    **Don't poll it with your own turns** — a turn per check burns tokens, for up to
