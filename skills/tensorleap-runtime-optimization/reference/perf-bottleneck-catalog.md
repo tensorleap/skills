@@ -266,3 +266,124 @@ diagnostics `reads` and `repeated_calls`), `score.json` (ratio to inference, evi
   provably a no-op for the input dtype (keep it for other dtypes).
 - **Verify:** `compare` bit-identical — reordering float operations can change results, so
   only reorders that are exact (per-channel, integer-domain) qualify.
+
+---
+
+# Memory classes (user-code footprint per worker)
+
+Signals refer to `runs/NNN/memory.json` / the `user_memory` block of `profile.json`
+(footprint, breakdown by stage, the stage that sets the peak, holders, large objects,
+findings, per-handler `tracemalloc` peaks, the RSS trace) and to `score.json` → `memory`
+(triage + ranked candidates). A memory fix must still be **lossless** (`compare
+--objective memory` exit 0); anything that changes values is a Phase 5 option.
+
+## M1. Unneeded imports
+
+- **Signal:** finding `M1` — a package the integration imports directly, none of whose code
+  ran in preprocess or any sample; `import_costs_mb` gives its RSS cost alone.
+- **Static tell:** imports pulled in by a helper module (training, plotting, experiment
+  tracking, data-prep tools) that evaluation never calls.
+- **Fix:** remove the import, or move it inside the function that needs it.
+- **Verify:** the integration still loads; startup drops too (a both-win).
+
+## M2. Data loaded but not used
+
+- **Signal:** a large holder (DataFrame / array) in the preprocess result or a global; a
+  large "preprocess result" share of the footprint.
+- **Static tell:** reading every column of a table to use a few; loading a whole file to
+  read part of it; keeping the full dataset in memory when samples can be read one at a
+  time; storing outputs or fields no component reads.
+- **Fix:** read only the needed columns/rows; load per sample (or memory-map); keep only
+  the fields a component reads.
+- **Verify:** every output identical; the holder disappears from the census.
+
+## M3. Duplicate copies
+
+- **Signal:** finding `M3` (the same dtype/shape/content held twice), or two large holders
+  that are versions of one another (raw + transformed, full + per-split); the peak set
+  inside preprocess with a large "preprocess needs N GB more at its peak than it keeps".
+- **Static tell:** `df.copy()` to reorder, `.astype()` that copies an array already in that
+  dtype, per-split boolean-mask copies while the full arrays stay alive, a list of arrays
+  kept next to the stacked array.
+- **Fix:** keep one form; index with a permutation; `copy=False` where valid; release the
+  source before building the next form (scope intermediates inside a function).
+- **Verify:** `compare` equivalent; the peak stage's transient shrinks.
+
+## M4. Wide dtypes
+
+- **Signal:** finding `M4` — float64 data whose values are exactly representable in
+  float32 (a sample is checked), integers whose range fits a narrower type.
+- **Fix:** convert to the narrower dtype **only when every output stays identical**
+  (`compare` exit 0). Values that round are a Phase 5 option.
+- **Don't:** downcast data that feeds metadata, metrics or encoders at full precision
+  without checking — "close enough" is a behavior change.
+
+## M5. Long and repeated strings
+
+- **Signal:** finding `M5` — fixed-width unicode arrays (`<U31` = 124 bytes per element),
+  object columns of strings with few distinct values, long strings per row.
+- **Static tell:** `.astype(str)` on large columns, full file paths per row, sample ids
+  built as long strings, JSON blobs kept per sample.
+- **Fix:** integer codes + a vocabulary (or a categorical); a directory stored once plus
+  basenames, formatted on demand; bytes instead of unicode arrays where the content is
+  ASCII.
+- **Verify:** every output that uses the strings identical.
+
+## M6. Caches that hold too much
+
+- **Signal:** finding `M6` — an unbounded `lru_cache` holding entries, or a large cache with
+  more misses than hits; per-call `tracemalloc` peaks that stay retained.
+- **Static tell:** `lru_cache(maxsize=None)`, module-level dicts filled per sample, caching
+  full-resolution or raw bytes when a reduced form is what gets reused, a cache in a
+  component that runs in another process from the one that fills it.
+- **Fix:** bound it to what one sample's components reuse; cache the reduced form; remove
+  caches that never hit.
+
+## M7. Large per-call temporaries
+
+- **Signal:** a handler's `transient_peak_mb` far above its output size; the peak set
+  while samples run.
+- **Static tell:** decoding at full resolution before resizing, float64 intermediates,
+  concatenating in loops, materializing every instance or detection at once.
+- **Fix:** reduce before expanding, operate in place, process in chunks — only where
+  `compare` stays bit-identical.
+
+## M8. Growth with the samples (leaks)
+
+- **Signal:** finding `M8` — a global container that grows with the samples, live figure or
+  session objects that keep increasing, or RSS still climbing linearly in the second half
+  of the samples.
+- **Static tell:** appending to a module-level list per call, `plt.figure()` / `plt.subplots()`
+  without `plt.close`, creating an inference session per call, keeping tensors that
+  carry autograd history.
+- **Fix:** close what you open, create sessions once, `torch.no_grad()` / `.detach()`, don't
+  accumulate per-sample data globally.
+- **Verify:** the RSS trace is flat after the fix. RSS growth with no Python container
+  growing can be a native library's buffers or allocator retention — confirm on more
+  samples before calling it a leak.
+
+## M9. Views keeping big arrays alive
+
+- **Signal:** finding `M9` — a small view whose base array is much larger.
+- **Fix:** `.copy()` the slice you keep; drop the reference to the base.
+
+## M10. Object-heavy structures
+
+- **Signal:** finding `M10` — hundreds of thousands of small Python objects (ints, floats,
+  strings, tuples, dicts) in a list or dict.
+- **Fix:** numpy or arrow columns (typically 5–10× smaller), integer ids with lookups.
+
+## M11. Disk caches and temp files that grow
+
+- **Signal:** cache files written next to the data or into temp during a run.
+- **Fix:** bound the cache, clean it, keep it on the data volume with a size cap; report
+  disk use.
+
+## M12. Extra models or sessions loaded by user code
+
+- **Signal:** finding `M12` — model/session objects alive in the memory pass, where the main
+  model is never loaded.
+- **Static tell:** a second inference session for a latent space or a loss, or a framework
+  model loaded at import.
+- **Fix:** load it where it is used; share one session; drop it if its result can come from
+  the tensors the component receives.

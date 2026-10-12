@@ -38,6 +38,7 @@ import os
 import platform
 import pstats
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -55,6 +56,7 @@ EXIT_NOT_EQUIVALENT = 8
 EXIT_NO_GAIN = 9
 EXIT_MEMORY_REGRESSION = 10
 EXIT_BAD_REPORT = 11
+EXIT_RUNTIME_REGRESSION = 12
 
 DEFAULT_OUT = os.path.join("tensorleap", "runtime-optimization")
 DEFAULT_BATCH_SIZES = "1,2,4,8,16,32,64"
@@ -340,17 +342,21 @@ class Integration:
         self.log = buf.getvalue()
         return self
 
-    def load_light(self):
+    def load_light(self, on_stage=None):
         """What a Tensorleap worker does at startup: import the integration and run
-        preprocess (no validation probes). Timed as startup_seconds."""
+        preprocess (no validation probes). Timed as startup_seconds. `on_stage(name)` is
+        called after "import", "preprocess" and "first_calls" (the memory pass uses it)."""
         if self.root not in sys.path:
             sys.path.insert(0, self.root)
         from code_loader import LeapLoader
+        stage = on_stage or (lambda name: None)
         t0 = time.perf_counter()
         with working_dir(self.root), captured_stdout() as buf:
             self.loader = LeapLoader(self.root, self.entry)
             self.loader.exec_script()
+            stage("import")
             raw = self.loader.get_preprocess_sample_ids()
+            stage("preprocess")
             # The first get_sample of a process lazily probes every handler once per state
             # (code-loader's metadata-type table). It is a once-per-worker cost: pay it here
             # so it lands in startup instead of skewing the first sample.
@@ -360,6 +366,7 @@ class Integration:
                     probe()
                 except Exception:
                     pass
+            stage("first_calls")
         self.startup_seconds = time.perf_counter() - t0
         self.groups = {}
         for state, ids in raw.items():
@@ -948,12 +955,31 @@ def handler_stats(recorder, blocks, n_rows, exclude=()):
     return out
 
 
-def current_rss_gb():
+def rss_now_gb():
+    """Current RSS of this process: psutil, /proc (Linux) or ps (macOS); None if none works."""
     try:
         import psutil
         return psutil.Process().memory_info().rss / 2 ** 30
     except ImportError:
-        return peak_rss_gb()
+        pass
+    try:
+        with open("/proc/self/status") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 2 ** 20
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        out = subprocess.check_output(["ps", "-o", "rss=", "-p", str(os.getpid())],
+                                      universal_newlines=True)
+        return int(out.strip()) / 2 ** 20
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def current_rss_gb():
+    now = rss_now_gb()
+    return now if now is not None else peak_rss_gb()
 
 
 # --------------------------------------------------------------------------- #
@@ -1869,7 +1895,655 @@ def worker_snapshot(plan, result):
     result["unsupported"] = unsupported
 
 
-WORKERS = {"generate": worker_generate, "visualize": worker_visualize,
+# --------------------------------------------------------------------------- #
+# User-code memory: what one worker process of the integration holds
+# --------------------------------------------------------------------------- #
+
+MEM_LARGE_BYTES = 8 * 2 ** 20        # objects at least this big are listed individually
+MEM_SAMPLE_ITEMS = 2000              # containers larger than this are sampled, then scaled
+
+
+class MemRecorder:
+    """Per-call tracemalloc peaks (Python + numpy allocations) of instrumented handlers.
+    Only the outermost handler call is measured; nested calls belong to it. Inactive (a
+    plain pass-through) while tracemalloc is not tracing."""
+
+    def __init__(self):
+        import tracemalloc
+        self._tm = tracemalloc
+        self.calls = []          # (phase, kind, name, peak_bytes | None, retained_bytes)
+        self.phase = None
+        self._depth = 0
+        self._has_reset = hasattr(tracemalloc, "reset_peak")   # Python >= 3.9
+
+    def wrap(self, kind, name, fn):
+        rec = self
+
+        @functools.wraps(fn)
+        def measured(*args, **kwargs):
+            if rec._depth or not rec._tm.is_tracing():
+                rec._depth += 1
+                try:
+                    return fn(*args, **kwargs)
+                finally:
+                    rec._depth -= 1
+            before = rec._tm.get_traced_memory()[0]
+            if rec._has_reset:
+                rec._tm.reset_peak()
+            rec._depth += 1
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                rec._depth -= 1
+                current, peak = rec._tm.get_traced_memory()
+                rec.calls.append((rec.phase, kind, name,
+                                  max(0, peak - before) if rec._has_reset else None, current - before))
+
+        try:
+            measured.__signature__ = inspect.signature(fn, follow_wrapped=False)
+        except (TypeError, ValueError):
+            pass
+        return measured
+
+    def stats(self):
+        out = {}
+        for phase, kind, name, peak, retained in self.calls:
+            e = out.setdefault("%s:%s" % (kind, name), {"phase": phase, "peaks": [], "retained": []})
+            if peak is not None:
+                e["peaks"].append(peak / 2 ** 20)
+            e["retained"].append(retained / 2 ** 20)
+        for e in out.values():
+            peaks, retained = e.pop("peaks"), e.pop("retained")
+            e["calls"] = len(retained)
+            e["transient_peak_mb"] = percentiles(peaks) if peaks else None
+            e["retained_mb_median"] = sorted(retained)[len(retained) // 2] if retained else None
+        return out
+
+
+class LazyPayload:
+    """The generation worker's saved tensors, loaded one row at a time (so the memory pass
+    itself holds nothing between rows)."""
+
+    def __init__(self, path):
+        import numpy as np
+        self._z = np.load(path, allow_pickle=False)
+        self._keys = {}
+        for k in self._z.files:
+            kind, name, idx = k.split("|")
+            self._keys.setdefault(int(idx), []).append((kind, name, k))
+
+    def row(self, idx):
+        out = {"input": {}, "gt": {}, "pred": {}}
+        for kind, name, k in self._keys.get(idx, []):
+            out[kind][name] = self._z[k]
+        return out
+
+    def close(self):
+        self._z.close()
+
+
+def user_modules(root):
+    """The integration's own modules (under root, outside virtual envs / site-packages)."""
+    root = os.path.realpath(root)
+    out = []
+    for name, mod in list(sys.modules.items()):
+        f = getattr(mod, "__file__", None)
+        if f and _is_user_frame(f, root):
+            out.append((name, mod))
+    return out
+
+
+def user_namespaces(root):
+    """(name, globals dict) of the integration's own code: its modules in sys.modules, plus
+    the namespaces of its handler functions — code-loader runs the entry file without
+    registering it as a module, so its globals are only reachable through its functions."""
+    root = os.path.realpath(root)
+    spaces, seen = [], set()
+    for name, mod in user_modules(root):
+        d = vars(mod)
+        if id(d) not in seen:
+            seen.add(id(d))
+            spaces.append((name, d))
+    fns = []
+    try:
+        from code_loader.inner_leap_binder import global_leap_binder
+        fns.append(getattr(global_leap_binder, "integration_test_func", None))
+    except ImportError:
+        pass
+    for handler, _kind, _name in iter_registry():
+        fns.append(getattr(handler, "function", None))
+    for fn in fns:
+        user = _user_function(fn, root) if fn is not None else None
+        g = getattr(user, "__globals__", None)
+        if isinstance(g, dict) and id(g) not in seen:
+            seen.add(id(g))
+            f = g.get("__file__") or ""
+            name = g.get("__name__") or "?"
+            if (name in ("__main__", "?") or os.sep in name) and (f or os.sep in name):
+                name = os.path.splitext(os.path.basename(f or name))[0]
+            spaces.append((name, g))
+    return spaces
+
+
+def _is_container(v):
+    return isinstance(v, (list, tuple, set, frozenset, dict, collections.deque))
+
+
+def _container_lengths(root):
+    """len() of every global container in the integration's modules — cheap, allocation-free,
+    taken before and after the samples to spot growth (leaks / unbounded caches)."""
+    out = {}
+    for mname, space in user_namespaces(root):
+        for k, v in list(space.items()):
+            if _is_container(v) and not k.startswith("__"):
+                out["%s.%s" % (mname, k)] = len(v)
+    return out
+
+
+def _lru_caches(root):
+    out = {}
+    for mname, space in user_namespaces(root):
+        for k, v in list(space.items()):
+            info = getattr(v, "cache_info", None)
+            fn = getattr(v, "__wrapped__", None)
+            code = getattr(fn, "__code__", None)
+            if callable(info) and code is not None and _is_user_frame(code.co_filename, os.path.realpath(root)):
+                ci = info()
+                out["%s.%s" % (mname, k)] = {"maxsize": ci.maxsize, "currsize": ci.currsize,
+                                              "hits": ci.hits, "misses": ci.misses}
+    return out
+
+
+def _object_counts():
+    """Live model/session objects by type name (a user-loaded second model, or one created
+    per call, shows here). The main model is never loaded in the memory pass."""
+    import gc
+    names = {"InferenceSession": 0, "Functional": 0, "Sequential": 0, "Model": 0, "Figure": 0}
+    for o in gc.get_objects():
+        t = type(o)
+        n = t.__name__
+        if n in names and t.__module__.split(".")[0] in ("onnxruntime", "keras", "tensorflow", "tf_keras",
+                                                          "matplotlib"):
+            names[n] += 1
+    return {k: v for k, v in names.items() if v}
+
+
+class Census:
+    """Deep sizes of what the integration holds, with findings: large objects, wide dtypes
+    whose narrower form is exact, views keeping big arrays alive, duplicate arrays, string
+    and object-heavy containers. Sizes of very large containers are estimated from a sample."""
+
+    def __init__(self):
+        self.seen = set()
+        self.large = []
+        self.findings = []
+        self._fingerprints = {}
+
+    def add_finding(self, cls, path, nbytes, detail, exact=None):
+        self.findings.append({"class": cls, "path": path, "bytes": int(nbytes), "detail": detail,
+                              "lossless_hint": exact})
+
+    def size(self, obj, path, depth=0):
+        import types
+        oid = id(obj)
+        if oid in self.seen or depth > 8:
+            return 0
+        self.seen.add(oid)
+        if isinstance(obj, (types.ModuleType, types.FunctionType, types.BuiltinFunctionType,
+                            types.MethodType, type)):
+            return 0
+        np = sys.modules.get("numpy")
+        if np is not None and isinstance(obj, np.ndarray):
+            return self._ndarray(obj, path, np)
+        pd = sys.modules.get("pandas")
+        if pd is not None and isinstance(obj, (pd.DataFrame, pd.Series)):
+            return self._pandas(obj, path, pd)
+        if isinstance(obj, (str, bytes, bytearray)):
+            return sys.getsizeof(obj)
+        if isinstance(obj, dict):
+            return self._container(obj, path, depth, pairs=True)
+        if _is_container(obj):
+            return self._container(obj, path, depth)
+        n = sys.getsizeof(obj)
+        d = getattr(obj, "__dict__", None)
+        if isinstance(d, dict):
+            n += self.size(d, path, depth + 1)
+        return n
+
+    def _ndarray(self, a, path, np):
+        root = a
+        while isinstance(getattr(root, "base", None), np.ndarray):
+            root = root.base
+        file_backed = isinstance(root, np.memmap) or (root.base is not None and not isinstance(root.base, np.ndarray))
+        if root is not a:
+            if id(root) in self.seen:
+                return 0
+            self.seen.add(id(root))
+            n = 0 if file_backed else root.nbytes
+            if n >= MEM_LARGE_BYTES and root.nbytes >= 4 * max(a.nbytes, 1):
+                self.add_finding("M9", path, n, "a %s view (%.1f MB) keeps a %.1f MB array alive"
+                                 % (a.shape, a.nbytes / 2 ** 20, root.nbytes / 2 ** 20), exact=True)
+            return n
+        n = 0 if file_backed else a.nbytes
+        if n >= MEM_LARGE_BYTES:
+            self.large.append({"path": path, "type": "ndarray", "bytes": n, "dtype": str(a.dtype),
+                               "shape": list(a.shape)})
+            self._dtype_hint(a, path, n, np)
+            self._fingerprint(a, path, n)
+        return n
+
+    def _dtype_hint(self, a, path, n, np):
+        if a.size == 0:
+            return
+        flat = a.reshape(-1)
+        step = max(1, flat.size // 1000000)
+        s = flat[::step]
+        if a.dtype == np.float64:
+            exact = bool(np.array_equal(s.astype(np.float32).astype(np.float64), s, equal_nan=True))
+            self.add_finding("M4", path, n // 2, "float64 → float32 halves it (%s on a sample)"
+                             % ("values exact" if exact else "values change: lossy"), exact=exact)
+        elif a.dtype.kind in "iu" and a.dtype.itemsize > 1:
+            lo, hi = int(a.min()), int(a.max())
+            for t in (np.uint8, np.int8, np.int16, np.uint16, np.int32):
+                info, size = np.iinfo(t), np.dtype(t).itemsize
+                if size < a.dtype.itemsize and info.min <= lo and hi <= info.max:
+                    saved = n - n * size // a.dtype.itemsize
+                    self.add_finding("M4", path, saved, "%s values in [%d, %d] fit %s"
+                                     % (a.dtype, lo, hi, np.dtype(t).name), exact=True)
+                    break
+        elif a.dtype.kind == "U":
+            self.add_finding("M5", path, n, "fixed-width unicode %s: %d chars × 4 bytes per element"
+                             % (a.dtype, a.dtype.itemsize // 4), exact=None)
+
+    def _fingerprint(self, a, path, n):
+        import hashlib
+        np = sys.modules["numpy"]
+        flat = a.reshape(-1)
+        k = max(1, min(flat.size, (1 << 20) // max(a.itemsize, 1)))
+        h = hashlib.sha1(np.ascontiguousarray(flat[:k]).tobytes())
+        h.update(np.ascontiguousarray(flat[-k:]).tobytes())
+        key = (str(a.dtype), tuple(a.shape), h.hexdigest())
+        if key in self._fingerprints:
+            self.add_finding("M3", path, n, "same dtype/shape/content as %s" % self._fingerprints[key],
+                             exact=True)
+        else:
+            self._fingerprints[key] = path
+
+    def _pandas(self, obj, path, pd):
+        usage = obj.memory_usage(deep=True)
+        n = int(usage.sum()) if hasattr(usage, "sum") else int(usage)
+        if n < MEM_LARGE_BYTES:
+            return n
+        frame = obj if isinstance(obj, pd.DataFrame) else obj.to_frame()
+        cols = []
+        np = sys.modules["numpy"]
+        for col in frame.columns:
+            s = frame[col]
+            b = int(s.memory_usage(deep=True, index=False))
+            cols.append((b, col, str(s.dtype)))
+            cpath = "%s[%r]" % (path, col)
+            if b < MEM_LARGE_BYTES:
+                continue
+            if s.dtype == object:
+                sample = s.iloc[::max(1, len(s) // 100000)]
+                strs = sample[sample.map(lambda v: isinstance(v, str))]
+                if len(strs):
+                    lengths = strs.str.len()
+                    uniq = strs.nunique() / max(len(strs), 1)
+                    self.add_finding("M5", cpath, b, "object column of strings: mean %.0f chars, %.0f%% unique "
+                                     "in a sample%s" % (lengths.mean(), 100 * uniq,
+                                                        " → categorical" if uniq < 0.5 else ""),
+                                     exact=True if uniq < 0.5 else None)
+                else:
+                    self.add_finding("M10", cpath, b, "object column of Python objects", exact=None)
+            elif s.dtype == np.float64:
+                v = s.to_numpy()[::max(1, len(s) // 1000000)]
+                exact = bool(np.array_equal(v.astype(np.float32).astype(np.float64), v, equal_nan=True))
+                self.add_finding("M4", cpath, b // 2, "float64 column → float32 (%s on a sample)"
+                                 % ("values exact" if exact else "values change: lossy"), exact=exact)
+        cols.sort(reverse=True)
+        self.large.append({"path": path, "type": type(obj).__name__, "bytes": n,
+                           "shape": list(obj.shape),
+                           "columns": [{"name": str(c), "dtype": d, "bytes": b} for b, c, d in cols[:8]]})
+        return n
+
+    def _container(self, obj, path, depth, pairs=False):
+        import itertools
+        total_len = len(obj)
+        step = max(1, total_len // MEM_SAMPLE_ITEMS)
+        source = obj.items() if pairs else obj
+        seq = list(itertools.islice(source, 0, None, step))     # never materializes the whole container
+        scale = total_len / max(len(seq), 1)
+        n = sys.getsizeof(obj)
+        sub, strs, str_bytes, kinds = 0, [], 0, collections.Counter()
+        for i, item in enumerate(seq):
+            parts = item if pairs else (item,)
+            for p in parts:
+                kinds[type(p).__name__] += 1
+                if isinstance(p, str):
+                    strs.append(len(p))
+                    str_bytes += sys.getsizeof(p)
+            if pairs:
+                sub += self.size(item[0], path, depth + 1)
+                sub += self.size(item[1], "%s[%r]" % (path, item[0]) if len(path) < 120 else path, depth + 1)
+            else:
+                sub += self.size(item, "%s[%d]" % (path, i) if len(path) < 120 else path, depth + 1)
+        n += int(sub * scale)
+        if n >= MEM_LARGE_BYTES:
+            self.large.append({"path": path, "type": type(obj).__name__, "bytes": n, "items": total_len,
+                               "item_types": dict(kinds.most_common(4)),
+                               "estimated": scale > 1})
+            small_objects = sum(c for t, c in kinds.items() if t in ("int", "float", "str", "tuple", "dict"))
+            if total_len >= 100000 and small_objects >= 0.8 * sum(kinds.values()):
+                self.add_finding("M10", path, n, "%d items of small Python objects (%s) — numpy/arrow columns "
+                                 "are typically 5–10× smaller" % (total_len, ", ".join(kinds)), exact=None)
+            if strs and str_bytes * scale >= MEM_LARGE_BYTES:
+                long_ = sum(1 for x in strs if x > 1024)
+                self.add_finding("M5", path, int(str_bytes * scale),
+                                 "%d strings, mean %.0f chars%s" % (int(len(strs) * scale), sum(strs) / len(strs),
+                                                                   ", %d%% longer than 1 KB" % (100 * long_ // len(strs))
+                                                                   if long_ else ""), exact=None)
+        return n
+
+
+def _new_packages(before):
+    """Top-level third-party packages first imported by the integration."""
+    stdlib = getattr(sys, "stdlib_module_names", None)
+    pkgs = {}
+    for name in set(sys.modules) - before:
+        top = name.split(".")[0]
+        if top.startswith("_") or top == "code_loader" or (stdlib and top in stdlib):
+            continue
+        mod = sys.modules.get(top)
+        f = getattr(mod, "__file__", None) or ""
+        if not f or ("site-packages" not in f and "dist-packages" not in f):
+            continue
+        pkgs.setdefault(top, {"modules": 0, "dir": os.path.dirname(os.path.realpath(f))})
+        pkgs[top]["modules"] += 1
+    return pkgs
+
+
+def _direct_imports(root):
+    """Top-level packages the integration's own modules import directly (`import x` or
+    `from x import y`) — only these are the integration's to drop."""
+    import types
+    direct = set()
+    for _mname, space in user_namespaces(root):
+        for v in list(space.values()):
+            if isinstance(v, types.ModuleType):
+                direct.add(v.__name__.split(".")[0])
+            else:
+                m = getattr(v, "__module__", None)
+                if isinstance(m, str):
+                    direct.add(m.split(".")[0])
+    return direct
+
+
+def _used_packages(prof, pkgs):
+    """Packages whose code ran while profiling (preprocess + every sample phase)."""
+    import pstats
+    files = set()
+    for (filename, _line, fname) in pstats.Stats(prof).stats:
+        files.add(filename if filename != "~" else fname)
+    # Some extension modules (e.g. OpenCV) label their C functions just "<name>", without the
+    # module: resolve those against each package's top-level names (errs toward "used").
+    bare = {f[1:-1] for f in files if f.startswith("<") and f.endswith(">") and " " not in f}
+    used = set()
+    for top, info in pkgs.items():
+        d = info["dir"] + os.sep
+        mod = sys.modules.get(top)
+        if any(f.startswith(d) or ("%s." % top) in f for f in files) or \
+                any(hasattr(mod, name) for name in bare):
+            used.add(top)
+    return used
+
+
+def worker_memory(plan, result):
+    """User-code memory of one worker process. Phase 1 (RSS only): generation, then metrics
+    + loss, then visualizers, in one process — a worst case for one worker — fed saved
+    tensors, so the model is never loaded and the pass itself holds nothing between rows.
+    Phase 2: tracemalloc per-handler peaks on a few samples, after the footprint is
+    recorded (tracemalloc's own bookkeeping must not inflate it)."""
+    import tracemalloc
+    import numpy as np
+    import code_loader  # noqa: F401  (part of the baseline, not of the integration)
+    rss = {"baseline": rss_now_gb()}
+    modules_before = set(sys.modules)
+    prof = cProfile.Profile()
+    lens = {}
+
+    def on_stage(name):
+        rss[name] = rss_now_gb()
+        rss[name + "_peak"] = peak_rss_gb()        # high-water so far (transients inside the stage)
+        if name == "import":
+            prof.enable()        # preprocess and the samples count as "use"; import alone doesn't
+        if name == "first_calls":
+            lens.update(_container_lengths(plan["root"]))
+
+    integ = Integration(plan["root"], plan["entry"]).load_light(on_stage=on_stage)
+    result["pid"] = os.getpid()
+    result["startup_seconds"] = integ.startup_seconds
+    result["state_lengths"] = {k: len(v) for k, v in integ.sample_ids.items()}
+    objects_start = _object_counts()
+    rec = MemRecorder()
+    instrument_registry(rec)
+    _, handlers = mapping_info()
+    selection = select_samples(integ, plan["samples_per_state"], plan["seed"], "random")
+    trace, n_rows = [], 0
+    step = max(1, len(selection) // 50)
+    for i, (state, sid) in enumerate(selection):
+        fetch(integ, state, sid)                  # result dropped: hold nothing
+        n_rows += entry_rows(sid)
+        if i % step == 0 or i == len(selection) - 1:
+            trace.append((n_rows, rss_now_gb()))
+    rss["generation"] = rss_now_gb()
+    rss["generation_peak"] = peak_rss_gb()
+
+    payload = LazyPayload(plan["payload_path"]) if plan.get("payload_path") and \
+        os.path.isfile(plan["payload_path"]) else None
+    vis_samples = plan.get("vis_samples") or []
+    unsupported = {}
+
+    def run_metrics(rows_idx):
+        by_state = collections.OrderedDict()
+        for idx in rows_idx:
+            state, rid = vis_samples[idx]
+            by_state.setdefault(state, []).append((idx, rid))
+        for state, items in by_state.items():
+            for b in range(0, len(items), max(1, plan.get("batch_size") or 1)):
+                batch = items[b:b + max(1, plan.get("batch_size") or 1)]
+                rows = [payload.row(idx) for idx, _ in batch]
+                inputs = {k: np.stack([r["input"][k] for r in rows]) for k in rows[0]["input"]}
+                gts = {k: np.stack([r["gt"][k] for r in rows]) for k in rows[0]["gt"]} or None
+                preds = [np.stack([r["pred"][str(k)] for r in rows]) for k in range(len(rows[0]["pred"]))]
+                _run_scored_handlers(integ, handlers, state, [(rid,) for _, rid in batch],
+                                     inputs, gts, preds, None, unsupported)
+                del rows, inputs, gts, preds
+
+    def run_visualizers(rows_idx):
+        visualizers = [(n, a) for k, n, a in handlers if k == "visualizer"]
+        for idx in rows_idx:
+            state, rid = vis_samples[idx]
+            p = payload.row(idx)
+            preds = [p["pred"][str(k)] for k in range(len(p["pred"]))]
+            for name, args in visualizers:
+                try:
+                    tensors = {arg: np.expand_dims(resolve_arg(t, s, p["input"], p["gt"] or None, preds), 0)
+                               for arg, (t, s) in args.items()}
+                except Unsupported:
+                    continue
+                with working_dir(integ.root), captured_stdout():
+                    integ.loader.run_visualizer(name, np.array([rid]), integ.states[state], tensors)
+            del p, preds
+
+    all_idx = list(range(len(vis_samples))) if payload is not None else []
+    if all_idx:
+        run_metrics(all_idx)
+    rss["metrics"] = rss_now_gb()
+    rss["metrics_peak"] = peak_rss_gb()
+    if all_idx:
+        run_visualizers(all_idx)
+    rss["visualizers"] = rss_now_gb()
+    prof.disable()
+    peak = peak_rss_gb()
+    rss["peak"] = peak
+    lens_end = _container_lengths(plan["root"])
+    objects_end = _object_counts()
+
+    # Phase 2: tracemalloc peaks per handler (the footprint above is already recorded).
+    tracemalloc.start(1)
+    try:
+        rec.phase = "generation"
+        for state, sid in selection[:plan.get("trace_samples", 20)]:
+            fetch(integ, state, sid)
+        trace_idx = all_idx[:min(len(all_idx), max(2 * (plan.get("batch_size") or 1), 8))]
+        if trace_idx:
+            rec.phase = "metrics"
+            run_metrics(trace_idx)
+            rec.phase = "visualizers"
+            run_visualizers(trace_idx[:8])
+    finally:
+        tracemalloc.stop()
+    if payload is not None:
+        payload.close()
+
+    # Census of what the integration holds (after the samples: caches are filled).
+    census = Census()
+    holders = []
+    pre = getattr(integ.loader, "_preprocess_result_cached", None) or {}
+    for state, resp in pre.items():
+        path = "preprocess[%s]" % _state_name(state)
+        holders.append({"path": path, "bytes": census.size(resp, path)})
+    for mname, space in user_namespaces(plan["root"]):
+        for k, v in list(space.items()):
+            if k.startswith("__"):
+                continue
+            path = "%s.%s" % (mname, k)
+            b = census.size(v, path)
+            if b >= 2 ** 20:
+                holders.append({"path": path, "bytes": b})
+    holders.sort(key=lambda h: -h["bytes"])
+
+    findings = list(census.findings)
+    caches = _lru_caches(plan["root"])
+    for name, ci in caches.items():
+        if (ci["maxsize"] is None and ci["currsize"] > 0) or \
+                (ci["currsize"] >= 1000 and ci["hits"] <= ci["misses"]):
+            findings.append({"class": "M6", "path": name, "bytes": 0, "lossless_hint": True,
+                             "detail": "lru_cache maxsize=%s holds %d entries (hits %d, misses %d)"
+                                       % (ci["maxsize"], ci["currsize"], ci["hits"], ci["misses"])})
+    for name, before in lens.items():
+        after = lens_end.get(name, before)
+        if after - before >= max(10, n_rows // 2):
+            findings.append({"class": "M8", "path": name, "bytes": 0, "lossless_hint": None,
+                             "detail": "global container grew %d → %d over %d samples" % (before, after, n_rows)})
+    for kind, n in objects_end.items():
+        if n - objects_start.get(kind, 0) >= 3:
+            findings.append({"class": "M8", "path": kind, "bytes": 0, "lossless_hint": None,
+                             "detail": "%d → %d live %s objects across the samples (one per call is never "
+                                       "released)" % (objects_start.get(kind, 0), n, kind)})
+    sessions = sum(v for k, v in objects_start.items() if k != "Figure")
+    if sessions:
+        findings.append({"class": "M12", "path": "models/sessions", "bytes": 0, "lossless_hint": None,
+                         "detail": "%d model/session objects loaded by the integration itself (the main model "
+                                   "is not loaded in this pass)" % sessions})
+    pkgs = _new_packages(modules_before)
+    used = _used_packages(prof, pkgs)
+    direct = _direct_imports(plan["root"])
+    unused = {p: i for p, i in pkgs.items() if p not in used and p in direct}
+    for p, info in sorted(unused.items(), key=lambda kv: -kv[1]["modules"]):
+        if info["modules"] >= 20:
+            findings.append({"class": "M1", "path": p, "bytes": 0, "lossless_hint": True,
+                             "detail": "imported directly by the integration (%d modules) but none of its code "
+                                       "ran in preprocess or any sample" % info["modules"]})
+
+    slope, late_slope, late_r2 = None, None, None
+    steady = [(n, r) for n, r in (trace[len(trace) // 5:] if len(trace) >= 5 else trace) if r is not None]
+    if len(steady) >= 3:
+        a, b = _linear_fit([n for n, _ in steady], [r for _, r in steady])
+        slope = b * 1000 * 1024                   # MB per 1000 samples
+    late = steady[len(steady) // 2:]
+    if len(late) >= 4:
+        xs, ys = [n for n, _ in late], [r for _, r in late]
+        a, b = _linear_fit(xs, ys)
+        late_slope = b * 1000 * 1024
+        my = sum(ys) / len(ys)
+        ss_tot = sum((y - my) ** 2 for y in ys)
+        ss_res = sum((y - (a + b * x)) ** 2 for x, y in zip(xs, ys))
+        late_r2 = 1 - ss_res / ss_tot if ss_tot else None
+        rise_gb = ys[-1] - ys[0]
+        python_growth = any(f["class"] == "M8" for f in findings)
+        if not python_growth and late_r2 is not None and late_r2 >= 0.9 and rise_gb * 1024 >= 32:
+            findings.append({"class": "M8", "path": "process RSS", "bytes": int(rise_gb * 2 ** 30),
+                             "lossless_hint": None,
+                             "detail": "RSS still climbing in the second half of the samples (%.0f MB per 1000 "
+                                       "samples, linear) with no Python container growing — possible native "
+                                       "growth (a C library's buffers) or allocator retention; confirm on more "
+                                       "samples before treating it as a leak" % late_slope})
+    base = rss.get("baseline") or 0.0
+    held = [r for _, r in trace if r is not None] + [rss.get(k) for k in ("generation", "metrics", "visualizers")
+                                                      if rss.get(k) is not None]
+    held_samples = (max(held) - rss["first_calls"]) if held and rss.get("first_calls") is not None else None
+    # Which stage set the process high-water mark (ru_maxrss only rises).
+    stage_peaks = [("import", rss.get("import_peak")), ("preprocess", rss.get("preprocess_peak")),
+                   ("first calls", rss.get("first_calls_peak")), ("samples", peak)]
+    peak_stage, prev = None, base
+    for stage_name, value in stage_peaks:
+        if value is not None and value > prev + 0.01:
+            peak_stage, prev = stage_name, value
+    reachable = sum(h["bytes"] for h in holders) / 2 ** 30
+    result["user_memory"] = {
+        "rss_gb": rss,
+        "footprint_gb": (peak - base) if peak is not None and base else None,
+        "peak_stage": peak_stage,
+        "breakdown_gb": {
+            "import": _delta(rss, "import", "baseline"),
+            "preprocess": _delta(rss, "preprocess", "import"),
+            "preprocess_transient": _delta(rss, "preprocess_peak", "preprocess"),
+            "first_calls": _delta(rss, "first_calls", "preprocess"),
+            "samples": held_samples,
+        },
+        "reachable_gb": reachable,
+        "unattributed_gb": (rss["first_calls"] - base - reachable) if rss.get("first_calls") else None,
+        "growth_mb_per_1k_samples": slope,
+        "growth_late_mb_per_1k_samples": late_slope,
+        "growth_late_r2": late_r2,
+        "rss_trace": [[n, round(r, 4)] for n, r in trace if r is not None],
+        "samples": n_rows,
+        "vis_rows": len(all_idx),
+        "handlers": rec.stats(),
+        "tracemalloc_peaks": rec._has_reset,
+        "holders": holders[:20],
+        "large_objects": sorted(census.large, key=lambda x: -x["bytes"])[:20],
+        "findings": sorted(findings, key=lambda f: -f["bytes"]),
+        "caches": caches,
+        "objects": {"start": objects_start, "end": objects_end},
+        "packages": {"imported": {p: i["modules"] for p, i in pkgs.items()}, "unused": sorted(unused)},
+        "unsupported": unsupported,
+    }
+
+
+def _delta(d, a, b):
+    return d[a] - d[b] if d.get(a) is not None and d.get(b) is not None else None
+
+
+def import_costs(python, packages, limit=6):
+    """RSS cost of importing each package alone, in a fresh interpreter (MB)."""
+    code = ("import resource,sys\n"
+            "m=lambda: resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/(2**20 if sys.platform=='darwin' else 2**10)\n"
+            "a=m()\nimport %s\nprint(m()-a)\n")
+    out = {}
+    for p in packages[:limit]:
+        try:
+            v = subprocess.check_output([python, "-c", code % p], stderr=subprocess.DEVNULL,
+                                        universal_newlines=True, timeout=120)
+            out[p] = round(float(v.strip().splitlines()[-1]), 1)
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+            out[p] = None
+    return out
+
+
+WORKERS = {"generate": worker_generate, "visualize": worker_visualize, "memory": worker_memory,
            "diagnose": worker_diagnose, "snapshot": worker_snapshot}
 
 
@@ -1943,7 +2617,7 @@ def cmd_profile(args):
     if args.load_start and args.load_start["busy"]:
         print("  warning: machine busy (load %.1f on %d cores) — timings will be noisy" % (
             args.load_start["load1"], args.load_start["cores"]))
-    print("  [1/5] generation + inference + metrics (server-default order)...", flush=True)
+    print("  [1/6] generation + inference + metrics (server-default order)...", flush=True)
     gen = workers["generate"] = run_worker("generate", dict(
         base, mode="random", samples_per_state=args.samples, metrics=True,
         vis_samples=args.vis_samples, max_seconds=args.max_seconds,
@@ -1953,16 +2627,16 @@ def cmd_profile(args):
         return EXIT_RUN_FAILED
 
     if not args.no_what_if:
-        print("  [2/5] generation, sorted-order what-if...", flush=True)
+        print("  [2/6] generation, sorted-order what-if...", flush=True)
         workers["generate_sorted"] = run_worker("generate", dict(
             base, mode="contiguous", samples_per_state=args.samples, metrics=False,
             max_seconds=args.max_seconds), run_dir, "generate_sorted", timeout)
     if gen.get("vis_samples"):
-        print("  [3/5] visualizers (fresh process, payload tensors)...", flush=True)
+        print("  [3/6] visualizers (fresh process, payload tensors)...", flush=True)
         workers["visualize"] = run_worker("visualize", dict(
             base, payload_path=os.path.join(run_dir, "vis_payload.npz"),
             vis_samples=gen["vis_samples"]), run_dir, "visualize", timeout)
-    print("  [4/5] diagnostics (file reads, repeated calls)...", flush=True)
+    print("  [4/6] diagnostics (file reads, repeated calls)...", flush=True)
     workers["diagnose"] = run_worker("diagnose", dict(
         base, mode="random", samples=args.diagnose_samples), run_dir, "diagnose", timeout)
     workers["diagnose_sorted"] = run_worker("diagnose", dict(
@@ -1970,7 +2644,7 @@ def cmd_profile(args):
 
     baseline_dir = os.path.join(out, "baseline")
     set_baseline = args.set_baseline or not os.path.isdir(baseline_dir)
-    print("  [5/5] output snapshot%s..." % (" x2 (baseline + determinism)" if set_baseline else ""),
+    print("  [5/6] output snapshot%s..." % (" x2 (baseline + determinism)" if set_baseline else ""),
           flush=True)
     snap_plan = dict(base, samples_per_state=args.snapshot_samples,
                      snapshot_dir=os.path.join(run_dir, "snapshot"))
@@ -1985,6 +2659,21 @@ def cmd_profile(args):
                                  load_snapshot(os.path.join(run_dir, "snapshot_repeat")))
             write_json(os.path.join(run_dir, "determinism.json"), nondet)
 
+    if not args.no_memory:
+        print("  [6/6] user-code memory%s (model-free, one process)..." % (
+            " x2 (baseline + noise)" if set_baseline else ""), flush=True)
+        mem_plan = dict(base, samples_per_state=args.memory_samples, trace_samples=20,
+                        payload_path=os.path.join(run_dir, "vis_payload.npz"),
+                        vis_samples=gen.get("vis_samples") or [])
+        workers["memory"] = run_worker("memory", mem_plan, run_dir, "memory", timeout)
+        if set_baseline and not workers["memory"].get("error"):
+            workers["memory_repeat"] = run_worker("memory", mem_plan, run_dir, "memory_repeat", timeout)
+        um = workers["memory"].get("user_memory")
+        if um and um["packages"]["unused"] and not args.no_import_costs:
+            um["import_costs_mb"] = import_costs(sys.executable, um["packages"]["unused"])
+        if um:
+            write_json(os.path.join(run_dir, "memory.json"), um)
+
     profile = _assemble_profile(args, run_dir, entry, batch_size, floor, workers, nondet)
     write_json(os.path.join(run_dir, "profile.json"), profile)
     write_json(os.path.join(out, "profile.json"), profile)
@@ -1996,7 +2685,11 @@ def cmd_profile(args):
         shutil.copytree(run_dir, baseline_dir,
                         ignore=shutil.ignore_patterns("vis_payload.npz", "snapshot_repeat"))
     _print_profile(profile, set_baseline and nondet is not None, baseline_dir)
-    failed = [k for k, w in workers.items() if w.get("error")]
+    for k in ("memory", "memory_repeat"):
+        if workers.get(k, {}).get("error"):
+            print("  warning: the memory pass failed (runtime results are unaffected):\n%s"
+                  % workers[k]["error"][-1500:], file=sys.stderr)
+    failed = [k for k, w in workers.items() if w.get("error") and not k.startswith("memory")]
     return EXIT_RUN_FAILED if failed else EXIT_OK
 
 
@@ -2010,7 +2703,14 @@ def _assemble_profile(args, run_dir, entry, batch_size, floor, workers, nondet):
         w = workers.get(name) or {}
         return None if w.get("error") or not w else {"reads": w.get("reads"), "calls": w.get("calls")}
 
-    startups = [w["startup_seconds"] for w in workers.values() if w.get("startup_seconds") is not None]
+    # the memory pass profiles preprocess (slower by design): keep it out of the startup timing
+    startups = [w["startup_seconds"] for k, w in workers.items()
+                if w.get("startup_seconds") is not None and not k.startswith("memory")]
+    user_memory = (workers.get("memory") or {}).get("user_memory")
+    if user_memory:
+        rep = ((workers.get("memory_repeat") or {}).get("user_memory") or {}).get("footprint_gb")
+        fp = user_memory.get("footprint_gb")
+        user_memory["noise"] = abs(rep - fp) / fp if rep and fp else None
     return {
         "run": os.path.basename(run_dir),
         "created": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -2036,6 +2736,7 @@ def _assemble_profile(args, run_dir, entry, batch_size, floor, workers, nondet):
         "diagnostics": {"server_order": diag("diagnose"), "sorted_what_if": diag("diagnose_sorted")},
         "determinism": None if nondet is None else {f: len(v["samples"]) for f, v in nondet.items()},
         "memory": {k: w.get("memory") for k, w in workers.items() if w.get("memory")},
+        "user_memory": user_memory,
         "unsupported": unsupported,
         "truncated": bool(gen.get("truncated")),
         "workers": {k: {"exit_code": w.get("exit_code"), "wall_seconds": w.get("wall_seconds"),
@@ -2092,11 +2793,46 @@ def _print_profile(p, baseline_set, baseline_dir):
               ", ".join("%s (%d samples)" % kv for kv in sorted(p["determinism"].items())))
     for k, reason in (p.get("unsupported") or {}).items():
         print("  not profiled: %s — %s" % (k, reason))
+    _print_user_memory(p.get("user_memory"))
     for k, wk in p["workers"].items():
         if wk.get("error"):
             print("  WORKER FAILED %s: %s" % (k, wk["error"].strip().splitlines()[-1]))
     if baseline_set:
         print("  baseline set -> %s" % baseline_dir)
+
+
+def _gb(x):
+    return "%.2f GB" % x if x is not None else "?"
+
+
+def _print_user_memory(um):
+    if not um:
+        return
+    b = um["breakdown_gb"]
+    print("  user-code memory (one worker, model not loaded): footprint %s, peak during %s%s" % (
+        _gb(um.get("footprint_gb")), um.get("peak_stage") or "?",
+        "  (noise %.1f%%)" % (100 * um["noise"]) if um.get("noise") is not None else ""))
+    print("    held: import %s | preprocess result %s | first calls %s | samples (caches, growth) %s" % (
+        _gb(b.get("import")), _gb(b.get("preprocess")), _gb(b.get("first_calls")), _gb(b.get("samples"))))
+    if b.get("preprocess_transient"):
+        print("    preprocess needs %s more at its peak than it keeps (temporaries)" % _gb(b["preprocess_transient"]))
+    if um.get("unattributed_gb") is not None:
+        print("    reachable from preprocess results + module globals: %s; unattributed: %s "
+              "(freed but kept by the allocator, native libraries, or unreachable holders)" % (
+                  _gb(um.get("reachable_gb")), _gb(um["unattributed_gb"])))
+    tr = um.get("rss_trace") or []
+    if len(tr) >= 2:
+        print("    over the samples: RSS %s → %s; late slope %s MB per 1000 samples%s" % (
+            _gb(tr[0][1]), _gb(tr[-1][1]),
+            "%.0f" % um["growth_late_mb_per_1k_samples"] if um.get("growth_late_mb_per_1k_samples") is not None else "?",
+            " (r² %.2f)" % um["growth_late_r2"] if um.get("growth_late_r2") is not None else ""))
+    for h in (um.get("holders") or [])[:5]:
+        print("    holds %-48s %10s" % (h["path"][:48], _gb(h["bytes"] / 2 ** 30)))
+    for f in (um.get("findings") or [])[:8]:
+        print("    [%s] %s — %s" % (f["class"], f["path"][:60], f["detail"]))
+    if um.get("import_costs_mb"):
+        print("    unused imports, RSS cost alone: %s" % ", ".join(
+            "%s %s MB" % (k, v) for k, v in um["import_costs_mb"].items()))
 
 
 # --------------------------------------------------------------------------- #
@@ -2168,9 +2904,26 @@ def cmd_compare(args):
     cumulative = (bt - ct) / bt if bt else 0.0            # since the baseline
     rw = (ref_p.get("generation_sorted_what_if") or {}).get("per_sample_seconds") or {}
     cw = (cur_p.get("generation_sorted_what_if") or {}).get("per_sample_seconds") or {}
-    r_mem = ((ref_p.get("memory") or {}).get("generate") or {}).get("peak_rss_gb")
-    c_mem = ((cur_p.get("memory") or {}).get("generate") or {}).get("peak_rss_gb")
+    # Memory = the user-code footprint of one worker (memory pass, model not loaded); older
+    # profiles without a memory pass fall back to the generation worker's peak.
+    r_fp = (ref_p.get("user_memory") or {}).get("footprint_gb")
+    c_fp = (cur_p.get("user_memory") or {}).get("footprint_gb")
+    if r_fp and c_fp:
+        r_mem, c_mem, mem_source = r_fp, c_fp, "user-code footprint (memory pass)"
+    else:
+        r_mem = ((ref_p.get("memory") or {}).get("generate") or {}).get("peak_rss_gb")
+        c_mem = ((cur_p.get("memory") or {}).get("generate") or {}).get("peak_rss_gb")
+        mem_source = "generation worker peak RSS"
     mem_increase = (c_mem - r_mem) / r_mem if r_mem and c_mem else 0.0
+    triage = (_read_json(os.path.join(out, "score.json")) or {}).get("memory") or {}
+    status = triage.get("status", "GREEN")
+    max_mem_increase = args.max_mem_increase if args.max_mem_increase is not None else \
+        (0.05 if status in ("AMBER", "RED") else 0.10)
+    tolerance = args.runtime_tolerance if args.runtime_tolerance is not None else \
+        triage.get("runtime_tolerance", RUNTIME_TOLERANCE.get(status, 0.03))
+    runtime_change = (ct - rt) / rt if rt else 0.0          # > 0 = slower than the reference
+    mem_drop = (r_mem - c_mem) if r_mem and c_mem else 0.0
+    mem_needed = max(args.min_memory_gain * (r_mem or 0.0), 0.0625)
     loads = [((p.get("load") or {}).get("start") or {}).get("load1") for p in (ref_p, cur_p)]
     load_warning = None
     if all(x is not None for x in loads) and max(loads) > 2.0 * max(min(loads), 1.0):
@@ -2179,7 +2932,14 @@ def cmd_compare(args):
 
     if not eq.get("equivalent"):
         code = EXIT_NOT_EQUIVALENT
-    elif mem_increase > args.max_mem_increase and (c_mem - r_mem) > 0.0625:
+    elif args.objective == "memory":
+        if runtime_change > tolerance:
+            code = EXIT_RUNTIME_REGRESSION
+        elif mem_drop < mem_needed:
+            code = EXIT_NO_GAIN
+        else:
+            code = EXIT_OK
+    elif mem_increase > max_mem_increase and (c_mem - r_mem) > 0.0625:
         code = EXIT_MEMORY_REGRESSION
     elif gain < args.min_gain:
         code = EXIT_NO_GAIN
@@ -2194,9 +2954,13 @@ def cmd_compare(args):
         "sorted_what_if_generation_mean": {"reference": rw.get("mean"), "current": cw.get("mean")},
         "expected_total_seconds": {"baseline": bt, "reference": rt, "current": ct,
                                    "gain": gain, "cumulative_gain": cumulative},
-        "peak_rss_gb": {"reference": r_mem, "current": c_mem, "increase": mem_increase},
+        "objective": args.objective,
+        "memory_status": status,
+        "peak_rss_gb": {"reference": r_mem, "current": c_mem, "increase": mem_increase, "source": mem_source},
+        "memory_gate": {"drop_gb": mem_drop, "needed_gb": mem_needed, "max_increase": max_mem_increase},
+        "runtime_change": runtime_change, "runtime_tolerance": tolerance,
         "load_warning": load_warning,
-        "thresholds": {"min_gain": args.min_gain, "max_mem_increase": args.max_mem_increase,
+        "thresholds": {"min_gain": args.min_gain, "max_mem_increase": max_mem_increase,
                        "rtol": args.rtol, "atol": args.atol},
     }
     path = os.path.join(cur_dir, "compare.json")
@@ -2230,7 +2994,10 @@ def cmd_compare(args):
     print("  expected total: %.1f s -> %.1f s (this change %+.1f%%; since baseline %+.1f%%)" % (
         rt, ct, -100.0 * gain, -100.0 * cumulative))
     if r_mem and c_mem:
-        print("  peak RSS (generation worker): %.2f GB -> %.2f GB (%+.1f%%)" % (r_mem, c_mem, 100 * mem_increase))
+        print("  memory (%s): %.2f GB -> %.2f GB (%+.1f%%)" % (mem_source, r_mem, c_mem, 100 * mem_increase))
+    if args.objective == "memory":
+        print("  memory objective (status %s): needs -%.2f GB; runtime %+.1f%% (tolerance +%.0f%%)" % (
+            status, mem_needed, 100 * runtime_change, 100 * tolerance))
     if load_warning:
         print("  warning: %s" % load_warning)
     if code == EXIT_OK and not args.no_accept:
@@ -2279,6 +3046,129 @@ def _evidence(p):
         for key in inputs:
             per_handler.setdefault(key, []).append(text)
     return per_handler, notes
+
+
+RUNTIME_TOLERANCE = {"RED": 0.15, "AMBER": 0.03, "GREEN": 0.03}   # runtime a memory fix may cost
+
+
+def _leap_cluster_memory_gb():
+    try:
+        out = subprocess.check_output(["leap", "server", "info"], stderr=subprocess.STDOUT,
+                                      universal_newlines=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"clustermemorygb:\s*([0-9.]+)", out)
+    v = float(m.group(1)) if m else 0.0
+    return v or None
+
+
+def memory_budget(memory_gb=None):
+    """(GB, source): what one integration's workers share — the user's figure, else the local
+    Tensorleap server's configured memory, else this machine's RAM."""
+    if memory_gb:
+        return memory_gb, "--memory-gb"
+    gb = _leap_cluster_memory_gb()
+    if gb:
+        return gb, "leap server info (clustermemorygb)"
+    return (memory_info() or {}).get("total_gb"), "this machine's RAM"
+
+
+def memory_triage(p, budget_gb, budget_source, symptom="none", red_share=0.5, amber_share=0.25,
+                  holder_gb=1.0):
+    """GREEN / AMBER / RED for the user-code footprint, with the reasons, the loop order and
+    the runtime a memory fix may cost."""
+    um = p.get("user_memory") or {}
+    fp = um.get("footprint_gb")
+    levels = ("GREEN", "AMBER", "RED")
+    state = {"status": "GREEN"}
+    reasons = []
+
+    def raise_to(level, why):
+        if levels.index(level) > levels.index(state["status"]):
+            state["status"] = level
+        reasons.append("%s: %s" % (level, why))
+
+    errors = " ".join((w.get("error") or "") for w in (p.get("workers") or {}).values())
+    if symptom == "oom":
+        raise_to("RED", "the user reports out-of-memory failures")
+    if "MemoryError" in errors or "Killed" in errors:
+        raise_to("RED", "a local profiling pass ran out of memory")
+    if fp and budget_gb and fp > red_share * budget_gb:
+        raise_to("RED", "one worker's user code holds %.1f GB, over %.0f%% of the %.0f GB budget - fewer than %d "
+                 "workers fit" % (fp, 100 * red_share, budget_gb, int(round(1 / red_share))))
+    if symptom == "high":
+        raise_to("AMBER", "the user reports high memory use")
+    if fp and budget_gb and fp > amber_share * budget_gb:
+        raise_to("AMBER", "one worker's user code holds %.1f GB, over %.0f%% of the %.0f GB budget"
+                 % (fp, 100 * amber_share, budget_gb))
+    big = [h for h in um.get("holders") or [] if h["bytes"] >= holder_gb * 2 ** 30]
+    if big:
+        raise_to("AMBER", "%s alone holds %.1f GB in every worker" % (big[0]["path"], big[0]["bytes"] / 2 ** 30))
+    leaks = [f for f in um.get("findings") or [] if f["class"] == "M8"]
+    if leaks:
+        raise_to("AMBER", "memory grows with the samples (%s)" % leaks[0]["path"])
+    if not um:
+        reasons.append("no memory pass in this profile (run `tl_perf profile` without --no-memory)")
+    status = state["status"]
+    return {"status": status, "reasons": reasons, "footprint_gb": fp, "budget_gb": budget_gb,
+            "budget_source": budget_source,
+            "workers_that_fit": (budget_gb / fp) if fp and budget_gb else None,
+            "order": "memory loop first, then runtime" if status == "RED" else "runtime loop first, then memory",
+            "memory_loop": {"RED": "all lossless memory candidates", "AMBER": "all lossless memory candidates",
+                            "GREEN": "free wins only (no runtime cost beyond noise)"}[status],
+            "runtime_tolerance": RUNTIME_TOLERANCE[status]}
+
+
+def memory_candidates(p):
+    """Ranked user-code memory candidates: census findings, the largest holders, and the
+    handlers with the largest per-call peaks. Bytes are what one worker would hold less."""
+    um = p.get("user_memory") or {}
+    fp_bytes = (um.get("footprint_gb") or 0) * 2 ** 30
+    floor = max(0.05 * fp_bytes, 64 * 2 ** 20)
+    costs = um.get("import_costs_mb") or {}
+    cands, covered = [], set()
+
+    def add(cls, target, nbytes, confidence, evidence, hint=None, sized=True):
+        cands.append({"class": cls, "target": target, "bytes": int(nbytes),
+                      "share_of_footprint": nbytes / fp_bytes if fp_bytes else None,
+                      "confidence": confidence, "priority": nbytes * confidence,
+                      "evidence": evidence, "lossless_hint": hint, "size_known": sized})
+
+    for f in um.get("findings") or []:
+        nbytes = f["bytes"]
+        if f["class"] == "M1" and costs.get(f["path"]):
+            nbytes = costs[f["path"]] * 2 ** 20
+        conf = {True: 0.8, None: 0.5, False: 0.3}.get(f.get("lossless_hint"), 0.5)
+        add(f["class"], f["path"], nbytes, conf, [f["detail"]], f.get("lossless_hint"), sized=nbytes > 0)
+        covered.add(f["path"])
+    leaves = [o for o in um.get("large_objects") or [] if o.get("type") in ("ndarray", "DataFrame", "Series")]
+    for o in leaves:
+        if o["path"] not in covered and o["bytes"] >= floor:
+            add("holder", o["path"], o["bytes"], 0.5,
+                ["held by every worker process: %.2f GB (%s%s)" % (
+                    o["bytes"] / 2 ** 30, o.get("dtype") or o["type"],
+                    " %s" % o["shape"] if o.get("shape") else "")])
+            covered.add(o["path"])
+    for h in um.get("holders") or []:
+        inner = any(c.startswith(h["path"]) for c in covered)
+        if h["path"] not in covered and h["bytes"] >= floor and not inner:
+            add("holder", h["path"], h["bytes"], 0.5,
+                ["held by every worker process: %.2f GB" % (h["bytes"] / 2 ** 30)])
+    b = um.get("breakdown_gb") or {}
+    if (b.get("preprocess_transient") or 0) * 2 ** 30 >= floor and um.get("peak_stage") == "preprocess":
+        add("M3/M7", "preprocess (temporaries)", b["preprocess_transient"] * 2 ** 30, 0.5,
+            ["the worker's peak is set inside preprocess: %.1f GB above what preprocess keeps — copies, "
+             "full-width reads or intermediates alive at the same time" % b["preprocess_transient"]])
+    for key, h in (um.get("handlers") or {}).items():
+        peak = ((h.get("transient_peak_mb") or {}).get("max") or 0) * 2 ** 20
+        if peak >= floor:
+            add("M7", key, peak, 0.5, ["per-call peak %.0f MB (tracemalloc: Python + numpy allocations)"
+                                       % (peak / 2 ** 20)])
+    cands.sort(key=lambda c: (-c["priority"], -int(not c["size_known"])))
+    for i, c in enumerate(cands, 1):
+        c["rank"] = i
+        c["minor"] = c["size_known"] and c["bytes"] < floor
+    return cands
 
 
 def cmd_score(args):
@@ -2338,6 +3228,9 @@ def cmd_score(args):
               "metrics": costs["metrics"] * n, "visualizers": costs["visualizers"] * nv,
               "startup": startup.get("mean", 0.0)}
     grand = sum(totals.values()) or 1.0
+    budget_gb, budget_source = memory_budget(args.memory_gb)
+    triage = memory_triage(p, budget_gb, budget_source, args.memory_symptom, args.red_share,
+                           args.amber_share, args.amber_holder_gb)
     report = {
         "t_inf_per_sample_mean_seconds": t_inf, "t_inf_source": t_inf_source,
         "samples_total": n, "visualized_samples_assumed": nv,
@@ -2346,9 +3239,14 @@ def cmd_score(args):
         "expected_seconds": totals,
         "notes": notes,
         "candidates": candidates,
+        "memory": dict(triage, candidates=memory_candidates(p)),
     }
     path = os.path.join(out, "score.json")
     write_json(path, report)
+    if args.objective == "memory":
+        _print_memory_score(report["memory"], args.top)
+        print("  -> %s" % path)
+        return EXIT_OK
 
     print("tl_perf score (unit: model inference = %s per sample, from %s)" % (
         fmt_ms(t_inf or 0), t_inf_source))
@@ -2368,8 +3266,29 @@ def cmd_score(args):
             c["expected_seconds"], c["confidence"], "  (minor)" if c["minor"] else ""))
         for e in c["evidence"][:3]:
             print("       - %s" % e)
+    _print_memory_score(report["memory"], 5)
     print("  -> %s" % path)
     return EXIT_OK
+
+
+def _print_memory_score(m, top):
+    print("  user-code memory: %s - footprint %s per worker, budget %s (%s)%s" % (
+        m["status"], _gb(m["footprint_gb"]), _gb(m["budget_gb"]), m["budget_source"],
+        "; ~%.0f workers fit" % m["workers_that_fit"] if m.get("workers_that_fit") else ""))
+    for r in m["reasons"]:
+        print("    - %s" % r)
+    print("    order: %s; memory loop: %s; a memory fix may cost up to +%.0f%% runtime" % (
+        m["order"], m["memory_loop"], 100 * m["runtime_tolerance"]))
+    if m["candidates"]:
+        print("  %4s %-7s %-44s %10s %7s %5s" % ("rank", "class", "target", "size", "share", "conf"))
+    for c in m["candidates"][:top]:
+        print("  %4d %-7s %-44s %10s %7s %5.2f%s" % (
+            c["rank"], c["class"], c["target"][:44],
+            _gb(c["bytes"] / 2 ** 30) if c["size_known"] else "?",
+            "%.0f%%" % (100 * c["share_of_footprint"]) if c["size_known"] and c["share_of_footprint"] else "-",
+            c["confidence"], "  (minor)" if c["minor"] else ""))
+        for e in c["evidence"][:2]:
+            print("       - %s" % e)
 
 
 # --------------------------------------------------------------------------- #
@@ -2572,8 +3491,9 @@ REPORT_REQUIRED = {
     "tensorleap_actions": list,
 }
 OPTIMIZATION_REQUIRED = ("problem", "change", "evidence", "equivalence")
-OPTIMIZATION_KINDS = ("performance", "correctness", "prerequisite")
-CATALOG_CLASSES = tuple("ABCDEFGHIJKLMNOPQRSTUVW") + ("new",)
+OPTIMIZATION_KINDS = ("performance", "correctness", "prerequisite", "memory")
+CATALOG_CLASSES = tuple("ABCDEFGHIJKLMNOPQRSTUVW") + tuple("M%d" % i for i in range(1, 13)) + ("new",)
+MEMORY_STATUSES = ("GREEN", "AMBER", "RED")
 
 
 def validate_report(doc):
@@ -2594,8 +3514,16 @@ def validate_report(doc):
                 errors.append("optimizations[%d] missing %r" % (i, key))
         if opt.get("kind") is not None and opt["kind"] not in OPTIMIZATION_KINDS:
             errors.append("optimizations[%d] 'kind' must be one of %s" % (i, ", ".join(OPTIMIZATION_KINDS)))
-        if opt.get("catalog") is not None and opt["catalog"] not in CATALOG_CLASSES:
-            errors.append("optimizations[%d] 'catalog' must be a class letter A-W or 'new'" % i)
+        if opt.get("catalog") is not None and \
+                not all(part in CATALOG_CLASSES for part in str(opt["catalog"]).split("/")):
+            errors.append("optimizations[%d] 'catalog' must be a class (A-W, M1-M12, combined "
+                          "with '/') or 'new'" % i)
+    mem = doc.get("memory")
+    if mem is not None:
+        if not isinstance(mem, dict):
+            errors.append("'memory' must be an object")
+        elif mem.get("status") not in MEMORY_STATUSES:
+            errors.append("memory.status must be one of %s" % ", ".join(MEMORY_STATUSES))
     rb = doc.get("remaining_bottleneck")
     if isinstance(rb, dict):
         for key in ("component", "evidence"):
@@ -2626,6 +3554,43 @@ def _share_rows(before, after, visualized):
         rows.append(["expected total", "%.1f s" % expected_total(before, bc, visualized),
                      "%.1f s" % expected_total(after, ac, visualized) if after else "-"])
     return rows
+
+
+def _memory_section(mem, before, after):
+    """The user-code memory section: triage from report.json, the footprint table from the
+    baseline and latest profiles (never typed by hand)."""
+    ub = (before or {}).get("user_memory") or {}
+    ua = (after or {}).get("user_memory") or {}
+    if not mem and not ub:
+        return []
+    lines = ["## Memory (user code, one worker process)", ""]
+    if mem:
+        lines.append("- Status: **%s**" % mem["status"])
+        for r in mem.get("reasons") or []:
+            lines.append("  - %s" % r)
+    if ub:
+        def row(label, get):
+            b, a = get(ub), get(ua) if ua else None
+            return [label, _gb(b) if b is not None else "-", _gb(a) if a is not None else "-"]
+        bd = lambda u, k: (u.get("breakdown_gb") or {}).get(k)
+        rows = [row("footprint (peak)", lambda u: u.get("footprint_gb")),
+                row("held: imports", lambda u: bd(u, "import")),
+                row("held: preprocess result", lambda u: bd(u, "preprocess")),
+                row("preprocess peak above what it keeps", lambda u: bd(u, "preprocess_transient")),
+                row("held: caches and growth over the samples", lambda u: bd(u, "samples")),
+                row("unattributed (allocator / native)", lambda u: u.get("unattributed_gb"))]
+        lines += ["", _md_table(["", "before", "after"], rows), ""]
+        stage_b, stage_a = ub.get("peak_stage"), (ua or {}).get("peak_stage")
+        if stage_b:
+            lines.append("- The peak is set during: %s%s." % (
+                stage_b, " → %s" % stage_a if stage_a and stage_a != stage_b else ""))
+    rh = (mem or {}).get("remaining_holder")
+    if rh:
+        lines.append("- Largest remaining holder: **%s** — %s" % (rh.get("target", "?"), rh.get("evidence", "")))
+    if (mem or {}).get("notes"):
+        lines.append("- %s" % mem["notes"])
+    lines.append("")
+    return lines
 
 
 def render_report(doc, out):
@@ -2685,6 +3650,7 @@ def render_report(doc, out):
                   _md_table(["block", "component", "mean/sample", "P50/call", "P95/call", "P99/call"],
                             [row for _, row in handlers]), ""]
 
+    lines += _memory_section(doc.get("memory"), before, after)
     lines += ["## Optimizations applied", ""]
     if not doc["optimizations"]:
         lines += ["_None._", ""]
@@ -2809,6 +3775,11 @@ def build_parser():
                    help="stop generating after this long (per worker)")
     p.add_argument("--worker-timeout", type=float, default=3600)
     p.add_argument("--no-what-if", action="store_true", help="skip the sorted-order what-if")
+    p.add_argument("--memory-samples", type=int, default=100,
+                   help="samples per state for the user-code memory pass")
+    p.add_argument("--no-memory", action="store_true", help="skip the user-code memory pass")
+    p.add_argument("--no-import-costs", action="store_true",
+                   help="don't measure the RSS cost of unused imports (one fresh interpreter each)")
     p.add_argument("--set-baseline", action="store_true",
                    help="make this run the equivalence baseline (automatic for the first run)")
     p.set_defaults(func=cmd_profile)
@@ -2822,6 +3793,16 @@ def build_parser():
     p.add_argument("--min-ratio", type=float, default=0.05,
                    help="below this cost ratio to inference a candidate is marked minor")
     p.add_argument("--top", type=int, default=15)
+    p.add_argument("--objective", choices=("runtime", "memory"), default="runtime",
+                   help="which candidate list to rank first (memory triage is always computed)")
+    p.add_argument("--memory-gb", type=float, default=None,
+                   help="memory the integration's workers share (default: local server's, else this machine's RAM)")
+    p.add_argument("--memory-symptom", choices=("none", "high", "oom"), default="none",
+                   help="what the user reports: high memory use (AMBER) or out-of-memory failures (RED)")
+    p.add_argument("--red-share", type=float, default=0.5, help="footprint share of the budget that is RED")
+    p.add_argument("--amber-share", type=float, default=0.25, help="footprint share of the budget that is AMBER")
+    p.add_argument("--amber-holder-gb", type=float, default=1.0,
+                   help="one structure held per worker at least this big is AMBER")
     p.set_defaults(func=cmd_score)
 
     p = sub.add_parser("compare", parents=[common],
@@ -2836,7 +3817,15 @@ def build_parser():
     p.add_argument("--atol", type=float, default=0.0, help="declared absolute tolerance")
     p.add_argument("--min-gain", type=float, default=0.05,
                    help="minimum expected-runtime gain to count (run-to-run noise is ~3%%)")
-    p.add_argument("--max-mem-increase", type=float, default=0.10)
+    p.add_argument("--objective", choices=("runtime", "memory"), default="runtime",
+                   help="runtime: faster, memory not worse; memory: smaller user-code footprint, runtime "
+                        "within the triage tolerance")
+    p.add_argument("--max-mem-increase", type=float, default=None,
+                   help="runtime objective: allowed footprint growth (default 10%%; 5%% when memory is AMBER/RED)")
+    p.add_argument("--min-memory-gain", type=float, default=0.05,
+                   help="memory objective: minimum footprint drop (and at least 64 MB)")
+    p.add_argument("--runtime-tolerance", type=float, default=None,
+                   help="memory objective: allowed runtime increase (default from score's triage)")
     p.add_argument("--visualized-samples", type=int, default=None)
     p.set_defaults(func=cmd_compare)
 

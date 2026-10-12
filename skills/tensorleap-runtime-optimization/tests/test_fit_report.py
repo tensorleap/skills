@@ -145,6 +145,23 @@ class ReportTest(unittest.TestCase):
             doc["optimizations"][0][key] = value
             self.assertEqual(self.run_report(doc), tl_perf.EXIT_BAD_REPORT, key)
 
+    def test_memory_section_and_classes(self):
+        doc = json.loads(json.dumps(VALID_REPORT))
+        doc["optimizations"][0].update(kind="memory", catalog="M3/M7")
+        doc["memory"] = {"status": "AMBER", "reasons": ["AMBER: a 1.2 GB holder"],
+                         "remaining_holder": {"target": "preprocess[training]", "evidence": "1.2 GB"}}
+        self.assertEqual(self.run_report(doc), tl_perf.EXIT_OK)
+        with open(os.path.join(self.out, "report.md")) as fh:
+            md = fh.read()
+        self.assertIn("## Memory (user code, one worker process)", md)
+        self.assertIn("Status: **AMBER**", md)
+        self.assertIn("- **Type:** memory · catalog M3/M7", md)
+
+    def test_invalid_memory_status_exits_11(self):
+        doc = json.loads(json.dumps(VALID_REPORT))
+        doc["memory"] = {"status": "ORANGE"}
+        self.assertEqual(self.run_report(doc), tl_perf.EXIT_BAD_REPORT)
+
     def test_invalid_json_exits_11(self):
         self.assertEqual(self.run_report(raw="{not json"), tl_perf.EXIT_BAD_REPORT)
 

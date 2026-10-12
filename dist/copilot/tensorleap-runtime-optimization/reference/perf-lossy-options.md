@@ -37,5 +37,12 @@ difference means the change leaked beyond what was agreed; revert it.
 | Lower-precision metadata | high-cardinality float metadata | storage/transfer | rounded values |
 | Approximate metrics | volumetric/distance metrics | fewer points, thresholds or scales | metric values change |
 | Seeding random augmentations | nondeterministic encoders (catalog T) | — (correctness) | inputs change from random to fixed |
+| Rounding dtypes for memory | float64 data whose values are not exact in float32 (M4) | per-worker footprint | values change in the last digits — inputs, metadata or metrics may differ |
+| Lower-resolution stored data | full-resolution arrays kept per worker | per-worker footprint | inputs/visualizations change |
+| Dropping stored fields | data kept per worker that only a minor output reads | per-worker footprint | that output (a metadata column, a visualizer) disappears |
+
+For memory options, the expected gain is the footprint drop per worker (from `tl_perf score
+--objective memory`) and what it buys: more workers fit in the same memory, or no more
+out-of-memory failures.
 
 Record each decision (accepted / declined) in the report's `lossy_options`.
