@@ -54,12 +54,19 @@ class ServerValidationModeTest(unittest.TestCase):
 
     def test_smoke_mode_renders(self):
         self.assertEqual(self.run_report(_report()), tl_perf.EXIT_OK)
-        self.assertIn("- Mode: **smoke validation (small subset)**", self.report_md())
+        md = self.report_md()
+        self.assertIn("### Server check", md)
+        self.assertIn("A small smoke run on the Tensorleap server, to confirm the changed integration runs there: "
+                      "**FINISHED**", md)
+        self.assertIn("## Part 2 — Online diagnostics: not run", md)
 
     def test_authorized_diagnostics_is_valid(self):
         doc = _report(mode="diagnostics", authorized_by_user=True, status="SUBMITTED")
         self.assertEqual(self.run_report(doc), tl_perf.EXIT_OK)
-        self.assertIn("online diagnostics (authorized by the user)", self.report_md())
+        md = self.report_md()
+        self.assertIn("offline + online diagnostics", md)
+        self.assertIn("## Part 2 — Online: bottlenecks on the Tensorleap server", md)
+        self.assertIn("The approved online diagnostics run is reported in Part 2.", md)
 
     def test_unauthorized_diagnostics_exits_11(self):
         doc = _report(mode="diagnostics", authorized_by_user=False)
@@ -676,7 +683,7 @@ class AnalyzeScenarioTest(unittest.TestCase):
 
 
 class OnlineReportTest(unittest.TestCase):
-    """S5: the Online diagnostics section renders from analysis.json; invalid input -> exit 11."""
+    """S5: Part 2 of the report renders from analysis.json; invalid input -> exit 11."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -701,12 +708,18 @@ class OnlineReportTest(unittest.TestCase):
         a = build_run(self.tmp, loop=0.20, pull=0.12, infer=0.06, gen=0.5)
         code, md = self.write(a)
         self.assertEqual(code, tl_perf.EXIT_OK)
-        for heading in ("## Online diagnostics", "### Environment", "### Engine timeline", "### Primary bottleneck",
-                        "### Engine stages by component", "### Data movement: Redis queues, storage, uploads",
-                        "### Evaluation loop: model and feature extraction", "### Engine warnings and errors",
-                        "### Memory", "### User code (summary)",
-                        "### Recommended Tensorleap actions (from this run)"):
-            self.assertIn(heading, md)
+        part2 = md[md.index("## Part 2"):]
+        headings = ("## Part 2 — Online: bottlenecks on the Tensorleap server", "### Summary", "### Where the time goes",
+                    "### Bottlenecks, ranked", "### What to do", "### Confidence and coverage",
+                    "### Appendix 2 — online details", "**Server environment**", "**Component timings on the server**",
+                    "**Engine stages**",
+                    "**Engine warnings and errors**")
+        for heading in headings:
+            self.assertIn(heading, part2)
+        self.assertEqual([part2.index(h) for h in headings], sorted(part2.index(h) for h in headings))
+        for gone in ("### Data movement", "### Engine timeline", "### User code (summary)", "How this report was made",
+                     "Log: `"):
+            self.assertNotIn(gone, md)
         self.assertIn("**The evaluation waits for samples", md)
         self.assertIn("`trainer.validation_step.pull_batch` | waiting for the next batch of samples", md)
         self.assertIn("Inside evaluation: **The evaluation waits for samples", md)
@@ -718,7 +731,7 @@ class OnlineReportTest(unittest.TestCase):
         a = build_run(self.tmp, loop=0.10, pull=0.003, infer=0.085, proxy=0.9)
         code, md = self.write(a)
         self.assertEqual(code, tl_perf.EXIT_OK)
-        section = md[md.index("## Online diagnostics"):]
+        section = md[md.index("## Part 2"):]
         self.assertIn("| `trainer.infer` | model inference |", section)
         for line in section.splitlines():
             self.assertNotRegex(line, r"\b(EVAL|VIS|FEATURE_FLAG|LEAP|REDIS|BLOB|STREAMING)_[A-Z_]+\b")
@@ -745,7 +758,42 @@ class OnlineReportTest(unittest.TestCase):
             json.dump(doc, fh)
         self.assertEqual(tl_perf.main(["report", "--root", self.out, "--out", self.out]), tl_perf.EXIT_OK)
         with open(os.path.join(self.out, "report.md")) as fh:
-            self.assertNotIn("## Online diagnostics", fh.read())
+            md = fh.read()
+        self.assertIn("## Part 2 — Online diagnostics: not run", md)
+        self.assertNotIn("## Part 2 — Online: bottlenecks", md)
+
+
+class MemoryPressureTest(unittest.TestCase):
+    """Part 2 leads with memory only under memory pressure."""
+
+    def test_pressure_from_the_analysis_field_or_the_run(self):
+        out = tempfile.mkdtemp()
+        calm = {"memory": {"pods": {"evaluate-J-x": {"role": "evaluate", "limit_gb": 10.0, "peak_rss_gb": 1.5}}}}
+        self.assertEqual(perf_online._memory_pressure(calm, {}, out), (False, []))
+        near = {"memory": {"pods": {"generic-process-J-1": {"role": "generic-process", "limit_gb": 19.0,
+                                                            "peak_rss_gb": 17.1}}}}
+        self.assertEqual(perf_online._memory_pressure(near, {}, out), (True, ["a worker pod peaked at 17.1 of 19.0 GB"]))
+        oom = {"memory": {"pods": {"evaluate-J-x": {"role": "evaluate", "oom": True}}}}
+        self.assertTrue(perf_online._memory_pressure(oom, {}, out)[0])
+        self.assertEqual(perf_online._memory_pressure(calm, {"memory": {"status": "AMBER"}}, out),
+                         (True, ["the integration's own memory status is AMBER (Part 1)"]))
+        told = dict(near, memory_pressure={"pressure": False, "reasons": []})
+        self.assertEqual(perf_online._memory_pressure(told, {}, out), (False, []))
+
+    def test_part2_follows_memory_leads(self):
+        out = tempfile.mkdtemp()
+        a = build_run(out, loop=0.10, pull=0.003, infer=0.085, eval_seconds=300.0, vis_seconds=900.0, engine=True)
+        doc = _report(mode="diagnostics", authorized_by_user=True)
+        for leads in (True, False):
+            a["memory_leads"] = leads
+            a["memory_pressure"] = {"pressure": leads, "reasons": ["a worker pod peaked at 17.1 of 19.0 GB"] if leads else []}
+            with open(os.path.join(out, "online", "analysis.json"), "w") as fh:
+                json.dump(a, fh)
+            md = "\n".join(perf_online.render_online_part(doc, out, "memory"))
+            if leads:
+                self.assertLess(md.index("### Where the memory goes on the server"), md.index("### Where the time goes"))
+            else:
+                self.assertNotIn("### Where the memory goes on the server", md)
 
 
 class EngineViewTest(unittest.TestCase):

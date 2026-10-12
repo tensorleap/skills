@@ -71,23 +71,6 @@ def validate_server_validation(sv):
     return errors
 
 
-def render_server_validation(sv, out):
-    """The '## Server validation' section lines."""
-    mode = sv.get("mode")
-    label = {"smoke": "smoke validation (small subset)",
-             "diagnostics": "online diagnostics (authorized by the user)"}.get(mode, mode or "unknown")
-    lines = ["## Server validation", "",
-             "- Mode: **%s**" % label,
-             "- Status: **%s**" % sv.get("status", "unknown")]
-    for k in ("job", "duration", "notes"):
-        if sv.get(k):
-            lines.append("- %s: %s" % (k.capitalize(), sv[k]))
-    lines.append("")
-    if mode == "diagnostics":
-        lines += render_online_section(sv, out)
-    return lines
-
-
 # --------------------------------------------------------------------------- #
 # the offline profile of the code being pushed
 # --------------------------------------------------------------------------- #
@@ -3273,7 +3256,7 @@ def cmd_analyze(args, out, tl):
     if not tables or tables.get("parser_version") != PARSER_VERSION:
         tables = parse_collection(job_dir)
         _write_json(os.path.join(job_dir, "components.json"), tables)
-    priority = args.priority or (tl._read_json(os.path.join(out, "score.json")) or {}).get("priority") or "runtime"
+    priority = args.priority or (tl._read_json(os.path.join(out, "score.json")) or {}).get("priority") or "memory"
     analysis = analyze_collection(job_dir, tables, _polls(job_dir), _offline(out, tl), args.window,
                                   args.stable_windows, args.tolerance, settings_mode=args.settings_mode,
                                   priority=priority)
@@ -4267,172 +4250,353 @@ def render_server_settings(st):
     return L + [""]
 
 
-def render_online_section(sv, out):
-    path = _analysis_path(sv, out)
-    a = _load_json(path)
-    if a is None:
-        return ["## Online diagnostics", "", "_Collection in progress — run `tl_perf online collect` until it "
-                "exits 0, then `tl_perf online analyze` and re-render._", ""]
+PART2_NOT_RUN = ["## Part 2 — Online diagnostics: not run", "",
+                 "The online diagnostics run on the Tensorleap server only with your approval, and were not run. "
+                 "They measure where the time and memory go there: what sets the pace of each phase, the root "
+                 "causes, and whether the server's settings fit the run.", ""]
+EVENT_LABELS = {
+    "sample_queue_full": "sample queue full: workers paused (`max number of samples in queue reached`)",
+    "metrics_backpressure": "metrics queue back-pressure waits",
+    "results_stream_push": "results-stream pushes from workers", "results_stream_scaler": "results-stream scaler ticks",
+    "blob_read": "payload reads from storage on workers", "heap_trim": "evaluation-loop heap trims",
+    "visualize_batch": "visualization batches started", "progress_publish": "progress messages to the platform",
+    "stash_eviction": "custom latent-space stash evictions", "ls_reload": "latent-space store loads",
+    "remote_call": "remote calls from the evaluation pod", "command_served": "remote calls served by workers",
+    "worker_code_load": "workers loading the integration", "first_batch": "first evaluated batch",
+    "resources": "resource readings (CPU, memory)", "rss_probe": "evaluation-loop memory probes",
+    "sample_claim": "worker sample-claim sizing", "worker_start": "worker processes started",
+    "stream_bulk_write": "results-stream bulk writes", "vis_drain_wait": "waits for visualization workers",
+    "metrics_queue_full": "metrics queue full: pushes waited", "publish_retry": "progress publish retries"}
+MIN_SHARE = 0.01
+LOG_KEEP = ("duration_seconds", "n", "sum_seconds", "count", "window_seconds", "rows", "seconds")
+
+
+class _Evidence:
+    def __init__(self):
+        self.lines = []
+
+    def ref(self, raw):
+        if raw not in self.lines:
+            self.lines.append(raw)
+        return "[E%d]" % (self.lines.index(raw) + 1)
+
+    def relink(self, L, fs):
+        by_clip = {}
+        for f in fs.values():
+            for raw in f.get("log_lines") or []:
+                by_clip[_clip(raw)] = raw
+        out = []
+        for line in L:
+            m = re.match(r"^(\s*-\s*Log:\s*)`(.*)`\s*$", line)
+            if m and m.group(2) in by_clip:
+                out.append("%sevidence %s (Appendix 2)" % (m.group(1), self.ref(by_clip[m.group(2)])))
+            else:
+                out.append(line)
+        return out
+
+    def render(self):
+        return ["- [E%d] %s" % (i, _compact_log(raw)) for i, raw in enumerate(self.lines, 1)]
+
+
+def _compact_log(raw):
+    try:
+        d = json.loads(raw)
+    except ValueError:
+        return "`%s`" % _clip(raw)
+    if not isinstance(d, dict):
+        return "`%s`" % _clip(raw)
+    keep = ["%s=%s" % (k, d[k]) for k in LOG_KEEP if k in d]
+    return "%s · `%s`%s" % (d.get("asctime", "-"), _clip(str(d.get("message", "")), 140),
+                            " · " + ", ".join(keep) if keep else "")
+
+
+def _visualized(a, out):
+    job_dir = os.path.join(online_dir(out), a.get("push_job") or a.get("job") or "")
+    for p in reversed(_polls(job_dir)):
+        st = next((s for s in p.get("steps") or [] if s.get("id") == "visualize_samples"), None)
+        if st and st.get("current") is not None:
+            return st["current"], st.get("total")
+    return None, None
+
+
+def _pod_memory_rows(pods):
+    return [[p, v.get("role"), "%.1f GiB" % v["limit_gb"] if v.get("limit_gb") else "-",
+             "%.2f GB" % v["peak_rss_gb"] if v.get("peak_rss_gb") else "-", v.get("restarts") or 0,
+             "**yes**" if v.get("oom") else "no"]
+            for p, v in sorted(pods.items()) if v.get("role") in (CONSUMER, GENERIC)]
+
+
+def _memory_pressure(a, doc, out):
+    mp = a.get("memory_pressure")
+    if isinstance(mp, dict):
+        return bool(mp.get("pressure")), list(mp.get("reasons") or [])
+    reasons = []
+    for p, v in sorted(((a.get("memory") or {}).get("pods") or {}).items()):
+        if v.get("role") not in (CONSUMER, GENERIC):
+            continue
+        label = "the evaluation pod" if v["role"] == CONSUMER else "a worker pod"
+        if v.get("oom"):
+            reasons.append("%s ran out of memory" % label)
+        if v.get("limit_gb") and v.get("peak_rss_gb") and v["peak_rss_gb"] >= NEAR_LIMIT * v["limit_gb"]:
+            reasons.append("%s peaked at %.1f of %.1f GB" % (label, v["peak_rss_gb"], v["limit_gb"]))
+    status = (doc.get("memory") or {}).get("status") or \
+        ((_load_json(os.path.join(out, "score.json")) or {}).get("memory") or {}).get("status")
+    if status in ("AMBER", "RED"):
+        reasons.append("the integration's own memory status is %s (Part 1)" % status)
+    reasons = list(dict.fromkeys(reasons))
+    return bool(reasons), reasons
+
+
+def _online_summary(doc, out, a, sv, roots, rprim, priority, lead, why):
+    L = ["### Summary", ""]
+    L.append("- **Run:** `%s` — %s, %s; approved by the user.%s" % (
+        a.get("job"), sv.get("status") or a.get("status") or "imported", sv.get("duration") or _s(a.get("job_seconds")),
+        " %s" % sv["notes"] if sv.get("notes") else ""))
+    mem = next((r for r in roots if r.get("kind") == "memory"), None)
+    mem_line = None
+    if mem:
+        use = mem["peak_gb"] / mem["limit_gb"] if mem.get("limit_gb") else None
+        mem_line = "- **Memory:** %s peaks at %.1f GB of %s%s%s." % (
+            mem["subject"], mem["peak_gb"], "%.1f GB reserved" % mem["limit_gb"] if mem.get("limit_gb") else "an unknown limit",
+            ", during %s" % mem["peak_phase"] if mem.get("peak_phase") else "",
+            "" if use is None else (" — near its limit" if use >= NEAR_LIMIT else
+                                    " — mostly unused" if use < UNUSED else ""))
+    tl = sorted(_phases(a), key=lambda s: -(s.get("share_of_run") or 0))
+    time_line = "- **Time:** %s of %s." % (", ".join("%s %s" % (s["stage"].split(" (")[0], _pct(s.get("share_of_run")))
+                                                     for s in tl[:3]), _s(a.get("job_seconds"))) if tl else None
+    if lead:
+        mem_line = (mem_line or "- **Memory:**") + " Memory leads this part: %s." % "; ".join(why)
+    elif priority == "memory" and mem_line:
+        mem_line += " No memory pressure on this run, so time leads this part."
+    first = [mem_line, time_line] if lead else [time_line, mem_line]
+    L += [l for l in first if l]
+    if rprim:
+        L.append("- **Primary bottleneck (time):** %s — %s; owner: %s." % (rprim["title"], rprim["location"], rprim["owner"]))
+    else:
+        L.append("- **Primary bottleneck (time):** none claimed (no measured critical-path time in the collected logs).")
+    cmp = []
+    if doc.get("online_comparison"):
+        cmp.append(doc["online_comparison"])
+    done, total = _visualized(a, out)
+    assumed = doc.get("visualized_samples")
+    if done is not None and assumed and abs(done - assumed) > 0.1 * assumed:
+        cmp.append("Part 1 assumed {:,} visualized samples; this run visualized {:,}{}.".format(
+            assumed, done, " of {:,}".format(total) if total else ""))
+    if cmp:
+        L.append("- **Compared with Part 1:** " + " ".join(cmp))
+    L.append("- **Confidence:** %s%s." % (a.get("confidence"), " — " + "; ".join(a.get("confidence_reasons"))
+                                          if a.get("confidence_reasons") else ""))
+    return L + [""]
+
+
+POST_ROW = "post-processing (not analyzed)"
+
+
+def _phases(a):
+    tl = (a.get("engine") or {}).get("timeline") or []
+    pp = [s for s in tl if _phase_kind(s) == "post-processing"]
+    out = [s for s in tl if s not in pp]
+    if pp:
+        secs = sum(s["seconds"] for s in pp)
+        job = a.get("job_seconds")
+        out.append({"stage": POST_ROW, "start": pp[0]["start"], "seconds": secs,
+                    "share_of_run": secs / job if job else None})
+    return sorted(out, key=lambda s: s["start"])
+
+
+def _online_time(a, roots, numbers):
     eng = a.get("engine") or {}
-    fs = {f["id"]: f for f in a.get("findings") or []}
-    cfg = a.get("config") or {}
-    mem = a.get("memory") or {}
-    pods = mem.get("pods") or {}
-    L = ["## Online diagnostics", "",
-         "One authorized run on the Tensorleap server, read from the platform's own logs (`leap run logs`). "
-         "Engine stages, transfers and warnings are named as they appear in those logs. Confidence: **%s**%s." % (
-             a.get("confidence"), " — " + "; ".join(a.get("confidence_reasons") or []) if a.get("confidence_reasons") else ""), ""]
-
-    # Environment
-    srv = a.get("server") or {}
-    workers = [p for p in pods.values() if p.get("role") == GENERIC]
-    ev_pod = next((p for p in pods.values() if p.get("role") == CONSUMER), {})
-    children = sorted(set((cfg.get("children_per_pod") or {}).values())) or ["?"]
-    rows = [["run", "%s — %s, %s" % (a.get("job"), a.get("status") or "imported", _s(a.get("job_seconds")))],
-            ["engine version", srv.get("version") or "-"],
-            ["GPUs", srv.get("gpus") if srv.get("gpus") is not None else "-"],
-            ["worker pods", "%d (× %s process each)" % (len(workers), "/".join(map(str, children)))],
-            ["memory limits", "evaluation pod %s; workers %s" % (
-                "%.1f GiB" % ev_pod["limit_gb"] if ev_pod.get("limit_gb") else "-",
-                "%.1f GiB" % mem["worker_limit_gb"] if mem.get("worker_limit_gb") else "-")],
-            ["batch size (configured)", cfg.get("batch_size", "-")],
-            ["sample payloads", cfg.get("payload_format") or "-"]]
-    L += ["### Environment", ""] + _md(["", ""], rows) + [""]
-
-    # Engine timeline
     tl = eng.get("timeline") or []
-    t0 = tl[0]["start"] if tl else None
-    L += ["### Engine timeline", ""]
-    if tl:
-        # post-processing (the platform's analysis after evaluation) is shown as one row of time
-        # and not analyzed
-        pp = [s for s in tl if _phase_kind(s) == "post-processing"]
-        items = [(s["start"], [s["stage"], _rel(s["start"], t0), _s(s["seconds"]), _pct(s.get("share_of_run"))])
-                 for s in tl if _phase_kind(s) != "post-processing" and
-                 (s["seconds"] >= 0.05 or s["stage"] == "evaluation loop")]
-        if pp:
-            secs = sum(s["seconds"] for s in pp)
-            job = a.get("job_seconds")
-            items.append((pp[0]["start"], ["post-processing (not analyzed)", _rel(pp[0]["start"], t0), _s(secs),
-                                           _pct(secs / job) if job else "-"]))
-        L += _md(["stage", "starts", "duration", "share of the run"], [r for _, r in sorted(items, key=lambda kv: kv[0])])
-        st = (a.get("phases") or {})
-        notes = []
-        for ph in ("evaluation", "visualization"):
-            p = st.get(ph) or {}
-            if p.get("reached"):
-                notes.append("%s reached a steady pace after %s (%.2f %s/s for %s)" % (
-                    ph, _s(p["warmup"]["seconds"]), p["stable"]["rate_median"], p.get("unit"), _s(p["stable"]["seconds"])))
-            elif p:
-                notes.append("%s never reached a steady pace (%s)" % (ph, p.get("reason")))
-        if notes:
-            L += ["", "Pace: " + "; ".join(notes) + "."]
-    else:
-        L += ["_No engine step markers in the collected logs._"]
-    L += [""]
+    L = ["### Where the time goes", ""]
+    if not tl:
+        return L + ["_No engine step markers in the collected logs._", ""]
+    t0 = tl[0]["start"]
+    pace = {r["phase"]: r.get("pacing") for r in roots if r.get("kind") not in ("memory", "other-mechanisms")}
+    rank = {st["stage"]: n for st in tl for ph, n in numbers.items() if ph and st["stage"].startswith(ph)}
+    phases = _phases(a)
+    big = [s for s in phases if (s.get("share_of_run") or 0) >= MIN_SHARE or s["stage"] in ("evaluation loop", POST_ROW)]
+    small = [s for s in phases if s not in big]
+    rows = [[s["stage"], _rel(s["start"], t0), _s(s["seconds"]), _pct(s.get("share_of_run")), pace.get(s["stage"]) or "-",
+             "#%d" % rank[s["stage"]] if s["stage"] in rank else "-"] for s in big]
+    if small:
+        rows.append(["other steps (%d, each under %s)" % (len(small), _pct(MIN_SHARE)), "-",
+                     _s(sum(s["seconds"] for s in small)), _pct(sum(s.get("share_of_run") or 0 for s in small)), "-", "-"])
+    L += _md(["phase", "starts", "duration", "share of the run", "pace set by", "see"], rows)
+    notes = []
+    for ph in ("evaluation", "visualization"):
+        p = (a.get("phases") or {}).get(ph) or {}
+        if p.get("reached"):
+            notes.append("%s reached a steady pace after %s (%.2f %s/s for %s)" % (
+                ph, _s(p["warmup"]["seconds"]), p["stable"]["rate_median"], p.get("unit"), _s(p["stable"]["seconds"])))
+        elif p:
+            notes.append("%s never reached a steady pace (%s)" % (ph, p.get("reason")))
+    if notes:
+        L += ["", "Pace: " + "; ".join(notes) + "."]
+    sh = a.get("loop_shares") or {}
+    if sh:
+        L += ["", "Inside each evaluation iteration (%s): inference %s, waiting for samples %s, metrics hand-off %s, "
+              "embedding extraction %s, output conversion %s, other %s; workers idle %s of their time%s." % (
+                  a.get("statistics_basis"), _pct(sh.get("inference")), _pct(sh.get("waiting for samples")),
+                  _pct(sh.get("metrics hand-off")), _pct(sh.get("extract_ls")), _pct(sh.get("marshal_numpy")),
+                  _pct(sh.get("other")), _pct(a.get("worker_idle_share")),
+                  "; GPU-utilization proxy %.2f" % a["gpu_utilization_proxy"] if a.get("gpu_utilization_proxy") is not None else "")]
+    lim = next((f for f in (a.get("findings") or []) if f["id"] in
+                ("producer-bound", "metrics-bound", "inference-floor", "consumer-bound")), None)
+    if lim:
+        L += ["", "Inside evaluation: **%s**." % lim["title"]]
+    gap = a.get("gap_to_floor")
+    if gap:
+        L += ["", "Gap to the model floor: %s per row online vs %s per row offline (×%.1f) — %s." % (
+            _s(gap["online_s_per_row"]), _s(gap["floor_s_per_row"]), gap["ratio"], gap.get("basis", ""))]
+    comp = a.get("comparison") or []
+    if comp:
+        L += ["", "Your code online vs Part 1 (offline):", ""]
+        L += _md(["component", "online", "offline", "×", "note"],
+                 [[c["component"], _s(c["online"]), _s(c["offline"]), "%.2f" % c["ratio"],
+                   c["note"] + ("" if c.get("like_for_like") else " (not like-for-like)")] for c in comp])
+    return L + [""]
 
-    # Primary engine bottleneck
+
+STAGE_OF_FINDING = {"engine-visualization": "visualization",
+                    "visualization-tail": "visualization",
+                    "engine-start-up": "start-up", "start-up": "start-up"}
+
+
+def _runtime_primary(a, fs):
     prim = fs.get(a.get("primary"))
-    L += ["### Primary bottleneck", ""]
-    if prim:
-        L += ["**%s** — %s" % (prim["title"], prim["explanation"]), "",
-              "- Where: %s · %s · critical path: %s · owner: %s" % (
-                  prim["location"], prim["type"], CP_LABEL.get(prim["critical_path"], prim["critical_path"]), prim["owner"])]
-        L += ["- %s" % e for e in prim["evidence"]]
-        L += ["- Log: `%s`" % _clip(l) for l in prim.get("log_lines", [])[:2]]
-    else:
-        L += ["**No primary bottleneck claimed:** no measured critical-path time in the collected logs."]
-    sec = [fs[i] for i in a.get("secondary") or [] if i in fs]
-    if sec:
-        L += ["", "Next on the critical path:"] + ["- %s (%s)" % (f["title"], f["location"]) for f in sec]
-    L += [""]
-    L += render_root_causes(a.get("root_causes")) + render_server_settings(a.get("server_settings"))
+    if prim and prim["id"] == "memory-priority":
+        return fs.get(a.get("runtime_primary"))
+    return prim
 
-    # Engine measurements: neutral numbers from the engine's lines
-    d = eng.get("measurements") or {}
-    if d:
-        meas = []
-        if d.get("rows_per_batch"):
-            meas.append("rows per evaluation batch: median %.1f (configured %s)" % (
-                d["rows_per_batch"]["median"], cfg.get("batch_size", "-")))
-        if d.get("sample_claim"):
-            c = d["sample_claim"]
-            meas.append("per-sample payload %.1f MB; workers claim %s sample(s) at a time" % (
-                c["sample_bytes"] / 1e6, c["min"] if c["min"] == c["max"] else "%d-%d" % (c["min"], c["max"])))
-        if d.get("results_stream"):
-            rs = d["results_stream"]
-            meas.append("results stream: %d docs pushed, %d drained, up to %d writer replicas" % (
-                rs["pushed"], rs["pulled"], rs["max_replicas"]))
-        for f, lab in (("minio_ls_secs", "latent-space bulk writes"), ("es_secs", "index bulk writes")):
-            b = (d.get("stream_bulk_write") or {}).get(f)
-            if b:
-                meas.append("%s: %d, P50 %s, P95 %s, total %s" % (lab, b["n"], _s(b["p50"]), _s(b["p95"]), _s(b["sum"])))
-        if d.get("stash_evictions"):
-            se = d["stash_evictions"]
-            meas.append("custom latent-space stash evictions: %d (%d during evaluation, %d after)" % (
-                se["total"], se["during_evaluation"], se["after_evaluation"]))
-        if d.get("memory_floor"):
-            mf = d["memory_floor"]
-            meas.append("evaluation-pod memory after each trim: %.2f → %.2f GB (%.3f GB per 1,000 rows)" % (
-                mf["first_gb"], mf["last_gb"], mf["gb_per_1000_rows"]))
-        for key, lab in (("disk_guard_wait_s", "shared-disk guard waits (s)"), ("eval_batch_error", "failed evaluation batches"),
-                         ("vis_drain_wait", "waits for visualization workers to finish"), ("vis_timeout", "visualization timeouts"),
-                         ("publish_retry", "progress publish retries")):
-            if d.get(key):
-                meas.append("%s: %s" % (lab, ("%.1f" % d[key]) if isinstance(d[key], float) else d[key]))
-        if d.get("worker_restarts"):
-            meas.append("worker service restarts: %s" % ", ".join("%s ×%d" % kv for kv in sorted(d["worker_restarts"].items())))
-        if meas:
-            L += ["Engine measurements:", ""] + ["- %s" % m for m in meas] + [""]
 
-    # Engine stages by component
-    stages = [s for s in eng.get("stages") or [] if (s.get("seconds") or 0) >= 0.05]
-    if stages:
-        L += ["### Engine stages by component", "",
-              "Every timed engine operation during start-up, evaluation and visualization (busy time; work on "
-              "several pods overlaps). Post-processing is left out.", ""]
-        rows = []
-        for s in sorted(stages, key=lambda s: (s["category"], -(s["seconds"] or 0))):
-            rows.append([s["category"], "`%s`" % s["span"], s.get("label") or "-", s["role"], s["calls"],
-                         _s(s["seconds"]), _s(s["mean"]), _s(s["max"]), _s(s.get("p95"))])
-        L += _md(["stage", "engine name", "what it is", "pod", "calls", "total", "mean", "max", "P95"], rows) + [""]
-        cnt = eng.get("counters") or []
-        if cnt:
-            L += ["Engine counters (a value per call — a count, size or share — not time):", ""]
-            L += _md(["what it counts", "engine name", "pod", "values", "mean", "max"],
-                     [[c.get("label") or "-", "`%s`" % c["span"], c["role"], c["samples"],
-                       "%.3g" % c["mean"] if c.get("mean") is not None else "-",
-                       "%.3g" % c["max"] if c.get("max") is not None else "-"]
-                      for c in sorted(cnt, key=lambda c: c["span"])]) + [""]
+def _root_card(n, r):
+    lines = render_root_causes([r])
+    body = lines[next((k for k, l in enumerate(lines) if l.startswith("**")), len(lines)):]
+    if body and re.match(r"^\*\*1\. ", body[0]):
+        body[0] = "**%d. " % n + body[0][len("**1. "):]
+    return body
 
-    # Data movement
-    evs = eng.get("events") or {}
-    dm = [s for s in stages if s["category"].startswith(("data movement", "storage"))]
-    L += ["### Data movement: Redis queues, storage, uploads", ""]
-    if dm:
-        L += _md(["operation", "engine name", "pod", "calls", "total", "mean", "max"],
-                 [[s.get("label") or s["category"], "`%s`" % s["span"], s["role"], s["calls"], _s(s["seconds"]),
-                   _s(s["mean"]), _s(s["max"])] for s in sorted(dm, key=lambda s: -(s["seconds"] or 0))]) + [""]
-    up = eng.get("uploads") or {}
-    if up:
-        L += ["Image and file hand-offs to storage (encode + hand-off to the upload pool; the transfer itself runs "
-              "in the background and is not timed):", ""]
-        L += _md(["kind", "count", "total (all pods)", "P50", "P95", "max"],
-                 [[k, v["count"], _s(v["seconds"]), _s(v["p50"]), _s(v["p95"]), _s(v["max"])] for k, v in sorted(up.items())]) + [""]
-    ev_rows = []
-    labels = {"sample_queue_full": "sample queue full: workers paused (`max number of samples in queue reached`)",
-              "metrics_backpressure": "metrics queue back-pressure waits",
-              "results_stream_push": "results-stream pushes from workers", "results_stream_scaler": "results-stream scaler ticks",
-              "blob_read": "payload reads from storage on workers", "heap_trim": "evaluation-loop heap trims",
-              "visualize_batch": "visualization batches started", "progress_publish": "progress messages to the platform",
-              "stash_eviction": "custom latent-space stash evictions", "ls_reload": "latent-space store loads",
-              "remote_call": "remote calls from the evaluation pod", "command_served": "remote calls served by workers",
-              "worker_code_load": "workers loading the integration", "first_batch": "first evaluated batch",
-              "resources": "resource readings (CPU, memory)", "rss_probe": "evaluation-loop memory probes",
-              "sample_claim": "worker sample-claim sizing", "worker_start": "worker processes started",
-              "stream_bulk_write": "results-stream bulk writes", "vis_drain_wait": "waits for visualization workers",
-              "metrics_queue_full": "metrics queue full: pushes waited", "publish_retry": "progress publish retries"}
-    for k, v in sorted(evs.items(), key=lambda kv: -kv[1]["count"]):
+
+def _finding_card(n, f, evidence):
+    L = ["**%d. %s**" % (n, f["title"]), "", "- %s" % f["explanation"],
+         "- Where: %s · %s · critical path: %s · owner: %s" % (
+             f["location"], f["type"], CP_LABEL.get(f["critical_path"], f["critical_path"]), f["owner"])]
+    L += ["- Evidence: %s" % e for e in f["evidence"]]
+    L += ["- Log: evidence %s (Appendix 2)" % evidence.ref(l) for l in f.get("log_lines", [])[:2]]
+    if f.get("suggestion"):
+        L.append("- **What to do:** %s" % f["suggestion"])
+    return L + [""]
+
+
+def _online_ranked(a, fs, lead, evidence):
+    roots = [r for r in a.get("root_causes") or [] if not r.get("error")]
+    covered = _covered_ids(roots, a.get("primary"))
+    items = []
+    for r in roots:
+        if r.get("kind") == "memory":
+            items.append(((0 if lead else 2, 0.0), "root", r))
+        elif r.get("kind") != "other-mechanisms":
+            items.append(((1, -(r.get("share_of_run") or 0)), "root", r))
+    for fid in dict.fromkeys((a.get("primary"), a.get("runtime_primary"))):
+        f = fs.get(fid)
+        if f and fid not in covered and fid != "memory-priority":
+            items.append(((1, -(f.get("share_of_job") or 0)), "finding", f))
+    items.sort(key=lambda i: i[0])
+    L = ["### Bottlenecks, ranked", ""]
+    numbers, carded = {}, set()
+    for n, (_, kind, x) in enumerate(items, 1):
+        if kind == "root":
+            L += _root_card(n, x)
+            numbers[x.get("phase")] = n
+        else:
+            L += _finding_card(n, x, evidence)
+            carded.add(x["id"])
+            if x["id"] in STAGE_OF_FINDING:
+                numbers[STAGE_OF_FINDING[x["id"]]] = n
+    other = [r for r in roots if r.get("kind") == "other-mechanisms"]
+    if other:
+        lines = render_root_causes(other)
+        L += lines[next((k for k, l in enumerate(lines) if l.startswith("**")), len(lines)):]
+    if not items and not other:
+        L += render_root_causes([])[2:]
+    return L, numbers, carded
+
+
+def _online_settings(st):
+    if not st:
+        return []
+    rows = st.get("rows") or []
+    off = [r for r in rows if r.get("verdict") != "fits" and not str(r.get("verdict")).startswith("see")]
+    fit = [r["setting"] for r in rows if r not in off]
+    if not off:
+        return ["### Server settings", "", "Every resource setting fit this run (full table: Appendix 2).", ""]
+    L = render_server_settings(dict(st, rows=off))
+    if fit:
+        L += ["All other settings fit this run: %s. Full table: Appendix 2." % ", ".join(fit), ""]
+    return L
+
+
+def _stage_rows(stages):
+    busy = {}
+    for s in stages:
+        busy[s["role"]] = busy.get(s["role"], 0.0) + (s.get("seconds") or 0)
+    keep, other = [], {}
+    for s in stages:
+        if (s.get("seconds") or 0) >= MIN_SHARE * (busy.get(s["role"]) or 0):
+            keep.append(s)
+        else:
+            o = other.setdefault((s["category"], s["role"]), {"n": 0, "calls": 0, "seconds": 0.0})
+            o["n"] += 1
+            o["calls"] += s.get("calls") or 0
+            o["seconds"] += s.get("seconds") or 0
+    rows = [[s["category"], "`%s`" % s["span"], s.get("label") or "-", s["role"], s["calls"], _s(s["seconds"]),
+             _s(s["mean"]), _s(s["max"]), _s(s.get("p95"))] for s in keep]
+    rows += [[cat, "other (%d)" % o["n"], "each under %s of the pod's busy time" % _pct(MIN_SHARE), role, o["calls"],
+              _s(o["seconds"]), "-", "-", "-"] for (cat, role), o in other.items()]
+    return sorted(rows, key=lambda r: (r[0], r[1].startswith("other")))
+
+
+def _measurement_lines(d, cfg):
+    meas = []
+    if d.get("rows_per_batch"):
+        meas.append("rows per evaluation batch: median %.1f (configured %s)" % (
+            d["rows_per_batch"]["median"], cfg.get("batch_size", "-")))
+    if d.get("sample_claim"):
+        c = d["sample_claim"]
+        meas.append("per-sample payload %.1f MB; workers claim %s sample(s) at a time" % (
+            c["sample_bytes"] / 1e6, c["min"] if c["min"] == c["max"] else "%d-%d" % (c["min"], c["max"])))
+    if d.get("results_stream"):
+        rs = d["results_stream"]
+        meas.append("results stream: %d docs pushed, %d drained, up to %d writer replicas" % (
+            rs["pushed"], rs["pulled"], rs["max_replicas"]))
+    for f, lab in (("minio_ls_secs", "latent-space bulk writes"), ("es_secs", "index bulk writes")):
+        b = (d.get("stream_bulk_write") or {}).get(f)
+        if b:
+            meas.append("%s: %d, P50 %s, P95 %s, total %s" % (lab, b["n"], _s(b["p50"]), _s(b["p95"]), _s(b["sum"])))
+    if d.get("stash_evictions"):
+        se = d["stash_evictions"]
+        meas.append("custom latent-space stash evictions: %d (%d during evaluation, %d after)" % (
+            se["total"], se["during_evaluation"], se["after_evaluation"]))
+    if d.get("memory_floor"):
+        mf = d["memory_floor"]
+        meas.append("evaluation-pod memory after each trim: %.2f → %.2f GB (%.3f GB per 1,000 rows)" % (
+            mf["first_gb"], mf["last_gb"], mf["gb_per_1000_rows"]))
+    for key, lab in (("disk_guard_wait_s", "shared-disk guard waits (s)"), ("eval_batch_error", "failed evaluation batches"),
+                     ("vis_drain_wait", "waits for visualization workers to finish"), ("vis_timeout", "visualization timeouts"),
+                     ("publish_retry", "progress publish retries")):
+        if d.get(key):
+            meas.append("%s: %s" % (lab, ("%.1f" % d[key]) if isinstance(d[key], float) else d[key]))
+    if d.get("worker_restarts"):
+        meas.append("worker service restarts: %s" % ", ".join("%s ×%d" % kv for kv in sorted(d["worker_restarts"].items())))
+    return meas
+
+
+def _count_rows(eng):
+    rows = [[c.get("label") or "-", "`%s`" % c["span"], c["role"], c["samples"],
+             "%.3g" % c["mean"] if c.get("mean") is not None else "-",
+             "%.3g" % c["max"] if c.get("max") is not None else "-"] for c in sorted(eng.get("counters") or [],
+                                                                                  key=lambda c: c["span"])]
+    for k, v in sorted((eng.get("events") or {}).items(), key=lambda kv: -kv[1]["count"]):
         extra = []
         for f, lab in (("duration_seconds", "waited"), ("doc_count", "docs"), ("pushed_docs", "docs pushed"),
                        ("heap_returned_gb", "GB returned"), ("desired_replicas", "max replicas")):
@@ -4440,67 +4604,117 @@ def render_online_section(sv, out):
                 val = v[f]["max"] if f == "desired_replicas" else v[f]["sum"]
                 extra.append("%s %s" % (lab, ("%d" % val) if f in ("doc_count", "pushed_docs", "desired_replicas")
                                         else ("%.2f s" % val if f == "duration_seconds" else "%.2f" % val)))
-        ev_rows.append([labels.get(k, k), v["count"], v["pods"], "; ".join(extra) or "-"])
-    if ev_rows:
-        L += _md(["engine event", "count", "pods", "amount"], ev_rows) + [""]
+        rows.append([EVENT_LABELS.get(k, k), "-", "%d pod(s)" % v["pods"], v["count"], "-", "; ".join(extra) or "-"])
+    return rows
 
-    # Evaluation loop
-    sh = a.get("loop_shares") or {}
-    L += ["### Evaluation loop: model and feature extraction", ""]
-    if sh:
-        L += ["Per evaluation iteration (%s): inference %s, waiting for samples %s, metrics hand-off %s, embedding "
-              "(feature) extraction %s, output conversion %s, other %s. Workers idle %s of their time%s." % (
-                  a.get("statistics_basis"), _pct(sh.get("inference")), _pct(sh.get("waiting for samples")),
-                  _pct(sh.get("metrics hand-off")), _pct(sh.get("extract_ls")), _pct(sh.get("marshal_numpy")),
-                  _pct(sh.get("other")), _pct(a.get("worker_idle_share")),
-                  "; GPU-utilization proxy %.2f" % a["gpu_utilization_proxy"] if a.get("gpu_utilization_proxy") is not None else "")]
-        lim = next((f for f in fs.values() if f["id"] in ("producer-bound", "metrics-bound", "inference-floor", "consumer-bound")), None)
-        if lim:
-            L += ["", "Inside evaluation: **%s**." % lim["title"]]
-    else:
-        L += ["_No evaluation-loop timing in the collected logs._"]
-    gap = a.get("gap_to_floor")
-    if gap:
-        L += ["", "Gap to the model floor: %s per row online vs %s per row offline (×%.1f) — %s." % (
-            _s(gap["online_s_per_row"]), _s(gap["floor_s_per_row"]), gap["ratio"], gap.get("basis", ""))]
-    L += [""]
 
-    # Engine warnings and errors
+def _online_appendix(a, evidence, pods, memory_in_main):
+    eng = a.get("engine") or {}
+    cfg = a.get("config") or {}
+    mem = a.get("memory") or {}
+    srv = a.get("server") or {}
+    tl = eng.get("timeline") or []
+    t0 = tl[0]["start"] if tl else None
+    L = ["### Appendix 2 — online details", ""]
+    workers = [p for p in pods.values() if p.get("role") == GENERIC]
+    ev_pod = next((p for p in pods.values() if p.get("role") == CONSUMER), {})
+    children = sorted(set((cfg.get("children_per_pod") or {}).values())) or ["?"]
+    env = [["run", "%s — %s, %s" % (a.get("job"), a.get("status") or "imported", _s(a.get("job_seconds")))],
+           ["engine version", srv.get("version") or "-"],
+           ["GPUs", srv.get("gpus") if srv.get("gpus") is not None else "-"],
+           ["worker pods", "%d (× %s process each)" % (len(workers), "/".join(map(str, children)))],
+           ["memory limits", "evaluation pod %s; workers %s" % (
+               "%.1f GiB" % ev_pod["limit_gb"] if ev_pod.get("limit_gb") else "-",
+               "%.1f GiB" % mem["worker_limit_gb"] if mem.get("worker_limit_gb") else "-")],
+           ["batch size (configured)", cfg.get("batch_size", "-")],
+           ["sample payloads", cfg.get("payload_format") or "-"]]
+    L += ["**Server environment**", ""] + _md(["", ""], env) + [""]
+    st = a.get("server_settings") or {}
+    if st.get("rows"):
+        L += ["**Server settings (all)** — resource settings: %s" % st.get("mode"), ""]
+        L += _md(["setting", "got", "used", "verdict", "effect of a change"],
+                 [[r["setting"], r["got"], r["used"], r["verdict"], r.get("effect", "-")] for r in st["rows"]]) + [""]
+    crow, _ = _component_rows(a)
+    if crow:
+        L += ["**Component timings on the server** (%s; per call)" % (a.get("statistics_basis") or "whole run"), ""]
+        L += _md(["component", "calls", "mean", "P50", "P90", "P95", "P99", "share of the window", "critical path"],
+                 crow) + [""]
+    meas = _measurement_lines(eng.get("measurements") or {}, cfg)
+    if meas:
+        L += ["**Engine measurements**", ""] + ["- %s" % m for m in meas] + [""]
+    stages = [s for s in eng.get("stages") or [] if (s.get("seconds") or 0) >= 0.05]
+    if stages:
+        L += ["**Engine stages** — busy time per timed engine operation during start-up, evaluation and "
+              "visualization (work on several pods overlaps; post-processing is left out); operations under %s of "
+              "their pod's busy time are folded per stage." % _pct(MIN_SHARE), ""]
+        L += _md(["stage", "engine name", "what it is", "pod", "calls", "total", "mean", "max", "P95"],
+                 _stage_rows(stages)) + [""]
+    up = eng.get("uploads") or {}
+    if up:
+        L += ["**Image and file hand-offs to storage** (encode + hand-off to the upload pool; the transfer itself "
+              "runs in the background and is not timed)", ""]
+        L += _md(["kind", "count", "total (all pods)", "P50", "P95", "max"],
+                 [[k, v["count"], _s(v["seconds"]), _s(v["p50"]), _s(v["p95"]), _s(v["max"])]
+                  for k, v in sorted(up.items())]) + [""]
+    counts = _count_rows(eng)
+    if counts:
+        L += ["**Engine counters and events** (counts, sizes and shares — not time)", ""]
+        L += _md(["what", "engine name", "pod", "count", "mean", "max / amount"], counts) + [""]
     ws = eng.get("warnings") or []
-    L += ["### Engine warnings and errors", ""]
+    L += ["**Engine warnings and errors**", ""]
     L += _md(["level", "pod", "message", "count", "pods", "first", "last"],
              [[w["level"], w["role"], "`%s`" % w["message"][:110], w["count"], len(w["pods"]), _rel(w["first"], t0),
                _rel(w["last"], t0)] for w in ws]) if ws else ["_None logged._"]
     L += [""]
+    if not memory_in_main and _pod_memory_rows(pods):
+        L += ["**Memory**", ""] + _md(["pod", "role", "limit", "peak", "restarts", "out of memory"],
+                                      _pod_memory_rows(pods)) + [""]
+    if evidence.lines:
+        L += ["**Evidence log lines** (from this run's `leap run logs`, shortened)", ""] + evidence.render() + [""]
+    return L
 
-    # Memory
-    L += ["### Memory", ""]
-    mrows = [[p, v.get("role"), "%.1f GiB" % v["limit_gb"] if v.get("limit_gb") else "-",
-              "%.2f GB" % v["peak_rss_gb"] if v.get("peak_rss_gb") else "-", v.get("restarts") or 0,
-              "**yes**" if v.get("oom") else "no"]
-             for p, v in sorted(pods.items()) if v.get("role") in (CONSUMER, GENERIC)]
-    if mrows:
-        L += _md(["pod", "role", "limit", "peak (logged)", "restarts", "out of memory"], mrows) + [""]
 
-    # User code, briefly
-    comp = a.get("comparison") or []
-    crow, _ = _component_rows(a)
-    user = [r for r in crow if r[0].startswith(("sample generation", "custom metrics", "visualizers"))]
-    L += ["### User code (summary)", ""]
-    if user:
-        L += _md(["component", "calls", "mean", "P50", "P90", "P95", "P99"], [r[:7] for r in user]) + [""]
-    if comp:
-        L += _md(["vs offline", "online", "offline", "×", "note"],
-                 [[c["component"], _s(c["online"]), _s(c["offline"]), "%.2f" % c["ratio"],
-                   c["note"] + ("" if c.get("like_for_like") else " (not like-for-like)")] for c in comp]) + [""]
-
-    # Recommended Tensorleap actions: root causes first, then what they don't cover
-    L += render_tensorleap_actions(fs, a.get("root_causes") or [], a.get("primary"))
+def render_online_part(doc, out, priority="memory"):
+    sv = doc.get("server_validation") or {}
+    if sv.get("mode") != "diagnostics":
+        return list(PART2_NOT_RUN)
+    L = ["## Part 2 — Online: bottlenecks on the Tensorleap server", ""]
+    a = _load_json(_analysis_path(sv, out))
+    if a is None:
+        return L + ["_Collection in progress — run `tl_perf online collect` until it exits 0, then `tl_perf online "
+                    "analyze` and re-render._", ""]
+    fs = {f["id"]: f for f in a.get("findings") or []}
+    roots = [r for r in a.get("root_causes") or [] if not r.get("error")]
+    pods = (a.get("memory") or {}).get("pods") or {}
+    evidence = _Evidence()
+    pressure, why = _memory_pressure(a, doc, out)
+    lead = a["memory_leads"] if isinstance(a.get("memory_leads"), bool) else priority == "memory" and pressure
+    ranked, numbers, carded = _online_ranked(a, fs, lead, evidence)
+    L += _online_summary(doc, out, a, sv, roots, _runtime_primary(a, fs), priority, lead, why)
+    memory_in_main = pressure
+    mem_part = []
+    if memory_in_main and _pod_memory_rows(pods):
+        mem_part = ["### Where the memory goes on the server", ""] + \
+            _md(["pod", "role", "limit", "peak", "restarts", "out of memory"], _pod_memory_rows(pods)) + [""]
+    time_part = _online_time(a, roots, numbers)
+    L += (mem_part + time_part) if lead else (time_part + mem_part)
+    L += ranked
+    rest = {k: f for k, f in fs.items() if k not in carded}
+    actions = render_tensorleap_actions(rest, a.get("root_causes") or [], a.get("primary"))
+    L += evidence.relink(["### What to do"] + actions[1:], fs) + [""]
+    L += _online_settings(a.get("server_settings"))
     cov = a.get("coverage") or {}
-    L += ["", "Coverage: %s, %d poll(s), %d gap(s)%s." % (
-        "followed during the run" if cov.get("source") == "poll" else "imported after the run",
-        cov.get("polls") or 0, cov.get("gaps") or 0,
-        "; " + "; ".join(a.get("notes")) if a.get("notes") else ""), ""]
+    L += ["### Confidence and coverage", "",
+          "- Confidence: **%s**%s." % (a.get("confidence"), " — " + "; ".join(a.get("confidence_reasons"))
+                                       if a.get("confidence_reasons") else ""),
+          "- Logs: %s, %d poll(s), %d gap(s)." % ("followed during the run" if cov.get("source") == "poll"
+                                                  else "imported after the run", cov.get("polls") or 0, cov.get("gaps") or 0)]
+    L += ["- %s" % n for n in a.get("notes") or []]
+    ws = (a.get("engine") or {}).get("warnings") or []
+    if ws:
+        L.append("- %d kinds of engine warnings and errors were logged (Appendix 2)." % len(ws))
+    L += [""]
+    L += _online_appendix(a, evidence, pods, memory_in_main)
     return L
 
 

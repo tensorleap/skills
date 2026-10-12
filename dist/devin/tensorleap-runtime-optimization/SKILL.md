@@ -9,8 +9,9 @@ You take an existing, working Tensorleap integration (`leap_integration.py` + `l
 at the repo root) from "it's slow and nobody knows why" to a measured, component-level
 picture, apply every **lossless** optimization the evidence supports, validate the result
 on the Tensorleap server, and hand over a report that names what limits runtime now. The
-same flow reduces the **memory the integration's own code holds** per worker process when
-that is the problem (or when it comes for free).
+same flow reduces the **memory the integration's own code holds** per worker process —
+first, by default: memory wins conflicts with runtime, because a smaller footprint usually
+also makes the run faster.
 
 Work from the **integration repo root**, inside the **integration's own Python
 environment** (the one that runs `leap_integration.py` — `poetry run` by default, or the
@@ -59,16 +60,20 @@ out-of-memory failures.
   **equivalent** and either runtime is **lower** with no memory regression (runtime loop),
   or the footprint is **lower** with runtime within the allowed tolerance (memory loop).
   Changes that alter outputs are a separate, consent-gated step (Phase 5).
-- **Runtime first, unless memory is the problem.** `tl_perf score` triages memory:
+- **Memory first: memory wins conflicts with runtime.** This is the default (`--priority
+  memory`), offline and online, because a smaller footprint usually also makes the run
+  faster: more workers fit, no out-of-memory restarts, less copying. The memory loop runs
+  first, a memory fix may cost up to +15% runtime, and a runtime fix is kept only if it does
+  not grow memory. `tl_perf score` still triages memory (GREEN / AMBER / RED). The report
+  leads with memory only where there is memory pressure — offline, a status of AMBER or RED;
+  online, an out-of-memory kill, a pod near its memory limit, a server memory warning, or an
+  AMBER/RED status — and otherwise leads with time.
+- **Unless the user puts runtime first.** With `--priority runtime` the triage decides:
   **RED** (out-of-memory reported or seen, or one worker's footprint over half the memory
   budget) → the memory loop runs first and a memory fix may cost up to +15% runtime;
   **AMBER** (a large footprint, a structure over 1 GB per worker, or growth with the
   samples) → runtime loop first, then the memory loop, memory fixes within noise (3%);
   **GREEN** → runtime loop, then only **free** memory wins (no runtime cost).
-- **Unless the user puts memory first.** With `--priority memory` the memory loop runs
-  first whatever the status, a memory fix may cost up to +15% runtime, a runtime fix is
-  kept only if it does not grow memory, and the report and the online diagnostics lead with
-  memory.
 - **The catalog is where you start, not where you stop.** Candidates come from
   measurement: `profile` / `score` rank every component by cost, whether or not its problem
   is in `reference/perf-bottleneck-catalog.md`. When the top cost matches no catalog
@@ -106,7 +111,7 @@ poetry run python scripts/tl_perf.py <subcommand> [options]
 | `profile` | every wired component, run the way Tensorleap runs it (fresh processes per pass: generation, sorted-order what-if, visualizers, diagnostics, output snapshot, **user-code memory**); the first run becomes the equivalence **baseline** | `runs/NNN/profile.json`, `runs/NNN/memory.json`, `profile.json`, `baseline/` |
 | `score` | ranks candidates: expected seconds removable × confidence, with evidence; always triages memory (GREEN / AMBER / RED) and ranks **memory candidates** (`--objective memory` lists them first) | `score.json` |
 | `compare` | latest run: output equivalence vs the **baseline**; gain and memory vs the **last accepted run** (exit 0 makes it the new reference). `--objective memory` judges a memory fix: footprint drop, runtime within the triage tolerance | `runs/NNN/compare.json` |
-| `report` | renders your `report.json` into `report.md` and the published `report.html` (one self-contained page, ending with every step you ran) | `report.md`, `report.html` |
+| `report` | renders your `report.json` into `report.md` and the published `report.html` (one self-contained page): Part 1 offline, Part 2 online (only after an approved diagnostics run) | `report.md`, `report.html` |
 | `online collect` / `analyze` | Phase 6B only: follow the diagnostics run and keep its logs; stable-window statistics, bottleneck, offline-vs-online | `online/` |
 
 **Exit code → action** (all subcommands):
@@ -173,12 +178,13 @@ batch size.
    "workers are big" → `--memory-symptom high`. Only when the request says nothing about
    memory → `none`. Note the server's memory as `--memory-gb` when known. Both go to
    every `tl_perf score` call.
-5. **Priority.** Runtime is the default. When the user's goal is memory — fewer or smaller
-   workers, fitting a smaller machine, "memory matters more than speed" — pass
-   `--priority memory` to every `tl_perf score` call (compare, online analyze and report
-   read it from `score.json`) and write `"priority": "memory"` in `report.json`. If the
-   request asks for both and doesn't say which matters more, ask once, recommending
-   runtime unless memory is failing. Quote the words you based it on in the log.
+5. **Priority.** Memory is the default: memory wins every conflict with runtime, and
+   nothing needs to be passed. Only when the user says speed matters more than memory —
+   "as fast as possible, memory is fine", "runtime is what matters" — pass `--priority
+   runtime` to every `tl_perf score` call (compare, online analyze and report read it from
+   `score.json`), write `"priority": "runtime"` in `report.json`, and quote the words you
+   based it on in the log and in the report's `priority_reason`. A request that asks for
+   both without saying which matters more keeps the default.
 
 **GATE:** a floor exists and no metric/loss fails the batch check.
 
@@ -270,10 +276,13 @@ equivalence check only covers branches the sampled data executes.
 
 ## Phase 4 — Lossless optimization loops (runtime 4R, memory 4M)
 
-Run the loops in the order the memory triage gives: **RED** → 4M, then 4R; **AMBER** →
-4R, then 4M; **GREEN** → 4R, then 4M for free wins only; **priority memory** → 4M (every
-lossless memory candidate, up to +15% runtime each), then 4R (no memory growth). Re-run `tl_perf score` after every
-kept fix — a fix can change the status.
+Run the loops in the order the priority gives: **memory (the default)** → 4M (every
+lossless memory candidate, up to +15% runtime each), then 4R (no memory growth). With
+**`--priority runtime`** the memory triage decides: **RED** → 4M, then 4R; **AMBER** → 4R,
+then 4M; **GREEN** → 4R, then 4M for free wins only. Re-run `tl_perf score` after every
+kept fix — a fix can change the status. Log every conflict between the two — a memory fix
+kept at a runtime cost, a runtime fix rejected because it grew memory — for the report's
+`tradeoffs`.
 
 ### 4R — runtime loop
 
@@ -397,7 +406,7 @@ says yes** in 6.0. Diagnostics read the run; they never change server settings.
    - the option: to test on less data, they can give a **cap** — the same number of
      samples for every state, like the integration's `sample_limit_per_split`. With a small
      cap a phase may not reach a steady pace; the report then says so;
-   - what they get: an **Online diagnostics** section in the report — what limits the run
+   - what they get: **Part 2 — Online** of the report — what limits the run
      on the platform and whether it is on the critical path, with log evidence; for the
      evaluation and the visualization, the root cause of a slow phase (what set the pace,
      where that time went, the part to change); whether the server's CPU / memory / worker / GPU settings fit the run; memory
@@ -579,8 +588,8 @@ second diagnostics run (the 6A one-retry rule for a server-side rejection still 
    and the engine part where it happens; mechanisms in shorter phases follow the root
    causes. The rules read shapes, not known problems: report what they find, and never
    turn it into a checklist of platform features. It judges the **server settings** (CPU, memory, worker
-   pods and processes, GPUs) against what the run used. With memory as the priority (from
-   `score.json`, or `--priority memory`) it builds a **memory root cause**: which pods hold
+   pods and processes, GPUs) against what the run used. With memory as the priority (the
+   default, from `score.json` or `--priority`) it builds a **memory root cause**: which pods hold
    and reserve the most memory, when they peak, how much of it is the integration's own code
    (from the offline memory pass), and the part to change. It leads with it only under
    **memory pressure** — a pod killed for memory, a peak at 85% of a limit, a memory warning
@@ -589,9 +598,11 @@ second diagnostics run (the 6A one-retry rule for a server-side rejection still 
    writes `online/analysis.json`.
    If a phase never reached a steady pace, it says so: report that and the numbers seen,
    never treat an unstable run as stable.
-8. Update `server_validation` in `report.json` (status, duration, notes), re-run `tl_perf
-   report` — it renders the **Online diagnostics** section from `online/analysis.json` —
-   and commit. Every bottleneck claim in that section comes from the analysis with its
+8. Update `server_validation` in `report.json` (status, duration, notes) and write
+   `online_comparison`: one or two sentences on how the online picture differs from Part 1
+   and why (for example a visualized-sample count far above the one assumed offline). Re-run
+   `tl_perf report` — it renders **Part 2 — Online** from `online/analysis.json` — and
+   commit. Every bottleneck claim in Part 2 comes from the analysis with its
    evidence; don't add claims the analysis doesn't support. When a phase has no root
    cause (its engine logs have no step-level timing) or a low confidence, say so — don't
    fill the gap with a guess. Settings advice is a recommendation for the user or
@@ -610,16 +621,22 @@ re-run). If Phase 6 already produced it (validation in progress), finalize it he
 Evaluate's outcome; if there was no server validation, write it now. Tag every entry in
 `optimizations` with its `kind` (`performance`, `correctness`, `prerequisite` or
 `memory`) and its `catalog` class (a letter, an `M` class, or `new` when no class
-describes it). Fill `memory` (status and reasons from `score`, the largest remaining
-holder); `tl_perf report` adds the footprint breakdown before → after from the profiles.
+describes it), a short `title`, and its `memory` effect when measured. Fill `memory`
+(status and reasons from `score`, the largest remaining holder), `tradeoffs` (every
+memory/runtime conflict you logged in Phase 4) and the `owner` of the remaining bottleneck;
+`tl_perf report` adds the footprint and time breakdowns before → after from the profiles.
 Read `report.md` once as the reader would, fix what is unclear, and commit it with the log
 and `static.json`.
 
-`tl_perf report` also writes **`report.html`, the published report**: one self-contained
-page (no external files — it can be mailed or posted as is) with the offline and the online
-results, ending with **How this report was made** — every step you ran, its result and the
-artifact it left. Re-run `tl_perf report` whenever `report.json` or the online analysis
-changes, so both files match. Don't commit `report.html` (it is rebuilt from `report.json`).
+The report has two parts, each answer-first with its details in a collapsed appendix:
+**Part 1 — Offline** (always: what limits the integration's own code, what you changed,
+what remains) and **Part 2 — Online** (only after an approved diagnostics run; otherwise one
+line saying it was not run). A part leads with memory only when there is memory pressure;
+otherwise it leads with time. `tl_perf report`
+also writes **`report.html`, the published report**: one self-contained page (no external
+files — it can be mailed or posted as is). Re-run `tl_perf report` whenever `report.json`
+or the online analysis changes, so both files match. Don't commit `report.html` (it is
+rebuilt from `report.json`).
 
 Your closing message names the deliverables — the branch and its commits, `report.md` and
 `report.html` (the one to share), the remaining bottleneck in one sentence (and the largest

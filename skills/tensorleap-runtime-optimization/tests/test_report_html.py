@@ -1,5 +1,5 @@
-"""The published report: one self-contained HTML page from report.md, ending with every step the
-skill ran."""
+"""The published report: one self-contained HTML page from report.md, with collapsed appendices
+and the run's files."""
 import json
 import os
 import sys
@@ -55,45 +55,92 @@ class MarkdownToHtmlTest(unittest.TestCase):
         self.assertIn("wrapped continuation", page)
 
 
-class StepsSectionTest(unittest.TestCase):
+class AppendixAndContentsTest(unittest.TestCase):
 
-    def test_steps_listed_from_the_artifacts_present(self):
+    def test_appendix_is_collapsed_and_contents_nest_subsections(self):
+        md = ("# T\n\n## Part 1 — Offline\n\n### Summary\n\ntext\n\n### Appendix 1 — offline details\n\n"
+              "**Environment**\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n## Part 2 — Online\n\n### Summary\n\nmore\n")
+        page = report_html.markdown_to_html(md, "T")
+        self.assertEqual(page.count("<details"), 1)
+        self.assertEqual(page.count("</details>"), 1)
+        self.assertLess(page.index("<details"), page.index("<table>"))
+        self.assertLess(page.index("</details>"), page.index('id="part-2-online"'))
+        self.assertIn("<summary>Appendix 1 — offline details</summary>", page)
+        self.assertIn('<a href="#summary-2">Summary</a>', page)
+
+
+class RunFilesTest(unittest.TestCase):
+
+    def test_run_files_listed_from_the_artifacts_present(self):
         out = tempfile.mkdtemp()
-        for name, data in (("preflight.json", {"exit_code": 0, "findings": []}),
-                           ("floor.json", {"t_inf_per_sample_mean_seconds": 0.002, "recommended_batch_size": 32}),
-                           ("static.json", [{"handler": "x"}])):
+        for name in ("preflight.json", "floor.json", "score.json"):
             with open(os.path.join(out, name), "w") as fh:
-                json.dump(data, fh)
+                json.dump({}, fh)
         os.makedirs(os.path.join(out, "runs", "001"))
-        doc = {"optimizations": [{"title": "a"}], "server_validation": {"mode": "smoke", "status": "FINISHED"}}
-        md = "\n".join(report_html.steps_section(doc, out))
-        self.assertIn("## How this report was made", md)
-        for step in ("Phase 0 — preflight", "Phase 1 — floor and fit", "Phase 2 — read the code",
-                     "Phase 3 — baseline profile", "Phase 4 — lossless optimization loop",
-                     "Phase 6A — server smoke validation", "Phase 7 — report"):
-            self.assertIn(step, md)
-        self.assertIn("floor 2.000 ms per sample; batch 32", md)
-        self.assertNotIn("Phase 6B — collect", md)                      # no online artifacts
+        line = report_html.run_files_line(out)
+        self.assertIn("`preflight.json` · `floor.json` · `runs/` · `score.json`", line)
+        self.assertNotIn("online", line)
+        self.assertEqual(report_html.run_files_line(tempfile.mkdtemp()), "")
+
+
+def _profile(footprint):
+    return {"dataset": {"state_lengths": {"training": 100}}, "startup": {"stats": {"mean": 2.0}},
+            "generation": {"per_sample_seconds": {"mean": 0.004}, "handlers": {}},
+            "inference": {"per_sample_mean_seconds": 0.001}, "metrics": {"handlers": {}},
+            "visualizers": {"per_sample_seconds": {"mean": 0.010}, "handlers": {}},
+            "user_memory": {"footprint_gb": footprint, "breakdown_gb": {"preprocess": footprint / 2}}}
 
 
 class PriorityInTheReportTest(unittest.TestCase):
 
-    def test_memory_priority_leads_the_report(self):
+    def setUp(self):
         import tl_perf
-        out = tempfile.mkdtemp()
-        doc = {"title": "T", "summary": "s", "environment": {}, "optimizations": [], "remaining_bottleneck":
-               {"component": "c", "share": "s", "evidence": "e", "why": "w"}, "priority": "memory",
-               "memory": {"status": "GREEN", "reasons": [], "largest_remaining": "none"},
-               "tensorleap_actions": [], "lossy_options": [], "remaining_integration_issues": [],
-               "coverage_caveats": []}
-        md = tl_perf.render_report(doc, out)
-        self.assertIn("**Priority: memory.**", md)
-        self.assertLess(md.index("## Memory"), md.index("## Runtime breakdown"))
-        doc["priority"] = "runtime"
-        md = tl_perf.render_report(doc, out)
-        self.assertNotIn("Priority: memory", md)
-        self.assertLess(md.index("## Runtime breakdown"), md.index("## Memory"))
-        self.assertTrue(any("priority" in e for e in tl_perf.validate_report(dict(doc, priority="speed"))))
+        self.tl = tl_perf
+        self.out = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.out, "baseline"))
+        with open(os.path.join(self.out, "baseline", "profile.json"), "w") as fh:
+            json.dump(_profile(2.0), fh)
+        self.doc = {"title": "T", "summary": "s", "environment": {}, "optimizations": [], "remaining_bottleneck":
+                    {"component": "c", "share": "s", "evidence": "e"},
+                    "memory": {"status": "AMBER", "reasons": [], "remaining_holder": {"target": "h", "evidence": "1 GB"}},
+                    "tensorleap_actions": [], "lossy_options": [], "remaining_integration_issues": [],
+                    "coverage_caveats": []}
+
+    def test_memory_is_the_default_and_leads(self):
+        md = self.tl.render_report(self.doc, self.out)
+        self.assertIn("**Priority: memory first** — the default", md)
+        self.assertLess(md.index("### Where the memory goes"), md.index("### Where the time goes"))
+        self.assertLess(md.index("**Memory per worker process:**"), md.index("**Expected runtime:**"))
+        self.assertLess(md.index("**1. memory: h**"), md.index("**2. c**"))
+        self.assertIn("### Trade-offs taken", md)
+        self.assertIn("_None recorded", md)
+        self.assertIn("## Part 2 — Online diagnostics: not run", md)
+
+    def test_memory_leads_only_under_pressure(self):
+        doc = dict(self.doc, memory={"status": "GREEN", "reasons": [],
+                                     "remaining_holder": {"target": "h", "evidence": "1 GB"}})
+        md = self.tl.render_report(doc, self.out)
+        self.assertIn("**Priority: memory first**", md)
+        self.assertIn("**No memory pressure** (memory status GREEN), so time leads this part.", md)
+        self.assertLess(md.index("### Where the time goes"), md.index("### Where the memory goes"))
+        self.assertLess(md.index("**1. c**"), md.index("**2. memory: h**"))
+        doc["memory"] = dict(doc["memory"], status="RED", reasons=["RED: the user reports out-of-memory failures"])
+        md = self.tl.render_report(doc, self.out)
+        self.assertIn("**Memory leads this part:** memory status RED — the user reports out-of-memory failures.", md)
+        self.assertLess(md.index("### Where the memory goes"), md.index("### Where the time goes"))
+
+    def test_runtime_priority_puts_time_first(self):
+        md = self.tl.render_report(dict(self.doc, priority="runtime", priority_reason="the user: \"speed\""), self.out)
+        self.assertIn("**Priority: runtime first** — the user: \"speed\"", md)
+        self.assertLess(md.index("### Where the time goes"), md.index("### Where the memory goes"))
+        self.assertLess(md.index("**1. c**"), md.index("**2. memory: h**"))
+        self.assertNotIn("### Trade-offs taken", md)
+        self.assertTrue(any("priority" in e for e in self.tl.validate_report(dict(self.doc, priority="speed"))))
+
+    def test_time_table_shares_and_floor_ratio(self):
+        md = self.tl.render_report(self.doc, self.out)
+        self.assertIn("| generation | 4.000 ms | - | 11% | 4.0× |", md)
+        self.assertIn("| **expected total** | 4 s | - | 100% |  |", md)
 
 
 if __name__ == "__main__":

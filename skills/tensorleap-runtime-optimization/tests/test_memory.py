@@ -209,9 +209,11 @@ class MemoryPriority(unittest.TestCase):
         self.assertEqual(t["order"], "memory loop first, then runtime")         # ... but memory goes first
         self.assertEqual(t["memory_loop"], "all lossless memory candidates")
         self.assertEqual((t["runtime_tolerance"], t["runtime_fix_memory_growth"]), (0.15, 0.0))
-        r = tl_perf.memory_triage({"user_memory": {"footprint_gb": 0.1}}, 64.0, "test")
+        r = tl_perf.memory_triage({"user_memory": {"footprint_gb": 0.1}}, 64.0, "test", priority="runtime")
         self.assertEqual((r["order"], r["runtime_tolerance"], r["runtime_fix_memory_growth"]),
                          ("runtime loop first, then memory", 0.03, 0.10))
+        self.assertEqual(tl_perf.memory_triage({"user_memory": {"footprint_gb": 0.1}}, 64.0, "test")["order"],
+                         "memory loop first, then runtime")
 
     def test_score_and_compare_follow_the_priority(self):
         proc = self.synth.run("profile", *FAST, SYNTH_DECODE_MS="4", SYNTH_MEM_UNUSED="160")

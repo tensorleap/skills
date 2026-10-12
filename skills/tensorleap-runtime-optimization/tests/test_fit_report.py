@@ -102,20 +102,49 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(self.run_report(VALID_REPORT), tl_perf.EXIT_OK)
         with open(os.path.join(self.out, "report.md")) as fh:
             md = fh.read()
-        for heading in ("# Runtime optimization", "## Environment", "## Runtime breakdown",
-                        "## Optimizations applied", "## Remaining bottleneck",
-                        "## Options that would change behavior", "## Server validation",
-                        "## Recommended Tensorleap actions", "## What was not verified"):
+        headings = ("# Runtime optimization", "## Part 1 — Offline: your integration's code", "### Summary",
+                    "### What we changed", "### Trade-offs taken", "### Remaining bottlenecks, ranked",
+                    "### Decisions for you", "### Server check", "### Not verified",
+                    "### Appendix 1 — offline details", "## Part 2 — Online diagnostics: not run")
+        for heading in headings:
             self.assertIn(heading, md)
+        self.assertEqual([md.index(h) for h in headings], sorted(md.index(h) for h in headings))
         self.assertIn("metadata:scan_position", md)
         self.assertIn("bit-identical on 32 samples", md)
+        self.assertIn("For Tensorleap:", md)
+        self.assertNotIn("How this report was made", md)
 
     def test_share_is_rendered_verbatim(self):
         self.assertEqual(self.run_report(VALID_REPORT), tl_perf.EXIT_OK)
         with open(os.path.join(self.out, "report.md")) as fh:
             md = fh.read()
-        self.assertIn("**metadata:scan_position** — 61%", md)
+        self.assertIn("**1. metadata:scan_position** — 61%", md)
         self.assertNotIn("of expected runtime of expected runtime", md)
+
+    def test_changes_table_and_details(self):
+        doc = json.loads(json.dumps(VALID_REPORT))
+        doc["optimizations"][0].update(title="Shared decode cache", memory="1.20 → 1.21 GB", commit="abc1234")
+        self.assertEqual(self.run_report(doc), tl_perf.EXIT_OK)
+        with open(os.path.join(self.out, "report.md")) as fh:
+            md = fh.read()
+        self.assertIn("| 1 | Shared decode cache | performance · catalog A | -35% | 1.20 → 1.21 GB | bit-identical | "
+                      "`abc1234` |", md)
+        details = md[md.index("### Appendix 1"):]
+        self.assertIn("1. **Shared decode cache**", details)
+        self.assertIn("- **Problem:** The metadata re-ran the input encoder's decode for every sample", details)
+
+    def test_owner_and_tradeoffs(self):
+        doc = json.loads(json.dumps(VALID_REPORT))
+        doc["remaining_bottleneck"]["owner"] = "tensorleap"
+        doc["tradeoffs"] = [{"change": "float32 arrays", "memory": "-3 GB", "runtime": "+6%", "decision": "kept"}]
+        self.assertEqual(self.run_report(doc), tl_perf.EXIT_OK)
+        with open(os.path.join(self.out, "report.md")) as fh:
+            md = fh.read()
+        self.assertIn("**1. metadata:scan_position** — 61% · owner: Tensorleap", md)
+        self.assertIn("| float32 arrays | -3 GB | +6% | kept |", md)
+        for bad in ({"remaining_bottleneck": dict(doc["remaining_bottleneck"], owner="someone")},
+                    {"tradeoffs": {"change": "x"}}, {"tradeoffs": [{"memory": "-1 GB"}]}):
+            self.assertEqual(self.run_report(dict(doc, **bad)), tl_perf.EXIT_BAD_REPORT, bad)
 
     def test_output_dir_keeps_artifacts_out_of_git(self):
         self.run_report(VALID_REPORT)
@@ -154,9 +183,11 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(self.run_report(doc), tl_perf.EXIT_OK)
         with open(os.path.join(self.out, "report.md")) as fh:
             md = fh.read()
-        self.assertIn("## Memory (user code, one worker process)", md)
+        self.assertIn("### Where the memory goes (user code, one worker process)", md)
         self.assertIn("Status: **AMBER**", md)
         self.assertIn("- **Type:** memory · catalog M3/M7", md)
+        self.assertIn("**1. memory: preprocess[training]**", md)
+        self.assertIn("**2. metadata:scan_position**", md)
 
     def test_invalid_memory_status_exits_11(self):
         doc = json.loads(json.dumps(VALID_REPORT))
