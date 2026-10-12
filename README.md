@@ -17,6 +17,12 @@ ships the shared scripts each skill needs.
 > - [`tensorleap-analysis`](skills/tensorleap-analysis/skill.md) — reading an evaluated
 >   model version's results through the Tensorleap MCP server and writing a report:
 >   where the model fails and why, with evidence samples and concrete next steps.
+> - [`tensorleap-runtime-optimization`](skills/tensorleap-runtime-optimization/skill.md)
+>   — measuring and optimizing a working integration's runtime and memory: the model's
+>   inference floor, component-level profiling the way Tensorleap runs it, fixes kept only
+>   when every output stays identical, validation on your Tensorleap server, and a report
+>   naming what limits runtime and memory now
+>   ([guide](skills/tensorleap-runtime-optimization/docs/README.md)).
 
 **No clone needed** — every install command below fetches what it needs.
 
@@ -168,11 +174,12 @@ Native plugin-marketplace path (recommended):
 
 ```
 /plugin marketplace add tensorleap/skills
-/plugin install integration@tensorleap   # authoring integrations
-/plugin install installer@tensorleap     # installing / upgrading a Tensorleap server
+/plugin install integration@tensorleap    # authoring integrations
+/plugin install installer@tensorleap      # installing / upgrading a Tensorleap server
+/plugin install optimization@tensorleap   # measuring and optimizing an integration's runtime and memory
 ```
 
-`integration` and `installer` are plugins (domain-scoped bundles) within the
+`integration`, `installer` and `optimization` are plugins (domain-scoped bundles) within the
 `tensorleap` marketplace; installing one gives you its skills, and Claude auto-loads
 the relevant one per task. Or use the installer:
 
@@ -297,6 +304,55 @@ the shared helper files under `.tensorleap/`.
 
 From a clone, `./install.sh --tool <tool> [--global] [TARGET_DIR]` does the same.
 
+## Optimizing an integration's runtime and memory
+
+The `tensorleap-runtime-optimization` skill installs with the same commands as above: the
+file-copy installer adds every skill in this repo, and in Claude Code it is the
+`optimization` plugin. Use it on an integration that already works: `leap_integration.py`
+and `leap.yaml` at the repo root, `check_dataset()` passing, and a model file
+(`.onnx` or `.h5`) that loads locally.
+
+### Use it
+
+Open your assistant in the integration repo root, ideally on a quiet machine (other heavy
+jobs skew the timings), and describe the problem. The skill activates on runtime and
+memory language; a good starting prompt:
+
+> Our Tensorleap evaluation of this integration is slow. Find out why, optimize it
+> without changing its outputs, and give me the report.
+
+The skill first runs a preflight (the integration's Python environment, whether the model
+actually uses the GPU, code-loader, the integration itself, the server connection), then
+times the model alone to get its **floor**: the unit every component's cost is scored
+against. It profiles every component the way Tensorleap runs it and drives a
+one-change-at-a-time loop that keeps a fix only when every output stays identical and the
+run gets faster or the per-worker memory smaller (memory first by default). It finishes
+with a check on your Tensorleap server and a report naming what limits runtime and memory
+now.
+
+It runs on its own and asks only when it has to: whether to commit uncommitted changes
+first (git repos), which model file to push if it can't tell, whether to apply a fix that
+would change outputs, and whether to run **online diagnostics** on your server. "No" to
+that last one runs a short smoke check (about 50 samples per state, minutes). Diagnostics
+run the whole dataset (or a per-state cap you give), can take hours, and happen only with
+your yes; when the visualization's pace is steady, the assistant asks you to stop the run
+in the Tensorleap UI.
+
+Everything it writes goes to `tensorleap/runtime-optimization/` in your repo:
+**`report.html`** (the one to share), `report.md`, `optimization-log.md`, and each
+accepted fix as a patch in `fixes/` (in a git repo, also one commit per fix on the
+`tensorleap-runtime-optimization` branch).
+
+**More:** [`docs/README.md`](skills/tensorleap-runtime-optimization/docs/README.md) covers
+what you need, the phrases that change its behavior, and what each phase does;
+[`docs/how-it-works.html`](skills/tensorleap-runtime-optimization/docs/how-it-works.html)
+explains every step with flow charts and examples (GitHub shows it as source: download it
+and open it in a browser).
+
+**Staying up to date:** Copilot and Cursor installs check for a newer version whenever the
+skill's preflight runs, the same way as the integration skill. Claude updates come through
+the plugin marketplace (`/plugin marketplace update tensorleap`).
+
 ## How it works
 
 A **skill** is the unit of authorship — `skills/<name>/skill.md` (the dir name *is*
@@ -322,6 +378,12 @@ skills/                             # the atoms — author here
     skill.md                        # install / upgrade / reinstall a Tensorleap server
     reference/install-troubleshooting.md   # field-sourced failure catalog
     scripts/install_preflight.sh    # read-only machine preflight
+  tensorleap-runtime-optimization/
+    skill.md                        # measure and optimize an integration's runtime and memory
+    reference/perf-*.md              # execution model, bottleneck catalog, levers, report template
+    scripts/                         # tl_perf.py (+ perf_online, perf_code, report_html), perf_preflight.sh
+    docs/                            # README.md + how-it-works.html (not installed)
+    tests/                           # unit tests (not packaged)
 plugins.json                         # which skills compose which Claude plugins (+ metadata/version)
 build/
   generate.py                        # skills + plugins.json -> wrappers   (--check for CI)
