@@ -12,6 +12,8 @@ Subcommands:
   score      rank optimization candidates from a profile
   compare    equivalence + timing/memory delta against the baseline
   report     render report.json into report.md
+  online     online diagnostics of one Tensorleap run: plan / collect / analyze
+             (perf_online.py)
 
 Every subcommand writes JSON under --out (default: tensorleap/runtime-optimization/
 in the integration root) and prints a short human summary.
@@ -21,6 +23,7 @@ Exit codes:
   4 env mismatch  5 predicted not to fit    6 model won't load
   7 run failed    8 not equivalent          9 no gain
   10 memory regression                      11 invalid report.json
+  20 online collect: the run is still going (run the same command again)
 """
 
 import argparse
@@ -3014,7 +3017,7 @@ def cmd_compare(args):
     triage = (_read_json(os.path.join(out, "score.json")) or {}).get("memory") or {}
     status = triage.get("status", "GREEN")
     max_mem_increase = args.max_mem_increase if args.max_mem_increase is not None else \
-        (0.05 if status in ("AMBER", "RED") else 0.10)
+        triage.get("runtime_fix_memory_growth", 0.05 if status in ("AMBER", "RED") else 0.10)
     tolerance = args.runtime_tolerance if args.runtime_tolerance is not None else \
         triage.get("runtime_tolerance", RUNTIME_TOLERANCE.get(status, 0.03))
     runtime_change = (ct - rt) / rt if rt else 0.0          # > 0 = slower than the reference
@@ -3145,6 +3148,8 @@ def _evidence(p):
 
 
 RUNTIME_TOLERANCE = {"RED": 0.15, "AMBER": 0.03, "GREEN": 0.03}   # runtime a memory fix may cost
+PRIORITIES = ("runtime", "memory")
+PRIORITY_MEMORY_TOLERANCE = 0.15     # runtime a memory fix may cost when the user puts memory first
 
 
 def _leap_cluster_memory_gb():
@@ -3170,9 +3175,11 @@ def memory_budget(memory_gb=None):
 
 
 def memory_triage(p, budget_gb, budget_source, symptom="none", red_share=0.5, amber_share=0.25,
-                  holder_gb=1.0):
+                  holder_gb=1.0, priority="runtime"):
     """GREEN / AMBER / RED for the user-code footprint, with the reasons, the loop order and
-    the runtime a memory fix may cost."""
+    the runtime a memory fix may cost. With priority 'memory' (the user puts memory before
+    runtime) the memory loop runs first whatever the status, a memory fix may cost up to
+    PRIORITY_MEMORY_TOLERANCE of runtime, and a runtime fix may not grow memory."""
     um = p.get("user_memory") or {}
     fp = um.get("footprint_gb")
     levels = ("GREEN", "AMBER", "RED")
@@ -3206,13 +3213,19 @@ def memory_triage(p, budget_gb, budget_source, symptom="none", red_share=0.5, am
     if not um:
         reasons.append("no memory pass in this profile (run `tl_perf profile` without --no-memory)")
     status = state["status"]
+    memory_first = status == "RED" or priority == "memory"
+    if priority == "memory":
+        reasons.append("priority: the user puts memory before runtime")
     return {"status": status, "reasons": reasons, "footprint_gb": fp, "budget_gb": budget_gb,
-            "budget_source": budget_source,
+            "budget_source": budget_source, "priority": priority,
             "workers_that_fit": (budget_gb / fp) if fp and budget_gb else None,
-            "order": "memory loop first, then runtime" if status == "RED" else "runtime loop first, then memory",
-            "memory_loop": {"RED": "all lossless memory candidates", "AMBER": "all lossless memory candidates",
+            "order": "memory loop first, then runtime" if memory_first else "runtime loop first, then memory",
+            "memory_loop": "all lossless memory candidates" if priority == "memory" else
+                           {"RED": "all lossless memory candidates", "AMBER": "all lossless memory candidates",
                             "GREEN": "free wins only (no runtime cost beyond noise)"}[status],
-            "runtime_tolerance": RUNTIME_TOLERANCE[status]}
+            "runtime_tolerance": max(RUNTIME_TOLERANCE[status], PRIORITY_MEMORY_TOLERANCE)
+                                 if priority == "memory" else RUNTIME_TOLERANCE[status],
+            "runtime_fix_memory_growth": 0.0 if priority == "memory" else (0.05 if status in ("AMBER", "RED") else 0.10)}
 
 
 def memory_candidates(p):
@@ -3340,7 +3353,7 @@ def cmd_score(args):
     grand = sum(totals.values()) or 1.0
     budget_gb, budget_source = memory_budget(args.memory_gb)
     triage = memory_triage(p, budget_gb, budget_source, args.memory_symptom, args.red_share,
-                           args.amber_share, args.amber_holder_gb)
+                           args.amber_share, args.amber_holder_gb, priority=args.priority)
     report = {
         "t_inf_per_sample_mean_seconds": t_inf, "t_inf_source": t_inf_source,
         "samples_total": n, "visualized_samples_assumed": nv,
@@ -3350,6 +3363,7 @@ def cmd_score(args):
         "notes": notes,
         "candidates": candidates,
         "memory": dict(triage, candidates=memory_candidates(p)),
+        "priority": args.priority,
     }
     path = os.path.join(out, "score.json")
     write_json(path, report)
@@ -3357,6 +3371,9 @@ def cmd_score(args):
         _print_memory_score(report["memory"], args.top)
         print("  -> %s" % path)
         return EXIT_OK
+    if args.priority == "memory":                 # memory first: its candidates lead the listing
+        print("tl_perf score: priority memory — the memory loop runs first")
+        _print_memory_score(report["memory"], args.top)
 
     print("tl_perf score (unit: model inference = %s per sample, from %s)" % (
         fmt_ms(t_inf or 0), t_inf_source))
@@ -3628,6 +3645,8 @@ def validate_report(doc):
                 not all(part in CATALOG_CLASSES for part in str(opt["catalog"]).split("/")):
             errors.append("optimizations[%d] 'catalog' must be a class (A-W, M1-M12, combined "
                           "with '/') or 'new'" % i)
+    if doc.get("priority") is not None and doc.get("priority") not in PRIORITIES:
+        errors.append("priority must be one of %s" % ", ".join(PRIORITIES))
     mem = doc.get("memory")
     if mem is not None:
         if not isinstance(mem, dict):
@@ -3642,6 +3661,7 @@ def validate_report(doc):
     for i, act in enumerate(doc.get("tensorleap_actions") or []):
         if not isinstance(act, dict) or not act.get("need"):
             errors.append("tensorleap_actions[%d] needs a 'need'" % i)
+    errors += _perf_online().validate_server_validation(doc.get("server_validation"))
     return errors
 
 
@@ -3703,8 +3723,17 @@ def _memory_section(mem, before, after):
     return lines
 
 
+def report_priority(doc, out):
+    """runtime or memory: report.json's `priority`, else the one `score` ran with."""
+    return doc.get("priority") or (_read_json(os.path.join(out, "score.json")) or {}).get("priority") or "runtime"
+
+
 def render_report(doc, out):
     lines = ["# %s" % doc["title"], ""]
+    priority = report_priority(doc, out)
+    if priority == "memory":
+        lines += ["**Priority: memory.** Memory was optimized first: a memory fix could cost up to %.0f%% runtime, "
+                  "and a runtime fix was kept only if it did not grow memory." % (100 * PRIORITY_MEMORY_TOLERANCE), ""]
     if doc.get("summary"):
         lines += [doc["summary"], ""]
     preflight = _read_json(os.path.join(out, "preflight.json")) or {}
@@ -3743,6 +3772,8 @@ def render_report(doc, out):
             lines.append("- Batch support: `%s` — %s." % (k, v))
     lines.append("")
 
+    if priority == "memory":
+        lines += _memory_section(doc.get("memory"), before, after)
     lines += ["## Runtime breakdown (per sample)", ""]
     visualized = doc.get("visualized_samples")
     lines += [_md_table(["block", "before", "after"], _share_rows(before, after, visualized)), ""]
@@ -3760,7 +3791,8 @@ def render_report(doc, out):
                   _md_table(["block", "component", "mean/sample", "P50/call", "P95/call", "P99/call"],
                             [row for _, row in handlers]), ""]
 
-    lines += _memory_section(doc.get("memory"), before, after)
+    if priority != "memory":
+        lines += _memory_section(doc.get("memory"), before, after)
     lines += ["## Optimizations applied", ""]
     if not doc["optimizations"]:
         lines += ["_None._", ""]
@@ -3795,12 +3827,7 @@ def render_report(doc, out):
                             [[o.get("option", ""), o.get("gain", ""), o.get("cost", ""), o.get("decision", "pending")]
                              for o in doc["lossy_options"]]), ""]
     if doc.get("server_validation"):
-        sv = doc["server_validation"]
-        lines += ["## Server validation", "", "- Status: **%s**" % sv.get("status", "unknown")]
-        for k in ("job", "duration", "notes"):
-            if sv.get(k):
-                lines.append("- %s: %s" % (k.capitalize(), sv[k]))
-        lines.append("")
+        lines += _perf_online().render_server_validation(doc["server_validation"], out)
     if doc.get("remaining_integration_issues"):
         lines += ["## Remaining issues in the integration", ""] + \
             ["- %s" % x for x in doc["remaining_integration_issues"]] + [""]
@@ -3828,18 +3855,47 @@ def cmd_report(args):
     if doc is None:
         print("tl_perf report: %s not found" % src, file=sys.stderr)
         return EXIT_BAD_REPORT
-    errors = validate_report(doc)
+    errors = validate_report(doc) + _perf_online().validate_online(doc, out)
     if errors:
         print("tl_perf report: invalid report.json:", file=sys.stderr)
         for e in errors:
             print("  - %s" % e, file=sys.stderr)
         return EXIT_BAD_REPORT
     md = render_report(doc, out)
+    html_mod = _report_html()
+    md = md.rstrip("\n") + "\n\n" + "\n".join(html_mod.steps_section(doc, out))
     path = os.path.join(out, "report.md")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(md)
-    print("tl_perf report -> %s" % path)
+    # the published form: one self-contained page, ready to mail or post
+    title = next((l[2:].strip() for l in md.splitlines() if l.startswith("# ")), "Runtime optimization")
+    page = html_mod.write_html(md, out, title, "Tensorleap runtime-optimization report, %s" % time.strftime("%Y-%m-%d"))
+    print("tl_perf report -> %s\ntl_perf report -> %s" % (path, page))
     return EXIT_OK
+
+
+def _report_html():
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import report_html
+    return report_html
+
+
+# --------------------------------------------------------------------------- #
+# online diagnostics (perf_online.py)
+# --------------------------------------------------------------------------- #
+
+def _perf_online():
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import perf_online
+    return perf_online
+
+
+def cmd_online(args):
+    return _perf_online().run(args, out_dir(args), sys.modules[__name__])
 
 
 # --------------------------------------------------------------------------- #
@@ -3907,6 +3963,9 @@ def build_parser():
                    help="which candidate list to rank first (memory triage is always computed)")
     p.add_argument("--memory-gb", type=float, default=None,
                    help="memory the integration's workers share (default: local server's, else this machine's RAM)")
+    p.add_argument("--priority", choices=PRIORITIES, default="runtime",
+                   help="what the user wants first: runtime (default) or memory (memory loop first, a memory "
+                        "fix may cost up to 15%% runtime, a runtime fix may not grow memory)")
     p.add_argument("--memory-symptom", choices=("none", "high", "oom"), default="none",
                    help="what the user reports: high memory use (AMBER) or out-of-memory failures (RED)")
     p.add_argument("--red-share", type=float, default=0.5, help="footprint share of the budget that is RED")
@@ -3950,6 +4009,8 @@ def build_parser():
     p = sub.add_parser("report", parents=[common], help="render report.json into report.md")
     p.add_argument("--input", default=None, help="report.json (default: <out>/report.json)")
     p.set_defaults(func=cmd_report)
+
+    _perf_online().add_parser(sub, common, DEFAULT_OUT).set_defaults(func=cmd_online)
 
     p = sub.add_parser("_worker")  # internal: one measurement pass in a fresh process
     p.add_argument("task", choices=sorted(WORKERS))

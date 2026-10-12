@@ -193,6 +193,44 @@ class MemoryCompareVerdicts(unittest.TestCase):
         self.assertEqual(r["peak_rss_gb"]["source"], "user-code footprint (memory pass)")
 
 
+class MemoryPriority(unittest.TestCase):
+    """--priority memory: the memory loop first whatever the triage, a memory fix may cost up to
+    15% runtime, and a runtime fix may not grow memory."""
+
+    def setUp(self):
+        self.synth = SyntheticEnv()
+
+    def tearDown(self):
+        self.synth.close()
+
+    def test_triage_with_memory_first(self):
+        t = tl_perf.memory_triage({"user_memory": {"footprint_gb": 0.1}}, 64.0, "test", priority="memory")
+        self.assertEqual(t["status"], "GREEN")                                  # nothing is wrong ...
+        self.assertEqual(t["order"], "memory loop first, then runtime")         # ... but memory goes first
+        self.assertEqual(t["memory_loop"], "all lossless memory candidates")
+        self.assertEqual((t["runtime_tolerance"], t["runtime_fix_memory_growth"]), (0.15, 0.0))
+        r = tl_perf.memory_triage({"user_memory": {"footprint_gb": 0.1}}, 64.0, "test")
+        self.assertEqual((r["order"], r["runtime_tolerance"], r["runtime_fix_memory_growth"]),
+                         ("runtime loop first, then memory", 0.03, 0.10))
+
+    def test_score_and_compare_follow_the_priority(self):
+        proc = self.synth.run("profile", *FAST, SYNTH_DECODE_MS="4", SYNTH_MEM_UNUSED="160")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.synth.run("score", "--priority", "memory")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("priority memory", proc.stdout)
+        sc = self.synth.result("score.json")
+        self.assertEqual((sc["priority"], sc["memory"]["status"]), ("memory", "GREEN"))
+        proc = self.synth.run("profile", *FAST, SYNTH_DECODE_MS="4")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.synth.run("compare", "--objective", "memory", "--no-accept")
+        r = self.synth.result("compare.json")
+        self.assertEqual(r["runtime_tolerance"], 0.15)
+        proc = self.synth.run("compare", "--no-accept", "--min-gain", "-1")
+        r = self.synth.result("compare.json")
+        self.assertEqual(r["thresholds"]["max_mem_increase"], 0.0)
+
+
 class EachPlantedFixIsAccepted(unittest.TestCase):
     """Remove one planted problem at a time: compare --objective memory accepts the fix."""
 

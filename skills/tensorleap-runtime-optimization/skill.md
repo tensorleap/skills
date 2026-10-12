@@ -81,6 +81,10 @@ out-of-memory failures.
   **AMBER** (a large footprint, a structure over 1 GB per worker, or growth with the
   samples) → runtime loop first, then the memory loop, memory fixes within noise (3%);
   **GREEN** → runtime loop, then only **free** memory wins (no runtime cost).
+- **Unless the user puts memory first.** With `--priority memory` the memory loop runs
+  first whatever the status, a memory fix may cost up to +15% runtime, a runtime fix is
+  kept only if it does not grow memory, and the report and the online diagnostics lead with
+  memory.
 - **The catalog is where you start, not where you stop.** Candidates come from
   measurement: `profile` / `score` rank every component by cost, whether or not its problem
   is in `{{reference_dir}}/perf-bottleneck-catalog.md`. When the top cost matches no catalog
@@ -92,8 +96,9 @@ out-of-memory failures.
   describes as **new**, and tag it `"catalog": "new"` in the report.
 - **Run autonomously; ask only when blocked.** Infer everything you can from the repo and
   the artifacts. The questions you may need to ask: uncommitted changes in the repo
-  (Phase 0), the model file to push if it can't be inferred (Phase 6), and the
-  behavior-changing options (Phase 5). Nothing else is a reason to stop.
+  (Phase 0), the model file to push if it can't be inferred (Phase 6), the
+  behavior-changing options (Phase 5), and whether to run online diagnostics (Phase 6.0,
+  asked once; never when unattended). Nothing else is a reason to stop.
 - **Keep `tensorleap/runtime-optimization/optimization-log.md`.** Append as you go: each
   candidate, the evidence, what you tried, the `compare` verdict, the commit. It is the
   source of the final report and survives an interrupted session.
@@ -117,7 +122,8 @@ poetry run python {{scripts_dir}}/tl_perf.py <subcommand> [options]
 | `profile` | every wired component, run the way Tensorleap runs it (fresh processes per pass: generation, sorted-order what-if, visualizers, diagnostics, output snapshot, **user-code memory**); the first run becomes the equivalence **baseline** | `runs/NNN/profile.json`, `runs/NNN/memory.json`, `profile.json`, `baseline/` |
 | `score` | ranks candidates: expected seconds removable × confidence, with evidence; always triages memory (GREEN / AMBER / RED) and ranks **memory candidates** (`--objective memory` lists them first) | `score.json` |
 | `compare` | latest run: output equivalence vs the **baseline**; gain and memory vs the **last accepted run** (exit 0 makes it the new reference). `--objective memory` judges a memory fix: footprint drop, runtime within the triage tolerance | `runs/NNN/compare.json` |
-| `report` | renders your `report.json` into `report.md` | `report.md` |
+| `report` | renders your `report.json` into `report.md` and the published `report.html` (one self-contained page, ending with every step you ran) | `report.md`, `report.html` |
+| `online collect` / `analyze` | Phase 6B only: follow the diagnostics run and keep its logs; stable-window statistics, bottleneck, offline-vs-online | `online/` |
 
 **Exit code → action** (all subcommands):
 
@@ -135,6 +141,8 @@ poetry run python {{scripts_dir}}/tl_perf.py <subcommand> [options]
 | 10 | `compare` (runtime objective): the user-code footprint grew (> 10%, or > 5% when memory is AMBER/RED) | revert, or shrink the cache and re-measure |
 | 11 | `report`: invalid `report.json` | fix the listed fields, re-run |
 | 12 | `compare --objective memory`: the memory fix costs more runtime than the triage allows | revert, or find a cheaper way to save the same memory |
+| 20 | `online collect`: the run is still going | run the same command again (it resumes) |
+| 21 | `online collect`: the visualization's pace is steady | ask the user to stop the run in the Tensorleap UI, then run the same command again until exit 0 |
 
 Memory options: `profile --memory-samples N` (samples per state in the memory pass),
 `--no-memory`, `--no-import-costs`; `score --memory-symptom none|high|oom`, `--memory-gb`,
@@ -181,6 +189,12 @@ batch size.
    "workers are big" → `--memory-symptom high`. Only when the request says nothing about
    memory → `none`. Note the server's memory as `--memory-gb` when known. Both go to
    every `tl_perf score` call.
+5. **Priority.** Runtime is the default. When the user's goal is memory — fewer or smaller
+   workers, fitting a smaller machine, "memory matters more than speed" — pass
+   `--priority memory` to every `tl_perf score` call (compare, online analyze and report
+   read it from `score.json`) and write `"priority": "memory"` in `report.json`. If the
+   request asks for both and doesn't say which matters more, ask once, recommending
+   runtime unless memory is failing. Quote the words you based it on in the log.
 
 **GATE:** a floor exists and no metric/loss fails the batch check.
 
@@ -273,7 +287,8 @@ equivalence check only covers branches the sampled data executes.
 ## Phase 4 — Lossless optimization loops (runtime 4R, memory 4M)
 
 Run the loops in the order the memory triage gives: **RED** → 4M, then 4R; **AMBER** →
-4R, then 4M; **GREEN** → 4R, then 4M for free wins only. Re-run `tl_perf score` after every
+4R, then 4M; **GREEN** → 4R, then 4M for free wins only; **priority memory** → 4M (every
+lossless memory candidate, up to +15% runtime each), then 4R (no memory growth). Re-run `tl_perf score` after every
 kept fix — a fix can change the status.
 
 ### 4R — runtime loop
@@ -371,7 +386,48 @@ expected gain from the profile, and the cost; ask once; apply only what the user
 one commit each; `tl_perf compare` must show **only** the declared fields changed. If the
 user declines everything, that is a valid outcome — record it.
 
-## Phase 6 — Server smoke validation (push by default)
+## Phase 6 — Server validation
+
+Two modes. **6A smoke validation is the default**: it proves the optimized integration still
+works on the Tensorleap server. **6B online diagnostics** also measures how the integration
+behaves on the platform — what limits the run there, with evidence from the run's own
+logs — but it is a long, server-heavy run, so it happens **only after the user explicitly
+says yes** in 6.0. Diagnostics read the run; they never change server settings.
+
+### 6.0 — Choose the mode (ask once)
+
+1. **Unattended?** If you are running unattended (the operator's prompt says so, or there
+   is no way to get an answer from the user), don't ask: run **6A** and record
+   `"mode": "smoke", "authorized_by_user": false`. An unattended run never runs 6B.
+2. Otherwise ask **once**, stating all of it — even if the user already asked for
+   diagnostics, get a yes:
+   - what it does: pushes the optimized integration on the **whole dataset** (rows per
+     state from `fit.json`), runs the full evaluation with visualizations, and collects the
+     server's logs while it runs;
+   - how long and how heavy: as long as a full evaluation of that dataset on their server
+     — on a large dataset, hours. A long visualization runs only until its pace is steady
+     over enough samples (the diagnostics need its pace and per-sample cost, not every
+     sample), and then you ask them to stop the run in the Tensorleap UI (the CLI can't
+     stop a run); a short one runs to the end. The server adds workers as it needs them and
+     stays busy until then;
+   - the option: to test on less data, they can give a **cap** — the same number of
+     samples for every state, like the integration's `sample_limit_per_split`. With a small
+     cap a phase may not reach a steady pace; the report then says so;
+   - what they get: an **Online diagnostics** section in the report — what limits the run
+     on the platform and whether it is on the critical path, with log evidence; for the
+     evaluation and the visualization, the root cause of a slow phase (what set the pace,
+     where that time went, the part to change); whether the server's CPU / memory / worker / GPU settings fit the run; memory
+     per worker; how far the run is from the model's floor; what to fix in the integration
+     and what to ask Tensorleap for;
+   - the default: "no" runs the smoke check (about 50 samples per state, minutes).
+   In the same message, ask whether the server uses Tensorleap's **automatic** resource
+   settings or **manual** ones (CPU and memory per pod set by hand). Don't ask separately;
+   if they don't know, the report gives advice for both.
+3. A clear yes → **6B** with `"mode": "diagnostics", "authorized_by_user": true`, and the
+   cap if they gave one. Anything else — no, no answer, "maybe later" → **6A** with
+   `"mode": "smoke", "authorized_by_user": false`.
+
+### 6A — Smoke validation (default)
 
 Prove the optimized integration still **works** on the Tensorleap server: every component
 runs there without errors. This is a smoke test, not a runtime measurement (Phases 1–4
@@ -421,8 +477,9 @@ the batch size from Phase 1, capped at the subset size.
    re-push later, recreate the smoke branch the same way.
 7. **Finish the deliverables before you wait for anything.** As soon as the push is
    submitted (current CLIs — the server chains the Evaluate itself) or the Evaluate exists
-   (older CLIs), write `report.json` with `server_validation` = `{"status": "SUBMITTED" or
-   "IN PROGRESS", "job": "<push or evaluate run id>"}`, run `tl_perf report`, and
+   (older CLIs), write `report.json` with `server_validation` = `{"mode": "smoke",
+   "authorized_by_user": false, "status": "SUBMITTED" or "IN PROGRESS", "job": "<push or
+   evaluate run id>"}`, run `tl_perf report`, and
    **commit** the report, the log and `static.json`. A long push or evaluation, or a
    session that ends, must never leave the work without a committed report.
 
@@ -458,8 +515,108 @@ the batch size from Phase 1, capped at the subset size.
     integration bug: fix it on the optimization branch, re-verify with `compare`, and
     re-run the smoke push.
 
-**GATE:** the Evaluate reached a terminal state, or you recorded why validation was not
+**GATE (6A):** the Evaluate reached a terminal state, or you recorded why validation was not
 possible.
+
+
+### 6B — Online diagnostics (only after the user's yes in 6.0)
+
+One authorized run on the whole dataset, or on the user's cap from 6.0. Each phase —
+evaluation, then visualization — gets past its start-up (workers are added while the pace
+climbs); the analysis finds the steady pace that follows. The run size is not estimated in
+advance. Everything below reads that run; nothing changes server settings, and there is no
+second diagnostics run (the 6A one-retry rule for a server-side rejection still applies).
+
+1. Same preparation as 6A steps 1–2. Version name: `<integration>-perf-diag-<yyyymmdd>`.
+2. **Whole dataset unless the user gave a cap.** No cap → push the optimization branch
+   itself. A cap → apply it before the push (a running evaluation can't be resized from
+   here), on a throwaway branch: `git switch -c tensorleap-runtime-optimization-diag`.
+   - If the integration already reads a per-state limit from its config (the
+     integration skill's `sample_limit_per_split` in `project_config.yaml`), set it to the
+     user's number and change nothing else.
+   - Otherwise cap each state in `@tensorleap_preprocess` exactly as in 6A step 3, with
+     the user's number instead of 50.
+
+   Mark it `# diagnostics cap: not for merge`, commit, and check with `tl_perf preflight
+   --out tensorleap/runtime-optimization/diag`.
+3. Reconcile and push exactly as 6A steps 4–5 (the full evaluation with visualizations;
+   batch size from Phase 1). If you capped, go back to the optimized code as in 6A step 6
+   (delete the `-diag` branch).
+4. **Start collecting right away.** `leap run logs` keeps only the most recent part of each
+   worker's log, and workers removed during the run disappear, so the logs are gathered
+   repeatedly while the run is in progress:
+   ```
+   tl_perf online collect --job <push-run-id> --for 540
+   ```
+   It follows the push to its evaluation, polls progress and logs every `--interval`
+   seconds (default 30), and keeps the merged logs under
+   `tensorleap/runtime-optimization/online/` (identity fields removed; never committed).
+   **Exit 20 = still running: run the same command again** — it resumes where it stopped.
+   **Exit 21 = the visualization has what the diagnostics need**: a steady pace over enough
+   samples (a fifth of the visualization, at least 200, at most 1,000), with at least a
+   quarter of it and 5 minutes still to go — so a short or nearly finished visualization is
+   never cut. It printed the pace, the samples and the time a stop saves: tell the user in
+   one line to stop that run in the Tensorleap UI, then keep running the same command — it
+   reads the last logs and exits 0 once the run has stopped (the analysis projects the full
+   visualization time from the steady pace). If the user wants the whole visualization instead, continue with
+   `--full-visualization`. Exit 0 = the evaluation reached a terminal state and its final
+   logs are in. Run it in the foreground, one call after another, until exit 0: every gap
+   in collection lowers the confidence of the numbers.
+5. **Finish the deliverables before the run ends**, as in 6A step 7: right after the push
+   is submitted write `report.json` with `server_validation` = `{"mode": "diagnostics",
+   "authorized_by_user": true, "status": "SUBMITTED", "job": "<push run id>"}`, run
+   `tl_perf report`, and commit.
+6. **Server rejections and failures** follow 6A steps 9–10. For the one retry, start the
+   overwrite push (`leap push -m <model> -o <version> -b <batch> -u metric --eval --yes`,
+   no `--no-wait`) as a background shell that must stay alive until it creates the
+   evaluation, then collect with the **new** push run id: `collect` finds the evaluation of
+   that version even though it is not chained on the server. A run that fails is still
+   analyzed: its failure (the server's reason, or an out-of-memory) is the primary finding.
+7. **Analyze:** `tl_perf online analyze` (add `--settings-mode automatic|manual` with the
+   user's answer from 6.0; leave it out if they didn't say). It covers the **evaluation**
+   (with the start-up that leads into it) and the **visualization** only. The platform's
+   analysis after evaluation (post-processing: embeddings, insights and the other steps)
+   shows as one row of time and is not analyzed: no statistics, findings or root causes
+   come from it. It splits each phase into
+   warm-up, stable window and tail; computes per-component statistics (mean, P50/P90/P95/P99 where the logs allow,
+   share of time) **over the stable window only**; attributes the bottleneck (what waits
+   on what, and whether it is on the critical path); reads memory per worker (peaks,
+   limits, restarts, out-of-memory); and compares the run with the offline measurements
+   (floor, generation, metrics, visualizers, memory). For each of those phases that took at
+   least a tenth of the run it builds a **root cause**: which side set the pace (who waited on
+   whom), where that side's time went, the mechanism, the part to change, what is ruled
+   out, how much of the phase is explained and a confidence — links that are inferred
+   rather than measured are marked. Under each root cause it lists the **mechanisms** that
+   generic rules found in that phase's own measurements: which step dominates, count × unit
+   cost (and work done once per row where the unit is a batch), repeated work (the same
+   data loaded, generated or computed again), growth over time (memory or a backlog that
+   keeps rising), and serial work beside idle capacity (one core of many, one busy pod among
+   idle ones, a hand-off on the evaluation's own thread). Each mechanism carries its cost
+   and the engine part where it happens; mechanisms in shorter phases follow the root
+   causes. The rules read shapes, not known problems: report what they find, and never
+   turn it into a checklist of platform features. It judges the **server settings** (CPU, memory, worker
+   pods and processes, GPUs) against what the run used. With memory as the priority (from
+   `score.json`, or `--priority memory`) it builds a **memory root cause**: which pods hold
+   and reserve the most memory, when they peak, how much of it is the integration's own code
+   (from the offline memory pass), and the part to change. It leads with it only under
+   **memory pressure** — a pod killed for memory, a peak at 85% of a limit, a memory warning
+   from the server or the engine, or the offline memory check at AMBER or RED — and says
+   which; otherwise the runtime root causes lead and the memory root follows them. It
+   writes `online/analysis.json`.
+   If a phase never reached a steady pace, it says so: report that and the numbers seen,
+   never treat an unstable run as stable.
+8. Update `server_validation` in `report.json` (status, duration, notes), re-run `tl_perf
+   report` — it renders the **Online diagnostics** section from `online/analysis.json` —
+   and commit. Every bottleneck claim in that section comes from the analysis with its
+   evidence; don't add claims the analysis doesn't support. When a phase has no root
+   cause (its engine logs have no step-level timing) or a low confidence, say so — don't
+   fill the gap with a guess. Settings advice is a recommendation for the user or
+   Tensorleap; never change server settings. Integration fixes it suggests
+   go to "Remaining issues"; platform-side needs go to `tensorleap_actions`. Don't apply
+   any of them in this phase.
+
+**GATE (6B):** the evaluation reached a terminal state, `online collect` exited 0, and
+`online analyze` wrote its analysis — or you recorded why not.
 
 ## Phase 7 — Report
 
@@ -474,9 +631,15 @@ holder); `tl_perf report` adds the footprint breakdown before → after from the
 Read `report.md` once as the reader would, fix what is unclear, and commit it with the log
 and `static.json`.
 
-Your closing message names the deliverables — the branch and its commits, `report.md`,
-the remaining bottleneck in one sentence (and the largest remaining memory holder when the
-memory status was not GREEN) — and stops.
+`tl_perf report` also writes **`report.html`, the published report**: one self-contained
+page (no external files — it can be mailed or posted as is) with the offline and the online
+results, ending with **How this report was made** — every step you ran, its result and the
+artifact it left. Re-run `tl_perf report` whenever `report.json` or the online analysis
+changes, so both files match. Don't commit `report.html` (it is rebuilt from `report.json`).
+
+Your closing message names the deliverables — the branch and its commits, `report.md` and
+`report.html` (the one to share), the remaining bottleneck in one sentence (and the largest
+remaining memory holder when the memory status was not GREEN) — and stops.
 
 ## Equivalence: what "lossless" means here
 
@@ -503,6 +666,8 @@ memory status was not GREEN) — and stops.
 - Never re-push blind. Use `--no-wait` only together with `--eval`, and only on a CLI whose
   `leap push -h` says the server then runs the evaluation itself.
 - Never let the smoke-validation cap reach the optimization branch.
+- Never run online diagnostics (6B) without the user's explicit yes in 6.0, never when
+  unattended, and never change server settings from this skill.
 - Never put secrets, credentials or data paths into the report beyond what the user's own
   repo already contains.
 - Never save memory by changing values (rounding dtypes, truncating, dropping data an
