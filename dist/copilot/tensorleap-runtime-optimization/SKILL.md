@@ -16,8 +16,12 @@ also makes the run faster.
 Work from the **integration repo root**, inside the **integration's own Python
 environment** (the one that runs `leap_integration.py` — `poetry run` by default, or the
 interpreter in `$TL_PY`). All measurements come from `scripts/tl_perf.py`; you read
-code, reason, and make changes. Artifacts go to `tensorleap/runtime-optimization/`; code
-changes go to a branch, **one commit per accepted fix**.
+code, reason, and make changes. Artifacts go to `tensorleap/runtime-optimization/`.
+`tl_perf` keeps the code history with any version control or none: an accepted `compare`
+saves the fix as `fixes/NN.patch` (changes made before the baseline: `00`), and `tl_perf
+restore` undoes what wasn't accepted. In a git repo, also commit each accepted fix on a
+branch, **one commit per fix**. "Commit" in this skill means that git commit; in any other
+repo, skip it and never run that tool.
 
 ## What you are optimizing (and what that implies)
 
@@ -84,13 +88,13 @@ out-of-memory failures.
   they break the platform run no matter how fast it is. Log every problem no catalog class
   describes as **new**, and tag it `"catalog": "new"` in the report.
 - **Run autonomously; ask only when blocked.** Infer everything you can from the repo and
-  the artifacts. The questions you may need to ask: uncommitted changes in the repo
+  the artifacts. The questions you may need to ask: uncommitted changes in a git repo
   (Phase 0), the model file to push if it can't be inferred (Phase 6), the
   behavior-changing options (Phase 5), and whether to run online diagnostics (Phase 6.0,
   asked once; never when unattended). Nothing else is a reason to stop.
 - **Keep `tensorleap/runtime-optimization/optimization-log.md`.** Append as you go: each
-  candidate, the evidence, what you tried, the `compare` verdict, the commit. It is the
-  source of the final report and survives an interrupted session.
+  candidate, the evidence, what you tried, the `compare` verdict, the commit or patch. It is
+  the source of the final report and survives an interrupted session.
 
 ## The measurement tool
 
@@ -142,10 +146,11 @@ Memory options: `profile --memory-samples N` (samples per state in the memory pa
 
 1. **Environment.** Find the integration's Python environment (`pyproject.toml` → poetry;
    `requirements.txt` → the venv the user runs it with). Everything below runs in it.
-2. **Repo state.** `git status`. If there are uncommitted changes, **ask** whether to commit
-   them first — never mix the user's work with optimization commits. Then create a branch:
-   `git switch -c tensorleap-runtime-optimization`. (`tl_perf` gives its output directory
-   its own `.gitignore`: only the report, the log and `static.json` are ever committed.)
+2. **Repo state (git repos only).** `git status`. If there are uncommitted changes, **ask**
+   whether to commit them first — never mix the user's work with optimization commits. Then
+   create a branch: `git switch -c tensorleap-runtime-optimization`. (`tl_perf` gives its
+   output directory its own `.gitignore`: only the report, the log and `static.json` are
+   ever committed.)
 3. **`tl_perf preflight`.** Act on the exit code (table above). Note in the log: device,
    code-loader version and features (`grouped_preprocess` needs ≥ 1.0.196), state sizes.
 4. **Server check (for Phase 6, non-blocking):** `scripts/perf_preflight.sh`.
@@ -306,7 +311,7 @@ kept at a runtime cost, a runtime fix rejected because it grew memory — for th
                        outputs equivalent"), log it, `tl_perf score`, go to 1.
                        compare has made this run the reference: the next change
                        must beat THIS run, not the original baseline
-            exit 8  -> revert (git checkout -- . / git restore), read the mismatching
+            exit 8  -> revert (`tl_perf restore`), read the mismatching
                        fields in compare.json, understand why, try another fix
             exit 9  -> revert; the change didn't matter
             exit 10 -> revert, or bound the cache and re-measure
@@ -431,20 +436,19 @@ the batch size from Phase 1, capped at the subset size.
 1. `scripts/perf_preflight.sh` → exit 0 required (see Phase 0 for the others).
 2. Model file: the one `@tensorleap_load_model` loads locally (ask only if it can't be
    inferred). Version name: `<integration>-perf-smoke-<yyyymmdd>`.
-3. **Build the subset on a throwaway branch**, so the cap never touches the optimized code:
-   `git switch -c tensorleap-runtime-optimization-smoke`. In the `@tensorleap_preprocess`
-   function, cap each state right where its `PreprocessResponse` is built — and change
-   nothing else:
+3. **Cap the subset in place**, on the last accepted code (step 6 removes it with
+   `tl_perf restore`). In the `@tensorleap_preprocess` function, cap each state right where
+   its `PreprocessResponse` is built — and change nothing else:
    - list of ids: `sample_ids[:50]`;
    - grouped response: the first groups that together hold about 50 samples;
    - `length=` form: `length=min(length, 50)`.
 
-   Mark it `# smoke-validation cap: not for merge` and commit. Check that the capped
+   Mark it `# smoke-validation cap: not for merge`; don't commit it. Check that the capped
    integration still loads: `tl_perf preflight --out tensorleap/runtime-optimization/smoke`
    (exit 0; the separate `--out` keeps the real `preflight.json` intact).
 4. **Reconcile first — the server is the source of truth:** `leap run list -t Push`; if a
    push for this project is still in flight, wait for it; never re-push blind.
-5. Push from the smoke branch, as a background shell:
+5. Push, as a background shell:
    - **Current CLIs** — `leap push -h` says that with `--eval`, `--no-wait` lets the
      server run the evaluation itself once the push finishes:
      ```
@@ -465,9 +469,8 @@ the batch size from Phase 1, capped at the subset size.
    kill it and read `leap run logs <push-run-id>`. The first push to a server can take long
    (it may pull a large base image).
 6. **Back to the optimized code:** once the push job shows in `leap run list -t Push` (the
-   code is uploaded by then), `git switch tensorleap-runtime-optimization` and delete the
-   smoke branch (`git branch -D tensorleap-runtime-optimization-smoke`). If you must
-   re-push later, recreate the smoke branch the same way.
+   code is uploaded by then), run `tl_perf restore`: it removes the cap and leaves
+   `leap.yaml` as the push left it. To re-push later, re-apply the cap the same way.
 7. **Finish the deliverables before you wait for anything.** As soon as the push is
    submitted (current CLIs — the server chains the Evaluate itself) or the Evaluate exists
    (older CLIs), write `report.json` with `server_validation` = `{"mode": "smoke",
@@ -489,8 +492,8 @@ the batch size from Phase 1, capped at the subset size.
    ```
    If the watcher dies, the evaluation is unaffected — relaunch the watcher, never re-push.
    **Push finished but no Evaluate exists** (older CLIs: the push process was killed
-   between the push and the evaluate trigger): from the smoke branch, re-push over the same
-   version, `leap push -m <model> -o <version> -b <batch> -u metric --eval --yes`, then
+   between the push and the evaluate trigger): with the cap re-applied, re-push over the
+   same version, `leap push -m <model> -o <version> -b <batch> -u metric --eval --yes`, then
    watch the new run. (On an overwrite the CLI asks what changed; `-u metric` answers
    "full re-evaluation" without a prompt.)
 9. **The server rejects the Evaluate at creation** — the Push is FINISHED but the Evaluate
@@ -505,7 +508,7 @@ the batch size from Phase 1, capped at the subset size.
     the update. **FAILED** → `leap run logs <run-id>`; an out-of-memory failure means the
     batch size or a cache is too large for the server: lower `-b` (re-run `fit` with the
     server's memory) and re-push with `-o <version> -u metric`. Any other error is an
-    integration bug: fix it on the optimization branch, re-verify with `compare`, and
+    integration bug: fix it in the optimized code, re-verify with `compare`, and
     re-run the smoke push.
 
 **GATE (6A):** the Evaluate reached a terminal state, or you recorded why validation was not
@@ -521,20 +524,19 @@ advance. Everything below reads that run; nothing changes server settings, and t
 second diagnostics run (the 6A one-retry rule for a server-side rejection still applies).
 
 1. Same preparation as 6A steps 1–2. Version name: `<integration>-perf-diag-<yyyymmdd>`.
-2. **Whole dataset unless the user gave a cap.** No cap → push the optimization branch
-   itself. A cap → apply it before the push (a running evaluation can't be resized from
-   here), on a throwaway branch: `git switch -c tensorleap-runtime-optimization-diag`.
+2. **Whole dataset unless the user gave a cap.** No cap → push the optimized code as is.
+   A cap → apply it in place before the push (a running evaluation can't be resized from
+   here):
    - If the integration already reads a per-state limit from its config (the
      integration skill's `sample_limit_per_split` in `project_config.yaml`), set it to the
      user's number and change nothing else.
    - Otherwise cap each state in `@tensorleap_preprocess` exactly as in 6A step 3, with
      the user's number instead of 50.
 
-   Mark it `# diagnostics cap: not for merge`, commit, and check with `tl_perf preflight
-   --out tensorleap/runtime-optimization/diag`.
+   Mark it `# diagnostics cap: not for merge` (don't commit it), and check with `tl_perf
+   preflight --out tensorleap/runtime-optimization/diag`.
 3. Reconcile and push exactly as 6A steps 4–5 (the full evaluation with visualizations;
-   batch size from Phase 1). If you capped, go back to the optimized code as in 6A step 6
-   (delete the `-diag` branch).
+   batch size from Phase 1). If you capped, go back to the optimized code as in 6A step 6.
 4. **Start collecting right away.** `leap run logs` keeps only the most recent part of each
    worker's log, and workers removed during the run disappear, so the logs are gathered
    repeatedly while the run is in progress:
@@ -638,9 +640,10 @@ files — it can be mailed or posted as is). Re-run `tl_perf report` whenever `r
 or the online analysis changes, so both files match. Don't commit `report.html` (it is
 rebuilt from `report.json`).
 
-Your closing message names the deliverables — the branch and its commits, `report.md` and
-`report.html` (the one to share), the remaining bottleneck in one sentence (and the largest
-remaining memory holder when the memory status was not GREEN) — and stops.
+Your closing message names the deliverables — the branch and its commits (git) or the
+`fixes/` patches, `report.md` and `report.html` (the one to share), the remaining bottleneck
+in one sentence (and the largest remaining memory holder when the memory status was not
+GREEN) — and stops.
 
 ## Equivalence: what "lossless" means here
 
@@ -666,7 +669,7 @@ remaining memory holder when the memory status was not GREEN) — and stops.
 - Never alter the user's source data or the model weights.
 - Never re-push blind. Use `--no-wait` only together with `--eval`, and only on a CLI whose
   `leap push -h` says the server then runs the evaluation itself.
-- Never let the smoke-validation cap reach the optimization branch.
+- Never commit a smoke or diagnostics cap, or leave it in the code once the push uploaded it.
 - Never run online diagnostics (6B) without the user's explicit yes in 6.0, never when
   unattended, and never change server settings from this skill.
 - Never put secrets, credentials or data paths into the report beyond what the user's own
