@@ -65,6 +65,7 @@ run (or in `tl_check.py` output) to its row, apply the fix, then re-run.
 | `The function returned None. If you are working with an unlabeled dataset …` | Return `np.array([], dtype=np.float32)`, not `None`. |
 | `Unsupported return type` / `should be … float32` | Return `np.ndarray` cast to `float32`. |
 | batch-dimension warning | Remove the leading batch dim from the GT encoder. |
+| Evaluate warns `'…' has a different shape from sample to sample` / fails with `all the input array dimensions for the concatenation axis must match exactly` | The GT shape varies per sample (one row per box). Pad it to a fixed `MAX_*` with NaN rows; drop them in loss, metrics and visualizers. |
 
 ## load_model
 
