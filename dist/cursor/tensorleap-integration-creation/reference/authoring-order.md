@@ -231,7 +231,7 @@ Call directly first (is the encoder itself right?), then via `integration_test`
 
 Return the **same shape for every sample**. A variable count (boxes, keypoints) is
 padded to a fixed `MAX_*` taken from the dataset's real maximum, with NaN rows, and
-the loss, metrics and visualizers drop the NaN rows. Unequal GT shapes cannot be
+the loss, metrics, visualizers and GT-derived metadata drop the NaN rows. Unequal GT shapes cannot be
 batched: the evaluate runs one sample per batch and the engine warns to pad.
 
 ## Step 9 — expand beyond the first sample, then optional interfaces
