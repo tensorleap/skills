@@ -67,7 +67,9 @@ def instance_length_encoder(sample_id: str, preprocess: PreprocessResponse) -> i
 
 Returns how many instances the sample has; the platform then calls the masks
 encoder with `instance_id` in `range(k)`. `0` is fine — the sample simply
-contributes no instance rows. The wiring is the **argument position** on the
+contributes no instance rows. With a padded GT (see authoring-order Step 8) count
+the real rows only, and build the masks from the same rows, so instance `i` is GT
+row `i`. The wiring is the **argument position** on the
 preprocess decorator (a standalone `@tensorleap_instances_length_encoder("name")`
 decorator also exists, but passing the function is what binds it).
 
