@@ -229,6 +229,11 @@ Call directly first (is the encoder itself right?), then via `integration_test`
 (does the whole path stay mappable + binder-valid?). For an unlabeled path return
 `np.array([], dtype=np.float32)`, never `None`.
 
+Return the **same shape for every sample**. A variable count (boxes, keypoints) is
+padded to a fixed `MAX_*` taken from the dataset's real maximum, with NaN rows, and
+the loss, metrics and visualizers drop the NaN rows. Unequal GT shapes cannot be
+batched: the evaluate runs one sample per batch and the engine warns to pad.
+
 ## Step 9 — expand beyond the first sample, then optional interfaces
 
 `leap_binder.check()` / `check_dataset()` validate only the FIRST sample. Expand:
