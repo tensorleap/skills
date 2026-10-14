@@ -428,9 +428,22 @@ order:
      Use the agreed environment for every command below; the bundled scripts default
      to `poetry run …`, so set `TL_PY=<path-to-python>` to point them at a different
      interpreter.
+   - **Check the env's Python version before installing anything.** Recent
+     `code-loader` releases support only Python `>=3.8,<3.13`. pip silently skips
+     releases whose `Requires-Python` excludes the interpreter, so on Python 3.13+
+     it installs an ancient `0.2.x` with no error. Create the env with an explicit
+     interpreter (`python3.11 -m venv .venv`, `poetry env use 3.11`,
+     `uv venv -p 3.11`), never a bare `python`, which may be a newer system or
+     Homebrew build. Then confirm with the env's own interpreter:
+     `<env-python> --version`. Prefer 3.10–3.12 and match `leap.yaml`'s
+     `pythonVersion`. For the current range, run
+     `curl -s https://pypi.org/pypi/code-loader/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['requires_python'])"`.
+     If the env's Python is outside the range, recreate the env. Don't work around it.
    - **Validate `code_loader`.** If it isn't installed, install the latest release.
      If it is, require `code-loader >= 1.0.142`; if older, stop and report it as a
-     blocker.
+     blocker. If a fresh install resolves below 1.0.142, the cause is almost always
+     the interpreter (step above), not the package index. Re-check `--version`
+     before blaming the index.
    - **Make the dataset reachable — pick the Data delivery row.** A file is
      readable on the platform only if it's in `leap.yaml`, the data volume, or
      runtime-fetched into the volume (see **Data delivery** above). For the common
@@ -457,7 +470,10 @@ order:
    per-split-balanced `sample_limit_per_split`. Call it directly from `__main__`
    and run.
 3. Inspect the model I/O contract (input names, dtypes, shapes without batch
-   dim, output count/meaning, required labels) before writing the loader.
+   dim, output count/meaning, required labels) before writing the loader, and
+   run the **batch-truth check** (`reference/authoring-order.md`, Step 3): a
+   dynamic batch dim must give the same per-sample outputs for a batch of 2 as
+   for each sample alone; a batch-1-only model must declare a fixed batch of 1.
 4. The minimum input encoder set for **one real inference** — one encoder per
    model input, `channel_dim` explicit, returns a single unbatched
    `np.float32` array. Call each directly and run. Encoders must return
@@ -610,6 +626,16 @@ isn't obvious. The highest-frequency ones:
   already contains it]" error.
 - Set `state=`, `channel_dim=`, and prediction-type semantics explicitly — never
   rely on the defaults the warnings flag.
+- **Exporting a model** (only when you produce the `.onnx` yourself): trace with
+  a dummy batch of **at least 2** distinct inputs. `dynamic_axes` only relaxes the
+  declared input shape — it does not make the graph batch-correct: Python loops
+  over the batch and `.shape` values used as Python ints are frozen at trace time.
+  Re-run the batch-truth check (Step 3) on every re-export.
+- **A failing platform job is not a spec.** If an evaluate fails inside the
+  engine (a traceback in engine code, not in your integration), report it to the
+  user as a suspected platform bug with the job id and the error line. Do not
+  remove or reshape integration surfaces to make it pass, and do not record such
+  a workaround as a platform requirement in the integration report.
 
 ## Optional surfaces (after the core path is green)
 
@@ -768,14 +794,13 @@ yes/no question.
    Data delivery). If the integration reads a remote store, ensure its credential
    is registered as `AUTH_SECRET` (`leap secrets create` + `leap secrets set`,
    which writes `secretId` into `leap.yaml` for auto-injection).
-4. **Push + evaluate** — from the repo root:
-   `leap push -m <model> -n <version> -b <batch> --eval`. `-m` uploads the model
-   separately (it is not bundled); the code bundle comes from `leap.yaml`'s
-   `include`. (`leap push -h` for `-o/--overwrite`, `--branch`.) **Never use
-   `--no-wait`** — it returns before the push completes, so the `--eval` step never
-   runs and no Evaluate job is created. By default the push evaluates the **full
-   dataset** (no `sample_limit_per_split`); apply a cap only if the **user
-   explicitly asked** for a smaller initial evaluation, in which case that key in
+4. **Push + evaluate** — from the repo root, with
+   `leap push -m <model> -n <version> -b <batch> --eval` plus the flags step 5
+   picks. `-m` uploads the model separately (it is not bundled); the code bundle
+   comes from `leap.yaml`'s `include`. (`leap push -h` for `-o/--overwrite`,
+   `--branch`.) By default the push evaluates the **full dataset** (no
+   `sample_limit_per_split`); apply a cap only if the **user explicitly asked**
+   for a smaller initial evaluation, in which case that key in
    `project_config.yaml` holds it.
    **Free Tier exception.** When step 1 showed `Free Tier` and the dataset has
    more than 5,000 samples, cap it **before** pushing: sum the real split sizes
@@ -786,72 +811,94 @@ yes/no question.
    splits⌋ each). Say that you did, why, and where the key lives. Without the cap
    the push itself succeeds but the Evaluate is refused with a `LICENSE_LIMIT`
    message naming the counts.
-5. **Run the push and get the Evaluate started.** A push (model upload + build)
-   can take well over 10 minutes — longer than the harness allows a foreground
-   command — so run it as a **background shell**, capturing output to a file:
+5. **Run the push.** **The server, not your shell, is the source of truth**, and
+   the ids of this push and its Evaluate are kept in `.tensorleap/runs.json`.
+   Before any push or re-push, check for an earlier one: if that file exists, run
+   `<env-python> scripts/watch_run.py --resume --once` and, unless it
+   reports a finished or failed run, continue from step 6 with it — re-pushing
+   blind creates duplicate versions. Re-push only with `-o/--overwrite`.
+   Pick the flow by what the CLI supports — `leap run info -h` exits 0 →
+   **server-chained** (default); otherwise **legacy**.
+   - **Server-chained** — the push returns once the model is uploaded and the
+     server starts the Evaluate itself when the push finishes, so nothing local
+     has to survive:
+     ```
+     leap push -m <model> -n <version> -b <batch> --eval --no-wait < /dev/null > push.log 2>&1
+     ```
+     A non-zero exit is a push failure: read `push.log` and fix it. If the CLI
+     warns before pushing and stops for confirmation, read the warning, tell the
+     user, and add `--yes` only once the warning is understood — never by default.
+   - **Legacy** (no `leap run info`) — **never use `--no-wait`** here: on these
+     CLIs it returns before the push completes and no Evaluate is ever created.
+     A push can take well over 10 minutes, so run it as a **background shell**:
+     ```
+     # background shell
+     leap push -m <model> -n <version> -b <batch> --eval < /dev/null > push.log 2>&1
+     ```
+     The command returns once the Evaluate has *started*. If the harness kills the
+     shell, the push keeps running server-side: check `leap run list -t Push` for
+     one still in flight (`PENDING`/`INITIALIZING`/`STARTED`) before pushing again.
+     **`leap` ≤ 0.0.155** does not exit on a **build failure** — it stalls at
+     `View errors in interactive mode? (Y/n):`. If `push.log` contains that line,
+     the push FAILED: kill it, read the error with `leap run list -t Push`
+     (newest) → `leap run logs <run-id>`, fix it, and re-push (`-o/--overwrite`).
+     Then find the new Evaluate with `leap run list -t Evaluate` and continue at
+     step 6 with its id.
+6. **Watch the push and its Evaluate without spending turns.** A clean push does
+   **not** mean a clean evaluation, and on the full dataset the Evaluate can take
+   hours to a day. Launch the watcher as a **background shell** — it follows the
+   push to its Evaluate, saves both ids, and exits only when there is something
+   to act on:
    ```
-   # background shell
-   leap push -m <model> -n <version> -b <batch> --eval < /dev/null > push.log 2>&1
+   # background shell; server-chained flow (legacy: pass the Evaluate id instead of --push-log)
+   <env-python> scripts/watch_run.py --push-log push.log
    ```
-   `--eval` starts an Evaluate job **after the push completes**; the command
-   returns once that job has *started* (not finished). `< /dev/null` and the
-   `push.log` redirect keep the push non-interactive and keep the loader's output
-   out of your context.
-   **The server, not your shell, is the source of truth.** The harness may kill a
-   background job at any time (compaction, session restart) while the push keeps
-   running server-side. A dead or missing local process does **not** mean the push
-   failed, and re-pushing blind creates duplicate versions. So **before any push or
-   re-push, reconcile**: run `leap run list -t Push` — if a Push run for this
-   project is still in flight (`PENDING`/`INITIALIZING`/`STARTED`), do **not** push
-   again; wait for it (poll the run list, not the dead process). If it finished,
-   continue from step 6 as if your push returned. Kill any stale local `leap push`
-   process before starting a new one. Only re-push after the server shows no
-   in-flight Push, using `-o/--overwrite`.
-   **Failure behavior you must handle (`leap` ≤ 0.0.155):** on a **build failure**
-   these versions do **not** exit — on a non-interactive shell they stall at the
-   prompt `View errors in interactive mode? (Y/n):`, waiting for input that never
-   comes, so the command **hangs**. (Dev/newer CLIs exit non-zero instead.) So **if
-   `push.log` contains `View errors in interactive mode`, the push FAILED** — stop
-   waiting for it and kill it; never treat a non-returning push as "still working".
-   The real error is **not** in `push.log` — read it from the failed Push run's
-   server-side log: `leap run list -t Push` (newest) → `leap run logs <run-id>`.
-   Fix the error, then re-push (`-o/--overwrite`).
-6. **Confirm the Evaluate started — then it runs asynchronously.** The `--eval`
-   runs as an `Evaluate` job on the platform; a clean push does **not** mean a
-   clean evaluation, and on the **full dataset the job can take hours to a day**.
-   ```
-   leap run list -t Evaluate      # find the run you just created; note its id (EVAL_ID)
-   ```
-   - **No `Evaluate` job exists at all** → the eval was **not triggered**. Re-push
-     `leap push -o <version> --eval` and re-check.
-   - **`push.log` ends with a `LICENSE_LIMIT` / Free Tier message** (or `leap run
-     info <push-id>` shows one for a server-dispatched eval) → the push
-     succeeded but the dataset is over the license's sample cap. Apply the cap
-     from step 4 and re-push with `-o <version> --eval`; this is a license limit,
-     not an integration bug.
-   - Once an `Evaluate` job exists and is running (`PENDING` / `INITIALIZING` /
-     `STARTED`), the integration is wired up and the evaluation is underway.
-   **Don't poll it with your own turns** — a turn per check burns tokens, for up to
-   a day. Instead launch a **background shell** that watches *this* run and exits
-   when it reaches a terminal state; the loop is token-free (not your turns) and
-   re-invokes you once on completion:
-   ```
-   # background; poll every 5 min; exit when THIS run (EVAL_ID) is terminal
-   while :; do
-     s=$(leap run list -t Evaluate | grep "$EVAL_ID")   # match the exact run, not the newest
-     case "$s" in *FINISHED*|*FAILED*|*STOPPED*|*TERMINATED*) echo "$s"; break;; esac
-     sleep 300                                            # empty/failed list => keep waiting, not terminal
-   done
-   ```
-   If the watcher shell itself dies or goes missing (the harness may kill
-   background jobs), the eval is unaffected — check `leap run list -t Evaluate`
-   and relaunch the watcher; **never re-push** because a watcher died.
-   When it exits: **`FINISHED`** → the integration is done. **`FAILED` / `STOPPED` /
-   `TERMINATED`** → pull `leap run logs <run-id>`, read the earliest real error, fix
-   it in the integration, re-push, and track the new eval the same way. (Errors that
-   surface only here are typically platform-only conditions the local test can't
-   see — the data-root/volume switch, `AUTH_SECRET` not injected, a missing
-   `include`, or a dependency absent from `requirements.txt`.)
+   Then, in this order:
+   - **Tell the user** that the evaluation is running and can take hours, and how
+     to check it themselves: `leap run info <id>` with the id from
+     `.tensorleap/runs.json`.
+   - **End your turn.** Ending the turn here is correct — the task is not
+     finished, it is waiting. Don't poll: no repeated `leap run info` calls, no
+     `sleep` loops in your own turns, and **don't read the watcher's output while
+     it runs** (e.g. `read_bash`, `get_terminal_output`) — in some assistants
+     reading a running shell consumes the completion notification that would
+     wake you.
+   - **When you are woken** by the watcher exiting, act on its last line (step 7).
+   - **If the user messages you first** — or your assistant never wakes you when a
+     background shell exits — run `<env-python> scripts/watch_run.py --resume --once`
+     and act on its result; `RUNNING` means say so and end your turn again.
+   If the watcher shell dies (the harness may kill background jobs), the push and
+   Evaluate are unaffected — relaunch it with `--resume`; **never re-push**
+   because a watcher died.
+7. **Act on the watcher's `RESULT` line.**
+   - **`FINISHED`** → the integration is done.
+   - **`FAILED`** (`stage=push` or `stage=evaluate`; `run_status` is `FAILED`,
+     `STOPPED` or `TERMINATED`) → the watcher printed the run's `errorReport`,
+     `hints` and the last log lines. Read the earliest real error (pull more with
+     `leap run logs <id>` if needed), fix it in the integration, re-push with
+     `-o/--overwrite`, and watch the new run the same way. Errors that surface only
+     here are typically platform-only conditions the local test can't see — the
+     data-root/volume switch, `AUTH_SECRET` not injected, a missing `include`, or a
+     dependency absent from `requirements.txt`.
+   - **`NO_EVAL`** → the push finished but no Evaluate was started. If the printed
+     report names `LICENSE_LIMIT` / Free Tier, the dataset is over the license's
+     sample cap: apply step 4's cap and re-push with `-o <version> --eval` — a
+     license limit, not an integration bug. Otherwise re-push with
+     `-o <version> --eval`.
+   - **`STALLED`** → the Evaluate made no progress for 30 minutes on a step with a
+     counter, or 2 hours on a step without one (or while waiting to start). It may
+     be stuck or just slow. Do **not** re-push or stop anything yourself: tell the
+     user the step, `progress`, `stalled_min` and what the logs show, and
+     recommend stopping it only if they agree — stopping discards the evaluation
+     so far. There is no CLI stop command: the user stops the run in the
+     Tensorleap UI. If they want to keep waiting, relaunch the watcher with
+     `--resume --keep-waiting` — the next stall is counted from that moment, so it
+     reports again only after another full window without progress.
+   - **`CLI_CONTRACT_CHANGED`** → the watcher can no longer read `leap run info`
+     (the CLI changed its output). Tell the user, include the raw output it
+     printed, and fall back to checking the run in the UI. Don't work around it.
+   - **`CLI_ERROR`** → the CLI kept failing (expired auth, network, unknown run
+     id). Fix the cause (`leap auth whoami`) and relaunch with `--resume`.
 
 ## Finish report (consent required)
 
