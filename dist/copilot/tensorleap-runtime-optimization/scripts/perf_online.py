@@ -368,7 +368,23 @@ def parse_describe(text):
     d["gpus"] = int(m.group(1)) if m else 0
     m = re.search(r"^\s+Ready:\s+(\S+)", body, re.M)
     d["ready"] = (m.group(1) == "True") if m else None
+    d["limit_cpu"] = _k8s_block(body, "Limits").get("cpu")
+    d["request_cpu"] = _k8s_block(body, "Requests").get("cpu")
     return d
+
+
+def _k8s_block(body, name):
+    """{resource: quantity} of the first `Limits:` / `Requests:` block (its indented lines only)."""
+    m = re.search(r"^( *)%s:\n((?:\1 +\S+:.*\n?)*)" % name, body, re.M)
+    if not m:
+        return {}
+    return dict(re.findall(r"^\s+(\S+):\s+(\S+)", m.group(2), re.M))
+
+
+def _cores(s):
+    """'16' / '500m' -> cores."""
+    m = re.match(r"^([\d.]+)(m?)$", s or "")
+    return float(m.group(1)) / (1000.0 if m.group(2) else 1.0) if m else None
 
 
 def merge_tail(kept, new, anchor=ANCHOR_LINES):
@@ -762,7 +778,7 @@ MARKERS = (
 )
 
 
-PARSER_VERSION = 11      # components.json written by an older parser is re-parsed
+PARSER_VERSION = 12      # components.json written by an older parser is re-parsed
 
 
 def parse_collection(job_dir):
@@ -856,6 +872,13 @@ def parse_collection(job_dir):
     for pod, info in (state.get("pods") or {}).items():
         merged = dict(info)
         merged.update(per_pod.get(pod, {}))
+        desc = merged.get("describe")
+        txt = os.path.join(job_dir, "describe", pod + ".txt")
+        if isinstance(desc, dict) and "limit_cpu" not in desc and os.path.isfile(txt):
+            # collected before the CPU fields existed: read them from the saved description
+            with open(txt, encoding="utf-8") as fh:
+                fresh = parse_describe(fh.read())
+            merged["describe"] = dict(desc, limit_cpu=fresh["limit_cpu"], request_cpu=fresh["request_cpu"])
         pods[pod] = merged
     for pod, info in per_pod.items():
         pods.setdefault(pod, info)
@@ -2560,6 +2583,80 @@ SETTINGS_MODES = ("automatic", "manual")
 CPU_BOUND = 0.9          # P95 cores used at this share of the limit, or ...
 CPU_THROTTLED = 0.10     # ... CPU throttled in this share of periods: the CPU setting limited the pod
 UNUSED = 0.3             # peak use under this share of what was reserved: mostly unused
+SETTINGS_ROLES = ("evaluation pod", "worker pods")
+MULTI_GPU_GB_PER_EXTRA_GPU = 2   # evaluation-pod memory the server adds per GPU beyond the first
+
+
+def _range(lo, hi, unit):
+    if lo is None or hi is None:
+        return "-"
+    return "%g %s" % (hi, unit) if abs(lo - hi) < 1e-9 else "%g–%g %s" % (lo, hi, unit)
+
+
+def detect_settings_modes(eng, pods, cfg, gpus):
+    """Automatic or manual resource settings per pod role, read from the run itself; a role the
+    run does not show is left out. Worker pods: the mark on this run's worker deployment.
+    Evaluation pod: whether it got the CPU and memory Tensorleap computed for this version (plus
+    the server's per-batch and per-extra-GPU memory) or other values, set by hand."""
+    auto = (eng or {}).get("auto_settings") or {}
+    out = {}
+    flags = set(auto.get("worker_flags") or [])
+    if len(flags) == 1:
+        on = flags.pop() == "true"
+        out["worker pods"] = {"mode": "automatic" if on else "manual",
+                              "evidence": "this run's worker deployment is marked for %s settings" % (
+                                  "automatic" if on else "manual")}
+    ev = auto.get("evaluate") or {}
+    desc = next((p.get("describe") or {} for p in (pods or {}).values()
+                 if p.get("role") == CONSUMER and p.get("describe")), {})
+    got = {"cpu_required": _cores(desc.get("request_cpu")), "cpu_limit": _cores(desc.get("limit_cpu")),
+           "memory_required_gb": _gb(desc.get("request_memory")), "memory_limit_gb": _gb(desc.get("limit_memory"))}
+    if not ev.get("cpu_limit") or got["cpu_limit"] is None:
+        return out
+    batch, per_batch = cfg.get("batch_size"), ev.get("batch_memory_multiple") or 0
+    extra = MULTI_GPU_GB_PER_EXTRA_GPU * (gpus - 1) if gpus and gpus > 1 and batch and batch % gpus == 0 else 0
+
+    def memory(gb):          # (lowest, highest) the server gives for this computed value
+        if gb is None:
+            return None, None
+        if per_batch and not batch:
+            return gb, None
+        return [math.ceil(gb + per_batch * batch) + extra if per_batch else gb + extra] * 2
+
+    want = {"cpu_required": [ev["cpu_required"] / 1000.0] * 2 if ev.get("cpu_required") is not None else [None] * 2,
+            "cpu_limit": [ev["cpu_limit"] / 1000.0] * 2,
+            "memory_required_gb": memory(ev.get("memory_required_gb")),
+            "memory_limit_gb": memory(ev.get("memory_limit_gb"))}
+    match = True
+    for k, (lo, hi) in want.items():
+        tol = 0.01 if k.startswith("cpu") else 0.05
+        if got[k] is not None and lo is not None and not (lo - tol <= got[k] <= (hi if hi is not None else got[k]) + tol):
+            match = False
+    gave = "CPU %s and memory %s" % (_range(got["cpu_required"], got["cpu_limit"], "cores"),
+                                     _range(got["memory_required_gb"], got["memory_limit_gb"], "GB"))
+    computed = "CPU %s and memory %s" % (_range(want["cpu_required"][0], want["cpu_limit"][0], "cores"),
+                                         _range(want["memory_required_gb"][0], want["memory_limit_gb"][0], "GB"))
+    out["evaluation pod"] = {
+        "mode": "automatic" if match else "manual",
+        "evidence": ("the evaluation pod got the %s Tensorleap computed for this version" % gave) if match else
+                    ("the evaluation pod got %s, not the %s Tensorleap computed for this version" % (gave, computed))}
+    return out
+
+
+def _modes_text(modes):
+    known = {r: modes[r]["mode"] for r in SETTINGS_ROLES if modes.get(r)}
+    if not known:
+        return "not readable from this run, so the advice covers both automatic and manual"
+    how = "stated by the user" if {modes[r].get("source") for r in known} == {"stated by the user"} \
+        else "read from this run"
+    if len(known) == len(SETTINGS_ROLES) and len(set(known.values())) == 1:
+        text = "%s for the evaluation pod and the worker pods, %s" % (next(iter(known.values())), how)
+    else:
+        text = ", ".join("%s for the %s" % (m, r) for r, m in known.items()) + ", " + how
+    missing = [r for r in SETTINGS_ROLES if r not in known]
+    if missing:
+        text += "; the %s's could not be read, so its advice covers both" % missing[0]
+    return text
 
 
 def _quant(xs, q):
@@ -2578,10 +2675,19 @@ def server_settings(eng, tables, view, memory, cfg, gpus, limiter, roots, settin
             continue
         seen.add(key)
         by_role.setdefault(role, []).append(r)
-    mode = settings_mode or "not stated"
+    detected = detect_settings_modes(eng, tables.get("pods"), cfg, gpus)
+    modes = {r: dict(m, source="read from this run") for r, m in detected.items()}
+    notes = []
+    if settings_mode:            # an explicit --settings-mode wins over what the run shows
+        for r in SETTINGS_ROLES:
+            if detected.get(r) and detected[r]["mode"] != settings_mode:
+                notes.append("stated %s settings, but %s" % (settings_mode, detected[r]["evidence"]))
+        modes = {r: {"mode": settings_mode, "evidence": "stated by the user", "source": "stated by the user"}
+                 for r in SETTINGS_ROLES}
     paced = {rc.get("pacing") for rc in roots or []}
 
-    def advise(auto_text, manual_text):
+    def advise(role, auto_text, manual_text):
+        mode = (modes.get(role) or {}).get("mode")
         if mode == "automatic":
             return "Automatic settings: %s." % auto_text
         if mode == "manual":
@@ -2613,11 +2719,11 @@ def server_settings(eng, tables, view, memory, cfg, gpus, limiter, roots, settin
         if limit and ((p95 is not None and p95 >= CPU_BOUND * limit) or (thr_max or 0) >= CPU_THROTTLED):
             verdict = "limited the run" if (label == "worker pods" and "the generic workers" in paced) or \
                 (label == "evaluation pod" and "the evaluation pod" in paced) else "at its limit"
-            rec = advise("the CPU sized for the %s was below what it needed" % label,
+            rec = advise(label, "the CPU sized for the %s was below what it needed" % label,
                          "raise the %s CPU limit above %.0f cores" % (label, limit))
         elif limit and p95 is not None and p95 <= UNUSED * limit:
             verdict = "mostly unused"
-            rec = advise("%.0f cores were sized for the %s and it used %.2f at P95" % (limit, label, p95),
+            rec = advise(label, "%.0f cores were sized for the %s and it used %.2f at P95" % (limit, label, p95),
                          "lower the %s CPU toward %.1f cores, or give the cores to the side that sets the pace" % (
                              label, max(1.0, 1.5 * p95)))
         else:
@@ -2629,11 +2735,11 @@ def server_settings(eng, tables, view, memory, cfg, gpus, limiter, roots, settin
         mem_peak = max([r["container_memory_gb"] for r in rs if r.get("container_memory_gb") is not None] or [0]) or None
         if mem_lim and mem_peak:
             if mem_peak >= NEAR_LIMIT * mem_lim:
-                verdict, rec = "near its limit", advise("the memory sized for the %s left little headroom" % label,
+                verdict, rec = "near its limit", advise(label, "the memory sized for the %s left little headroom" % label,
                                                          "raise the %s memory above %.1f GB" % (label, mem_peak * 1.25))
             elif mem_peak <= UNUSED * mem_lim:
                 verdict = "mostly unused"
-                rec = advise("%.1f GB were sized for the %s and it peaked at %.1f GB" % (mem_lim, label, mem_peak),
+                rec = advise(label, "%.1f GB were sized for the %s and it peaked at %.1f GB" % (mem_lim, label, mem_peak),
                              "lower the %s memory toward %.1f GB (reserved memory blocks other jobs)" % (label, mem_peak * 1.5))
             else:
                 verdict, rec = "fits", ""
@@ -2644,7 +2750,7 @@ def server_settings(eng, tables, view, memory, cfg, gpus, limiter, roots, settin
     wv, wr = "fits", ""
     if "the generic workers" in paced:
         wv = "limited the run"
-        wr = advise("the worker count did not grow for the phase the workers paced",
+        wr = advise("worker pods", "the worker count did not grow for the phase the workers paced",
                     "more worker pods or processes for that phase")
     rows.append({"setting": "worker pods × processes", "got": "%d × %s" % (len(workers), "/".join(map(str, children))),
                  "used": "the workers set the pace of a phase" if "the generic workers" in paced else
@@ -2666,8 +2772,10 @@ def server_settings(eng, tables, view, memory, cfg, gpus, limiter, roots, settin
                                                       if r["verdict"] == "mostly unused" else "out-of-memory risk")
     if priority == "memory":                      # memory rows first
         rows.sort(key=lambda r: 0 if "memory" in r["setting"] else 1)
-    return {"mode": mode, "rows": rows, "readings": len(seen), "priority": priority,
-            "note": "" if recs else "this server's logs carry no resource readings; settings are judged from limits only"}
+    if not recs:
+        notes.insert(0, "this server's logs carry no resource readings; settings are judged from limits only")
+    return {"mode": _modes_text(modes), "modes": modes, "rows": rows, "readings": len(seen), "priority": priority,
+            "note": "; ".join(notes)}
 
 
 def _split_server_messages(rep):
@@ -3475,6 +3583,7 @@ def parse_engine(logs_dir):
     errors, engine events, and upload start/done pairs (paired in order per pod)."""
     steps, warnings, events, messages, phases = [], {}, {}, {}, []
     uploads = []
+    auto = {"worker_flags": [], "evaluate": None}
     for fname in sorted(os.listdir(logs_dir)) if os.path.isdir(logs_dir) else []:
         pod = fname[:-4] if fname.endswith(".log") else fname
         role = pod_role(pod)
@@ -3521,6 +3630,14 @@ def parse_engine(logs_dir):
                     m["throttled"] = m["throttled"] or "throttle_interval_sec" in d
                     if pod not in m["pods"]:
                         m["pods"].append(pod)
+                if msg.startswith("deployment ready"):
+                    fm = AUTO_GENERIC_RE.search(msg)
+                    if fm:
+                        auto["worker_flags"].append(fm.group(1).lower())
+                elif msg == "Uploading pods settings" and auto["evaluate"] is None:
+                    ev = (d.get("pods_settings") or {}).get("evaluate")
+                    if isinstance(ev, dict):
+                        auto["evaluate"] = {k: ev.get(k) for k in AUTO_EVALUATE_FIELDS}
                 if msg == "post_processing memory":
                     steps.append({"t": ts, "step": d.get("step"), "rss_gb": d.get("rss_gb"), "data_gb": d.get("data_gb")})
                 pm = INSIGHTS_PHASE_RE.match(msg)
@@ -3562,11 +3679,16 @@ def parse_engine(logs_dir):
                         uploads.append({"pod": pod, "role": role, "kind": kind, "t": ts,
                                         "seconds": ts - pending[kind].pop(0)})
     return {"steps": sorted(steps, key=lambda s: s["t"]), "warnings": sorted(warnings.values(), key=lambda w: -w["count"]),
-            "events": events, "uploads": uploads, "messages": messages, "insights_phases": phases}
+            "events": events, "uploads": uploads, "messages": messages, "insights_phases": phases,
+            "auto_settings": auto}
 
 
 SUBSTRING_EVENTS = ("dataset_command served", "chose aggregate_every for generate_sample",
                     "Updating existing generic pods settings based on current memory")   # matched anywhere
+# The worker deployment's auto-settings mark, in the engine's `deployment ready` line, and the
+# fields of the evaluation pod's automatic settings in its `Uploading pods settings` line.
+AUTO_GENERIC_RE = re.compile(r"'tensorleap\.ai/auto-settings-generic': '(\w+)'")
+AUTO_EVALUATE_FIELDS = ("cpu_required", "cpu_limit", "memory_required_gb", "memory_limit_gb", "batch_memory_multiple")
 INSIGHTS_PHASE_RE = re.compile(r"\[multi-LS-insights-timing\] Phase (\w+): (.+?) done in ([0-9.]+)s")
 EVENT_TEXT_FIELDS = ("label", "command", "dataset_command", "first_in_process", "caller_span", "ls_type",
                      "load_metadata")
@@ -4240,6 +4362,10 @@ def render_server_settings(st):
     L = ["### Server settings", "",
          "What each Tensorleap pod got, what this run used, and whether the setting limited the run or sat mostly "
          "unused. Resource settings: **%s**. This report recommends; it never changes server settings." % st["mode"], ""]
+    modes = st.get("modes") or {}
+    read = [modes[r]["evidence"] for r in SETTINGS_ROLES if (modes.get(r) or {}).get("source") == "read from this run"]
+    if read:
+        L += ["How the settings were read: %s." % "; ".join(read), ""]
     if st.get("note"):
         L += ["_%s._" % st["note"], ""]
     L += _md(["setting", "got", "used", "verdict", "effect of a change"],
@@ -4767,8 +4893,8 @@ def add_parser(sub, common, default_out):
     a.add_argument("--priority", choices=("runtime", "memory"), default=None,
                    help="what leads the diagnostics: runtime or memory (default: the priority `score` ran with)")
     a.add_argument("--settings-mode", choices=SETTINGS_MODES, default=None,
-                   help="whether the server used its automatic resource settings or manual ones "
-                        "(as the user answered at gate 6.0); omitted: not stated")
+                   help="override: the server's resource settings are automatic or manual for every pod "
+                        "(default: read per pod from the run itself)")
     return p
 
 

@@ -80,9 +80,9 @@ It runs on its own and asks you only these:
    if one component still dominates after every lossless fix, or memory can only shrink by
    changing values. Each option comes with its expected gain and cost. Declining all of
    them is a valid outcome.
-4. **Online diagnostics, yes or no.** In the same question it asks whether your server
-   uses automatic or manual resource settings, and offers a per-state sample cap. The
-   default, "no", runs the short smoke check described below.
+4. **Online diagnostics, yes or no.** In the same question it offers a per-state sample
+   cap. It doesn't ask whether your server uses automatic or manual resource settings: it
+   reads that from the run. The default, "no", runs the short smoke check described below.
 
 When it runs unattended, it asks nothing and never runs online diagnostics.
 

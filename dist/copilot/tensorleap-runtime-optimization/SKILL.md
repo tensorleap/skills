@@ -418,9 +418,8 @@ says yes** in 6.0. Diagnostics read the run; they never change server settings.
      per worker; how far the run is from the model's floor; what to fix in the integration
      and what to ask Tensorleap for;
    - the default: "no" runs the smoke check (about 50 samples per state, minutes).
-   In the same message, ask whether the server uses Tensorleap's **automatic** resource
-   settings or **manual** ones (CPU and memory per pod set by hand). Don't ask separately;
-   if they don't know, the report gives advice for both.
+   Don't ask whether the server uses automatic or manual resource settings: the analysis
+   reads that from the run itself (step 7 of 6B).
 3. A clear yes → **6B** with `"mode": "diagnostics", "authorized_by_user": true`, and the
    cap if they gave one. Anything else — no, no answer, "maybe later" → **6A** with
    `"mode": "smoke", "authorized_by_user": false`.
@@ -567,8 +566,7 @@ second diagnostics run (the 6A one-retry rule for a server-side rejection still 
    evaluation, then collect with the **new** push run id: `collect` finds the evaluation of
    that version even though it is not chained on the server. A run that fails is still
    analyzed: its failure (the server's reason, or an out-of-memory) is the primary finding.
-7. **Analyze:** `tl_perf online analyze` (add `--settings-mode automatic|manual` with the
-   user's answer from 6.0; leave it out if they didn't say). It covers the **evaluation**
+7. **Analyze:** `tl_perf online analyze`. It covers the **evaluation**
    (with the start-up that leads into it) and the **visualization** only. The platform's
    analysis after evaluation (post-processing: embeddings, insights and the other steps)
    shows as one row of time and is not analyzed: no statistics, findings or root causes
@@ -590,7 +588,12 @@ second diagnostics run (the 6A one-retry rule for a server-side rejection still 
    and the engine part where it happens; mechanisms in shorter phases follow the root
    causes. The rules read shapes, not known problems: report what they find, and never
    turn it into a checklist of platform features. It judges the **server settings** (CPU, memory, worker
-   pods and processes, GPUs) against what the run used. With memory as the priority (the
+   pods and processes, GPUs) against what the run used. Whether those settings are automatic or
+   manual it reads from the run, per pod: for the worker pods, the mark on the run's worker
+   deployment; for the evaluation pod, whether it got the CPU and memory Tensorleap computed
+   for this version. Advice follows each pod's mode; where the run doesn't show it, the
+   advice covers both. Pass `--settings-mode automatic|manual` only if the user volunteers
+   it; it overrides what the run shows, and the report notes any disagreement. With memory as the priority (the
    default, from `score.json` or `--priority`) it builds a **memory root cause**: which pods hold
    and reserve the most memory, when they peak, how much of it is the integration's own code
    (from the offline memory pass), and the part to change. It leads with it only under

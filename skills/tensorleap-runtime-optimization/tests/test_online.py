@@ -272,6 +272,10 @@ class CollectPiecesTest(unittest.TestCase):
     def test_describe_is_parsed_and_its_environment_removed(self):
         d = perf_online.parse_describe(DESCRIBE)
         self.assertEqual((d["limit_memory"], d["request_memory"], d["restarts"]), ("2Gi", "1Gi", 2))
+        self.assertEqual((d["limit_cpu"], d["request_cpu"]), ("4", "1"))
+        no_cpu = perf_online.parse_describe(DESCRIBE.replace("      cpu:     4\n", ""))
+        self.assertEqual((no_cpu["limit_cpu"], no_cpu["request_cpu"]), (None, "1"))   # not the request's
+        self.assertEqual((perf_online._cores("500m"), perf_online._cores("16")), (0.5, 16.0))
         self.assertEqual((d["last_state_reason"], d["oom"], d["ready"]), ("OOMKilled", True, True))
         self.assertEqual(d["state"], "Running")
         self.assertAlmostEqual(d["start"], 1790262340.0, delta=86400 * 400)  # parsed, UTC
@@ -1175,7 +1179,8 @@ class ServerSettingsTest(unittest.TestCase):
         u = {x["setting"]: x for x in unknown["rows"]}["worker pods CPU"]["recommendation"]
         self.assertIn("Automatic settings:", u)
         self.assertIn("Manual settings:", u)
-        self.assertEqual(unknown["mode"], "not stated")
+        self.assertEqual(unknown["mode"], "not readable from this run, so the advice covers both automatic and manual")
+        self.assertEqual(auto["mode"], "automatic for the evaluation pod and the worker pods, stated by the user")
 
     def test_without_readings_memory_comes_from_the_pod_limits(self):
         memory = {"pods": {"generic-process-J-1": {"role": "generic-process", "limit_gb": 19.0, "peak_rss_gb": 2.0}}}
@@ -1203,6 +1208,88 @@ class ServerSettingsTest(unittest.TestCase):
         self.assertIn("### Server settings", md)
         self.assertIn("never changes server settings", md)
         self.assertIn("| worker pods CPU | 4.0 cores |", md)
+
+
+class SettingsModeTest(unittest.TestCase):
+    """Automatic or manual resource settings, read per pod role from the run itself."""
+
+    EVALUATE = {"cpu_required": 4000, "cpu_limit": 16000, "memory_required_gb": 3, "memory_limit_gb": 9,
+                "batch_memory_multiple": 0.0124}
+
+    def _pods(self, cpu=("4", "16"), memory=("4Gi", "10Gi")):
+        return {"evaluate-J-x": {"role": perf_online.CONSUMER,
+                                 "describe": {"request_cpu": cpu[0], "limit_cpu": cpu[1],
+                                              "request_memory": memory[0], "limit_memory": memory[1]}}}
+
+    def _eng(self, flags=("true",), evaluate=EVALUATE):
+        return {"auto_settings": {"worker_flags": list(flags), "evaluate": evaluate}}
+
+    def test_parser_reads_the_worker_mark_and_the_evaluation_settings(self):
+        d = tempfile.mkdtemp()
+        lines = [_log(_ts(10), "deployment ready {'api_version': 'apps/v1',\n 'metadata': {'annotations': "
+                               "{'tensorleap.ai/auto-settings-generic': 'false'},\n 'name': 'g'}}"),
+                 _log(_ts(20), "Uploading pods settings", pods_settings={"generic": {"cpu_limit": 4000},
+                                                                         "evaluate": dict(self.EVALUATE, extra=1)})]
+        with open(os.path.join(d, "evaluate-J-x.log"), "w") as fh:
+            fh.write("\n".join(lines) + "\n")
+        auto = perf_online.parse_engine(d)["auto_settings"]
+        self.assertEqual(auto, {"worker_flags": ["false"], "evaluate": self.EVALUATE})
+
+    def test_automatic_on_both_roles(self):
+        m = perf_online.detect_settings_modes(self._eng(), self._pods(), {"batch_size": 8}, 0)
+        self.assertEqual({r: v["mode"] for r, v in m.items()}, {"worker pods": "automatic", "evaluation pod": "automatic"})
+        self.assertIn("got the CPU 4–16 cores and memory 4–10 GB Tensorleap computed", m["evaluation pod"]["evidence"])
+
+    def test_values_set_by_hand_are_manual(self):
+        m = perf_online.detect_settings_modes(self._eng(flags=["false"]), self._pods(("50m", "16"), ("8Gi", "8Gi")),
+                                              {"batch_size": 8}, 0)
+        self.assertEqual({r: v["mode"] for r, v in m.items()}, {"worker pods": "manual", "evaluation pod": "manual"})
+        self.assertIn("got CPU 0.05–16 cores and memory 8 GB, not the CPU 4–16 cores and memory 4–10 GB",
+                      m["evaluation pod"]["evidence"])
+
+    def test_the_servers_batch_and_gpu_memory_additions_still_match(self):
+        ev = dict(self.EVALUATE, memory_required_gb=27, memory_limit_gb=33, batch_memory_multiple=1.9e-6)
+        m = perf_online.detect_settings_modes(self._eng(evaluate=ev), self._pods(memory=("30Gi", "36Gi")),
+                                              {"batch_size": 64}, 2)      # ceil(27 + 64 × 1.9e-6) + 2 for the 2nd GPU
+        self.assertEqual(m["evaluation pod"]["mode"], "automatic")
+        m = perf_online.detect_settings_modes(self._eng(evaluate=ev), self._pods(memory=("30Gi", "36Gi")),
+                                              {"batch_size": 63}, 2)      # an odd batch runs on one replica
+        self.assertEqual(m["evaluation pod"]["mode"], "manual")
+
+    def test_without_the_batch_size_memory_is_only_a_lower_bound(self):
+        m = perf_online.detect_settings_modes(self._eng(), self._pods(memory=("5Gi", "11Gi")), {}, 0)
+        self.assertEqual(m["evaluation pod"]["mode"], "automatic")
+        m = perf_online.detect_settings_modes(self._eng(), self._pods(memory=("2Gi", "2Gi")), {}, 0)
+        self.assertEqual(m["evaluation pod"]["mode"], "manual")
+
+    def test_a_role_the_run_does_not_show_is_left_out(self):
+        self.assertEqual(perf_online.detect_settings_modes({}, self._pods(), {}, 0), {})
+        m = perf_online.detect_settings_modes(self._eng(flags=["true", "false"], evaluate=None), self._pods(), {}, 0)
+        self.assertEqual(m, {})
+
+    def test_recommendations_follow_each_roles_mode(self):
+        eng = ServerSettingsTest()._eng()
+        eng.update(self._eng(flags=["false"]))
+        st = perf_online.server_settings(eng, {"pods": self._pods()}, {}, {"pods": {}}, {"batch_size": 8}, 0, None,
+                                         [{"pacing": "the generic workers"}], None)
+        rows = {r["setting"]: r for r in st["rows"]}
+        self.assertTrue(rows["worker pods CPU"]["recommendation"].startswith("Manual settings:"))
+        self.assertTrue(rows["evaluation pod memory"]["recommendation"].startswith("Automatic settings:"))
+        self.assertEqual(st["mode"], "automatic for the evaluation pod, manual for the worker pods, read from this run")
+        md = "\n".join(perf_online.render_server_settings(st))
+        self.assertIn("How the settings were read: the evaluation pod got the CPU 4–16 cores and memory 4–10 GB "
+                      "Tensorleap computed for this version; this run's worker deployment is marked for manual settings.", md)
+        half = perf_online.server_settings(dict(eng, auto_settings={"worker_flags": ["true"]}), {"pods": self._pods()},
+                                           {}, {"pods": {}}, {}, 0, None, [], None)
+        self.assertEqual(half["mode"], "automatic for the worker pods, read from this run; the evaluation pod's "
+                                       "could not be read, so its advice covers both")
+        self.assertIn("Manual settings:", {r["setting"]: r for r in half["rows"]}["evaluation pod memory"]["recommendation"])
+
+    def test_a_stated_mode_wins_and_a_disagreement_is_noted(self):
+        st = perf_online.server_settings(dict(ServerSettingsTest()._eng(), **self._eng()), {"pods": self._pods()}, {},
+                                         {"pods": {}}, {"batch_size": 8}, 0, None, [], "manual")
+        self.assertEqual(st["mode"], "manual for the evaluation pod and the worker pods, stated by the user")
+        self.assertIn("stated manual settings, but this run's worker deployment is marked for automatic", st["note"])
 
 
 class CountersAreNotTimeTest(unittest.TestCase):

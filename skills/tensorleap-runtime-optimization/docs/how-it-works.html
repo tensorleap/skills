@@ -687,7 +687,7 @@ svg .good { fill: var(--good); } svg .crit { fill: var(--crit); }
 
   <h3 id="settings">Server settings, the floor, and offline against online</h3>
   <ul>
-    <li><b>Server settings</b>: what each pod got (CPU, memory, worker pods and processes, GPUs) against what the run used, with a verdict: limited the run, at its limit (CPU), near its limit (memory), fits, or mostly unused. Advice is given for the resource-settings mode you named in 6.0, or for both automatic and manual when you didn’t say. CPU is judged on the readings outside post-processing; memory over the whole run, since a limit has to hold every step.</li>
+    <li><b>Server settings</b>: what each pod got (CPU, memory, worker pods and processes, GPUs) against what the run used, with a verdict: limited the run, at its limit (CPU), near its limit (memory), fits, or mostly unused. Whether the settings are automatic or manual is read from the run, per pod, without asking: the worker pods from the mark on the run’s worker deployment, the evaluation pod from whether it got the CPU and memory Tensorleap computed for this version. Advice follows each pod’s mode, or covers both where the run doesn’t show it. CPU is judged on the readings outside post-processing; memory over the whole run, since a limit has to hold every step.</li>
     <li><b>Gap to the floor</b>: the steady online time per row against the offline floor (the whole evaluation, labelled, when it never steadied). The offline-against-online table shows separately how much slower inference itself ran on the server.</li>
     <li><b>Offline against online</b>: the same components measured both ways. A large ratio says the server differs from the machine the optimization ran on.</li>
   </ul>
