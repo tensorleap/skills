@@ -131,6 +131,7 @@ poetry run python .tensorleap/scripts/tl_perf.py <subcommand> [options]
 | 10 | `compare` (runtime objective): the user-code footprint grew (> 10%, or > 5% when memory is AMBER/RED) | revert, or shrink the cache and re-measure |
 | 11 | `report`: invalid `report.json` | fix the listed fields, re-run |
 | 12 | `compare --objective memory`: the memory fix costs more runtime than the triage allows | revert, or find a cheaper way to save the same memory |
+| 13 | `fit`: a metric/loss fails on a batch (`batch_blocked_by`); the recommendation is 1 until it is fixed | fix it (catalog D), re-run `fit` |
 | 20 | `online collect`: the run is still going | run the same command again (it resumes) |
 | 21 | `online collect`: the visualization's pace is steady | ask the user to stop the run in the Tensorleap UI, then run the same command again until exit 0 |
 
@@ -170,7 +171,9 @@ batch size.
 2. `tl_perf fit` (pass `--memory-gb <server RAM>` when the server's memory is known). Note
    the recommended batch size and any **batch-support** failure — a metric/loss that can't
    take a batch is a correctness problem the local integration test never shows (it runs
-   batch 1). Fix those first (catalog D).
+   batch 1). Exit 13 means one failed: until it is fixed, every batch above 1 fails on the
+   platform, so fit recommends 1. Fix it (catalog D), check with `compare` that batch-1
+   outputs are unchanged, and re-run `fit`. Never settle for batch 1 to work around it.
 3. Sanity, from the three JSON files: GPU present *and* used; batch size sensible;
    nothing obviously wrong (debug flags, full-dataset work in preprocess, huge per-sample
    tensors). Write each finding to the log.
@@ -427,7 +430,11 @@ Prove the optimized integration still **works** on the Tensorleap server: every 
 runs there without errors. This is a smoke test, not a runtime measurement (Phases 1–4
 measured runtime), so it runs on a **small subset — about 50 samples per state** — and
 finishes in minutes. **Push by default, don't ask**, unless the user said not to push. Use
-the batch size from Phase 1, capped at the subset size.
+the batch size from Phase 1 (`recommended_batch_size` in the last `fit.json`, run after
+every batch-support fix), capped at the subset size. Log it and its reason: the floor knee,
+memory, or a fixed model batch. A batch of 1 needs one of those reasons; it is never a
+default. The local floor is a CPU floor when `preflight` says so, and a GPU server batches
+at least as well, so don't go below it.
 
 1. `.tensorleap/scripts/perf_preflight.sh` → exit 0 required (see Phase 0 for the others).
 2. Model file: the one `@tensorleap_load_model` loads locally (ask only if it can't be
@@ -532,7 +539,7 @@ second diagnostics run (the 6A one-retry rule for a server-side rejection still 
    Mark it `# diagnostics cap: not for merge` (don't commit it), and check with `tl_perf
    preflight --out tensorleap/runtime-optimization/diag`.
 3. Reconcile and push exactly as 6A steps 4–5 (the full evaluation with visualizations;
-   batch size from Phase 1). If you capped, go back to the optimized code as in 6A step 6.
+   batch size from Phase 1, chosen as in 6A). If you capped, go back to the optimized code as in 6A step 6.
 4. **Start collecting right away.** `leap run logs` keeps only the most recent part of each
    worker's log, and workers removed during the run disappear, so the logs are gathered
    repeatedly while the run is in progress:

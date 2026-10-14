@@ -66,8 +66,12 @@ diagnostics `reads` and `repeated_calls`), `score.json` (ratio to inference, evi
   per-sample value on a batch of 2; model throughput in `floor.json` keeps rising with
   batch size but the metric side can't follow.
 - **Static tell:** Python loops over rows inside a metric; per-sample model calls
-  (`session.run` on `x[None]` in a loop); variable-length ground truth with no padding.
-- **Fix:** vectorize metrics over the batch; batch any inference done inside dataset code;
+  (`session.run` on `x[None]` in a loop); variable-length ground truth with no padding;
+  `squeeze(0)` on a batched argument; a library loss that sums the batch into one value
+  (YOLO's `ComputeLoss`) returned as the custom loss.
+- **Fix:** vectorize metrics over the batch; for a loss that sums the batch, score each
+  sample alone and return one value per sample (batch-1 outputs stay identical); batch any
+  inference done inside dataset code;
   pad variable-length arrays to a fixed size with a sentinel and have **every** consumer
   strip the sentinel; export ONNX with a dynamic batch axis on every input and output.
   Old code-loader versions (< 1.0.173) have a built-in `categorical_crossentropy` that fails

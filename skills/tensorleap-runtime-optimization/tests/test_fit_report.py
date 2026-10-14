@@ -31,6 +31,7 @@ class FitTest(unittest.TestCase):
         self.assertEqual(fit["rows_total"], 32)
         self.assertTrue(all(t["fits"] for t in fit["table"]))
         self.assertEqual(fit["batch_support"], {"metric:confidence": "ok", "loss:mse": "ok"})
+        self.assertEqual((fit["batch_blocked_by"], fit["recommended_after_batch_fix"]), ([], None))
 
     def test_oversize_is_predicted_not_to_fit(self):
         proc = self.synth.run("fit", *SMALL, "--memory-gb", "0.01")
@@ -39,10 +40,14 @@ class FitTest(unittest.TestCase):
 
     def test_batch_incompatible_metric_is_flagged(self):
         proc = self.synth.run("fit", *SMALL, SYNTH_BAD_BATCH="1")
-        self.assertEqual(proc.returncode, tl_perf.EXIT_OK, proc.stdout + proc.stderr)
-        support = self.synth.result("fit.json")["batch_support"]
-        self.assertEqual(support["metric:confidence"], "returns no per-sample batch dimension")
-        self.assertEqual(support["loss:mse"], "ok")
+        self.assertEqual(proc.returncode, tl_perf.EXIT_BATCH_UNSUPPORTED, proc.stdout + proc.stderr)
+        fit = self.synth.result("fit.json")
+        self.assertEqual(fit["batch_support"]["metric:confidence"], "returns no per-sample batch dimension")
+        self.assertEqual(fit["batch_support"]["loss:mse"], "ok")
+        self.assertEqual(fit["batch_blocked_by"], ["metric:confidence"])
+        self.assertEqual(fit["recommended_batch_size"], 1)              # the only batch the platform can run
+        self.assertIn(fit["recommended_after_batch_fix"], (1, 2, 4, 8))
+        self.assertIn("recommended batch size 1 until metric:confidence accepts a batch", proc.stdout)
 
 
 class HelpersTest(unittest.TestCase):

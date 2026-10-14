@@ -179,6 +179,18 @@ class HelperTest(unittest.TestCase):
         entries = [{"batch_size": b, "throughput_p50_samples_per_second": 100.0 * b} for b in (1, 2, 4)]
         self.assertEqual(tl_perf.knee(entries, 0.10), (entries[-1], False))
 
+    def test_knee_looks_past_a_plateau_at_small_batches(self):
+        def e(bs, tp):
+            return {"batch_size": bs, "throughput_p50_samples_per_second": tp}
+        # VisDrone YOLOv5s on CPU: flat from 1 to 4, then +87% by 16. Batch 1 is not the knee.
+        cpu = [e(1, 2.81), e(2, 2.72), e(4, 3.06), e(8, 3.75), e(16, 5.79)]
+        self.assertEqual(tl_perf.knee(cpu, 0.10), (cpu[-1], False))
+        cpu.append(e(32, 6.0))
+        self.assertEqual(tl_perf.knee(cpu, 0.10), (cpu[4], True))
+        # flat everywhere (+3% per doubling): batch 1 stays the knee
+        flat = [e(b, 3.1 * 1.03 ** i) for i, b in enumerate((1, 2, 4, 8, 16))]
+        self.assertEqual(tl_perf.knee(flat, 0.10), (flat[0], True))
+
     def test_map_inputs_prefers_name_then_shape(self):
         specs = [{"name": "input_1", "shape": [None, 350, 250, 1]}]
         dataset = {"image": (350, 250, 1), "image_noise": (350, 250, 1)}

@@ -331,12 +331,12 @@ svg .good { fill: var(--good); } svg .crit { fill: var(--crit); }
   <div class="facts">
     <div><h4>What it checks</h4><ul>
       <li><b>floor</b>: the model alone, after a warm-up, at several batch sizes: P50, P90, P95 and P99 per batch, and the batch size where throughput stops improving much.</li>
-      <li><b>fit</b>: per-sample tensor size, rows per state, the model’s measured memory per batch size, its own recommended batch (the largest that fits, at or below the floor’s knee), and whether every metric and the loss wired in the integration test accept a batch.</li></ul></div>
+      <li><b>fit</b>: per-sample tensor size, rows per state, the model’s measured memory per batch size, its own recommended batch (the largest that fits, at or below the floor’s knee; 1, with exit 13, while a metric or the loss can’t take a batch), and whether every metric and the loss wired in the integration test accept a batch.</li></ul></div>
     <div><h4>What it can catch</h4><ul>
       <li>A metric or loss that fails on a batch (catalog D). The local integration test runs batch 1, so it never shows this; the platform does.</li>
       <li>A model that won’t fit in memory even at the smallest batch (exit 5). When only larger batches don’t fit, <code>fit</code> recommends the largest that does.</li>
       <li>Huge per-sample tensors, debug flags, full-dataset work in preprocess.</li></ul></div>
-    <div><h4>How</h4><p>Times inference with nothing else running and sweeps batch sizes to find the knee: the smallest batch whose next size adds under 10% throughput (it says when a larger sweep is needed). It measures memory per batch and calls each metric and the loss with a batch of 2 real samples. The <b>floor</b> is the mean inference time per sample at the recommended batch size.</p></div>
+    <div><h4>How</h4><p>Times inference with nothing else running and sweeps batch sizes to find the knee: the smallest batch from which no larger size adds 10% or more throughput per doubling, so a plateau at small batches doesn’t hide a later rise (it says when a larger sweep is needed). It measures memory per batch and calls each metric and the loss with a batch of 2 real samples. The <b>floor</b> is the mean inference time per sample at the recommended batch size.</p></div>
     <div><h4>Why</h4><p>The floor is the unit every later cost is expressed in. A component at 1× the floor matters; one at 0.01× doesn’t. This phase also records your words about memory (out-of-memory, “memory-heavy”, nothing) and the priority: memory first by default, runtime first only when you say speed matters more.</p></div>
   </div>
   <div class="example"><h4>From the test integrations</h4><ul>

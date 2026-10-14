@@ -61,6 +61,7 @@ EXIT_NO_GAIN = 9
 EXIT_MEMORY_REGRESSION = 10
 EXIT_BAD_REPORT = 11
 EXIT_RUNTIME_REGRESSION = 12
+EXIT_BATCH_UNSUPPORTED = 13
 
 DEFAULT_OUT = os.path.join("tensorleap", "runtime-optimization")
 DEFAULT_BATCH_SIZES = "1,2,4,8,16,32,64"
@@ -596,15 +597,18 @@ def run_model(lm, specs, batch):
 
 
 def knee(entries, gain):
-    """(entry, reached): the smallest batch size after which the next larger one adds less
-    than `gain` P50 throughput (diminishing returns). A "fraction of peak" rule flips between
-    runs when the curve is flat; the marginal-gain rule doesn't. reached=False means
-    throughput was still climbing at the largest batch tried."""
-    for cur, nxt in zip(entries, entries[1:]):
+    """(entry, reached): the smallest batch size from which no larger one adds `gain` P50
+    throughput or more per doubling (diminishing returns). Checking every larger size, not
+    only the next, keeps a plateau at small sizes from hiding a later rise (CPU inference is
+    often flat from 1 to 4 and then climbs). A "fraction of peak" rule flips between runs
+    when the curve is flat; the per-doubling rule doesn't. reached=False means throughput
+    was still climbing at the largest batch tried."""
+    for i, cur in enumerate(entries):
         tp_cur = cur["throughput_p50_samples_per_second"]
-        tp_nxt = nxt["throughput_p50_samples_per_second"]
-        if tp_nxt < tp_cur * (1.0 + gain):
-            return cur, True
+        if all(nxt["throughput_p50_samples_per_second"] <
+               tp_cur * (1.0 + gain * math.log2(nxt["batch_size"] / float(cur["batch_size"])))
+               for nxt in entries[i + 1:]):
+            return cur, i < len(entries) - 1 or len(entries) == 1
     return entries[-1], len(entries) == 1
 
 
@@ -3545,6 +3549,12 @@ def cmd_fit(args):
         recommended = max(fitting)
 
     batch_support = _batch_support(integ, lm, specs, pool)
+    # a metric/loss that can't take a batch makes every batch above 1 fail on the platform
+    blocked = sorted(k for k, v in batch_support.items()
+                     if k != "model" and not v.startswith(("ok", "skipped")))
+    after_fix = recommended
+    if blocked and recommended:
+        recommended = 1
     report = {
         "method": "measured: process memory while running each batch size (not a formula)",
         "per_sample_tensor_bytes": per_sample_bytes,
@@ -3562,6 +3572,8 @@ def cmd_fit(args):
         "floor_recommended_batch_size": knee,
         "recommended_batch_size": recommended,
         "batch_support": batch_support,
+        "batch_blocked_by": blocked,
+        "recommended_after_batch_fix": after_fix if blocked else None,
     }
     path = os.path.join(out, "fit.json")
     write_json(path, report)
@@ -3582,6 +3594,13 @@ def cmd_fit(args):
         print("  NOT PREDICTED TO FIT even at the smallest batch size")
         print("  -> %s (exit %d)" % (path, EXIT_NOT_FIT))
         return EXIT_NOT_FIT
+    if blocked:
+        print("  recommended batch size 1 until %s accept%s a batch: fix %s (catalog D), then "
+              "re-run fit (recommended after the fix: %d%s)" % (
+                  ", ".join(blocked), "s" if len(blocked) == 1 else "", "it" if len(blocked) == 1 else "them",
+                  after_fix, ", floor knee %d" % knee if knee else ""))
+        print("  -> %s (exit %d)" % (path, EXIT_BATCH_UNSUPPORTED))
+        return EXIT_BATCH_UNSUPPORTED
     print("  recommended batch size %d%s" % (
         recommended, " (floor knee %d)" % knee if knee else ""))
     print("  -> %s" % path)
@@ -4201,8 +4220,8 @@ def build_parser():
     p.add_argument("--min-seconds", type=float, default=3.0)
     p.add_argument("--pool", type=int, default=8, help="real samples to cycle through")
     p.add_argument("--knee-gain", type=float, default=0.10,
-                   help="recommend the batch after which the next one adds less than this "
-                        "fraction of P50 throughput")
+                   help="recommend the smallest batch from which no larger one adds this "
+                        "fraction of P50 throughput or more per doubling")
     p.set_defaults(func=cmd_floor)
 
     p = sub.add_parser("profile", parents=[common],
