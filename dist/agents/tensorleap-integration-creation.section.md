@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.5.0, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.5.1, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -425,9 +425,22 @@ order:
      Use the agreed environment for every command below; the bundled scripts default
      to `poetry run …`, so set `TL_PY=<path-to-python>` to point them at a different
      interpreter.
+   - **Check the env's Python version before installing anything.** Recent
+     `code-loader` releases support only Python `>=3.8,<3.13`. pip silently skips
+     releases whose `Requires-Python` excludes the interpreter, so on Python 3.13+
+     it installs an ancient `0.2.x` with no error. Create the env with an explicit
+     interpreter (`python3.11 -m venv .venv`, `poetry env use 3.11`,
+     `uv venv -p 3.11`), never a bare `python`, which may be a newer system or
+     Homebrew build. Then confirm with the env's own interpreter:
+     `<env-python> --version`. Prefer 3.10–3.12 and match `leap.yaml`'s
+     `pythonVersion`. For the current range, run
+     `curl -s https://pypi.org/pypi/code-loader/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['requires_python'])"`.
+     If the env's Python is outside the range, recreate the env. Don't work around it.
    - **Validate `code_loader`.** If it isn't installed, install the latest release.
      If it is, require `code-loader >= 1.0.142`; if older, stop and report it as a
-     blocker.
+     blocker. If a fresh install resolves below 1.0.142, the cause is almost always
+     the interpreter (step above), not the package index. Re-check `--version`
+     before blaming the index.
    - **Make the dataset reachable — pick the Data delivery row.** A file is
      readable on the platform only if it's in `leap.yaml`, the data volume, or
      runtime-fetched into the volume (see **Data delivery** above). For the common
@@ -454,7 +467,10 @@ order:
    per-split-balanced `sample_limit_per_split`. Call it directly from `__main__`
    and run.
 3. Inspect the model I/O contract (input names, dtypes, shapes without batch
-   dim, output count/meaning, required labels) before writing the loader.
+   dim, output count/meaning, required labels) before writing the loader, and
+   run the **batch-truth check** (`reference/authoring-order.md`, Step 3): a
+   dynamic batch dim must give the same per-sample outputs for a batch of 2 as
+   for each sample alone; a batch-1-only model must declare a fixed batch of 1.
 4. The minimum input encoder set for **one real inference** — one encoder per
    model input, `channel_dim` explicit, returns a single unbatched
    `np.float32` array. Call each directly and run. Encoders must return
@@ -607,6 +623,16 @@ isn't obvious. The highest-frequency ones:
   already contains it]" error.
 - Set `state=`, `channel_dim=`, and prediction-type semantics explicitly — never
   rely on the defaults the warnings flag.
+- **Exporting a model** (only when you produce the `.onnx` yourself): trace with
+  a dummy batch of **at least 2** distinct inputs. `dynamic_axes` only relaxes the
+  declared input shape — it does not make the graph batch-correct: Python loops
+  over the batch and `.shape` values used as Python ints are frozen at trace time.
+  Re-run the batch-truth check (Step 3) on every re-export.
+- **A failing platform job is not a spec.** If an evaluate fails inside the
+  engine (a traceback in engine code, not in your integration), report it to the
+  user as a suspected platform bug with the job id and the error line. Do not
+  remove or reshape integration surfaces to make it pass, and do not record such
+  a workaround as a platform requirement in the integration report.
 
 ## Optional surfaces (after the core path is green)
 
@@ -827,11 +853,10 @@ yes/no question.
      from step 4 and re-push with `-o <version> --eval`; this is a license limit,
      not an integration bug.
    - Once an `Evaluate` job exists and is running (`PENDING` / `INITIALIZING` /
-     `STARTED`), the integration is wired up and the evaluation is underway.
-   **Don't poll it with your own turns** — a turn per check burns tokens, for up to
-   a day. Instead launch a **background shell** that watches *this* run and exits
-   when it reaches a terminal state; the loop is token-free (not your turns) and
-   re-invokes you once on completion:
+     `STARTED`), the evaluation is underway — but the integration is **not done
+     yet**. It is done only when this run reaches `FINISHED` (below).
+7. **Wait for the evaluation without spending turns.** Launch a **background
+   shell** that watches *this* run and exits when it reaches a terminal state:
    ```
    # background; poll every 5 min; exit when THIS run (EVAL_ID) is terminal
    while :; do
@@ -840,6 +865,19 @@ yes/no question.
      sleep 300                                            # empty/failed list => keep waiting, not terminal
    done
    ```
+   Then, in this order:
+   - **Tell the user** the eval run id (`EVAL_ID`), that the evaluation is running
+     and can take hours, and how to check it themselves: `leap run list -t Evaluate`.
+   - **End your turn.** Ending the turn here is correct — the task is not finished,
+     it is waiting. Don't poll: no repeated `leap run list` calls, no `sleep`
+     loops in your own turns, and **don't read the watcher's output** (e.g.
+     `read_bash`, `get_terminal_output`) — in some assistants reading a finished
+     shell consumes the completion notification that would wake you.
+   - **When you are woken** by the watcher exiting, act on the status it printed
+     (below).
+   - **If the user messages you first** — or your assistant never wakes you when
+     a background shell exits — check `leap run list -t Evaluate` for `EVAL_ID`
+     and act on its status. If it is still running, say so and end your turn again.
    If the watcher shell itself dies or goes missing (the harness may kill
    background jobs), the eval is unaffected — check `leap run list -t Evaluate`
    and relaunch the watcher; **never re-push** because a watcher died.

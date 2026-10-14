@@ -19,7 +19,28 @@ Exit code is 0 when the parse reports ``is_valid``, else 1, so it can gate a loo
 
 import json
 import os
+import re
 import sys
+
+MIN_CODE_LOADER = (1, 0, 142)
+
+
+def _code_loader_too_old():
+    """Return an error message when the installed code-loader is below the minimum."""
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        installed = version("code-loader")
+    except PackageNotFoundError:
+        return None
+    release = tuple(int(n) for n in re.findall(r"\d+", installed)[:3])
+    if release >= MIN_CODE_LOADER:
+        return None
+    return ("code-loader %s is below the required %s (this env runs Python %d.%d). "
+            "If the Python is newer than code-loader supports (currently <3.13), pip "
+            "silently falls back to an old 0.2.x: recreate the env with an explicit "
+            "supported interpreter (e.g. python3.11 -m venv .venv). Otherwise upgrade "
+            "code-loader."
+            % (installed, ".".join(map(str, MIN_CODE_LOADER)), *sys.version_info[:2]))
 
 
 def _as_int_list(values):
@@ -66,6 +87,11 @@ def main():
     # relative root like ".", so always resolve to an absolute path.
     repo_root = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".")
     entry_name = sys.argv[2] if len(sys.argv) > 2 else "leap_integration.py"
+
+    too_old = _code_loader_too_old()
+    if too_old:
+        print(json.dumps({"available": False, "error": too_old}, indent=2))
+        return 2
 
     try:
         from code_loader.leaploader import LeapLoader
