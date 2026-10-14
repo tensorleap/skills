@@ -19,9 +19,12 @@ The preprocess declares, per sample, how many instances it has and how to mask
 each one. The platform then expands the row universe: one row per image **plus
 one row per instance**, with flat ids `f"{sample_id}_{instance_id}"`
 (0-based). Instance rows are **full rows** — every encoder, metric, metadata
-function, visualizer, and built-in latent space runs on them too (fed the
-instance-masked input, or pooled from the parent's activations — the engine
-decides). Three built-in metadata columns tie the universe together:
+function, visualizer, and built-in latent space runs on them too. An instance
+row's input is the **parent's frame** (the instance is defined by its mask; its
+built-in latent spaces are pooled from the parent's activations under that
+mask), so an image-level visualizer draws an instance row exactly like its
+parent — see *Visualizing instance rows*. Three built-in metadata columns tie
+the universe together:
 
 | Column | Image row | Instance row |
 |---|---|---|
@@ -67,7 +70,9 @@ def instance_length_encoder(sample_id: str, preprocess: PreprocessResponse) -> i
 
 Returns how many instances the sample has; the platform then calls the masks
 encoder with `instance_id` in `range(k)`. `0` is fine — the sample simply
-contributes no instance rows. The wiring is the **argument position** on the
+contributes no instance rows. With a padded GT (see authoring-order Step 8) count
+the real rows only, and build the masks from the same rows, so instance `i` is GT
+row `i`. The wiring is the **argument position** on the
 preprocess decorator (a standalone `@tensorleap_instances_length_encoder("name")`
 decorator also exists, but passing the function is what binds it).
 
@@ -105,6 +110,36 @@ Each instance metric lands as one scalar `metrics.<name>` column on instance
 rows (no subkeys). Declare `direction` — insights silently default to
 `Downward` otherwise. **Call it in `integration_test`** (on the raw prediction
 slot plus the `SamplePreprocessResponse`) like any other metric.
+
+It is called on **parent rows only**: `y_pred` and the preprocess are the
+parents', and the keys are the instance positions `0..n-1` in the order the
+length / masks encoders define — build all three from one helper. The platform
+copies each value into its instance row (image rows get NaN). Test it with a
+**parent** id; an instance id would only recompute its parent.
+
+### Visualizing instance rows
+
+Every visualizer runs on every row, so a visualizer that should mark the
+instance has to tell the two kinds of row apart itself. Take a
+`SamplePreprocessResponse` and resolve the row through the mappings:
+
+```python
+@tensorleap_custom_visualizer("instance_box", LeapDataType.ImageWithBBox)
+def instance_box(image: np.ndarray, preprocess: SamplePreprocessResponse) -> LeapImageWithBBox:
+    sid = str(np.atleast_1d(preprocess.sample_ids)[0])
+    resp = preprocess.preprocess_response
+    parent = (resp.instance_to_sample_ids_mappings or {}).get(sid)   # None -> an image row
+    if parent is None:
+        boxes = instance_boxes(sid, resp)                            # all of this image's boxes
+    else:
+        pos = resp.sample_ids_to_instance_mappings[parent].index(sid)
+        boxes = instance_boxes(parent, resp)[pos:pos + 1]            # only this instance's box
+    ...                                                              # draw `boxes` on `image`
+```
+
+`instance_boxes` is the same helper the length and masks encoders use, so
+position `pos` is the instance the row stands for. Call the visualizer in
+`integration_test` with an image id **and** an instance id.
 
 ### 5. Instance custom latent space — `@tensorleap_instance_custom_latent_space`
 
@@ -176,6 +211,10 @@ the same run; each is tagged with its latent space and population.
   `check_dataset` enforces it; don't wire a partial setup.
 - Masks and instance LS functions receive the **parent** `sample_id` plus
   `instance_id: int`; never parse the flat row id.
+- In a function that gets a `SamplePreprocessResponse` (visualizers, metrics),
+  resolve a row with the mappings — `instance_to_sample_ids_mappings.get(sid)`
+  for the parent, `sample_ids_to_instance_mappings[parent].index(sid)` for the
+  position — not with `sid.split("_")`.
 - Instance metadata: consistent keys, scalar values, declare types for
   `None`-able keys.
 - Declare `direction` on every instance metric.
