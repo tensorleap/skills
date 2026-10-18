@@ -94,6 +94,16 @@ def main():
     lr = json.loads(summ.stdout)[0]
     assert lr["group_rows"] == 2 and lr["csv_rows"] == 3 and lr["metrics"]["metrics.loss"]["group_mean"] == 2.0, lr
     assert "is_low_perf_root_member" not in lr["metadata"]
+    card = {"id": "insight-1", "severity": 2, "heading": "Fog <frames>", "chips": [], "lede": "x"}
+    with open(os.path.join(root, "report.json"), "w") as f:
+        json.dump({"project": "p", "version": "v", "meta": "1 insight", "insights_link": "http://ui/p",
+                   "executive_summary": "s", "overview": [],
+                   "groups": [{"type": "Failure Mode", "count": "1", "meaning": "m", "cards": [card]}]}, f)
+    subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "build-report", root], capture_output=True, check=True)
+    page = open(os.path.join(root, "report.html")).read()
+    assert '<button type="button" class="apv" aria-pressed="false">' in page and 'id="approved" hidden' in page
+    assert page.index('id="tl-review">{"approved": []') < page.index("SRC.replace"), "state block must precede the script"
+    assert 'src="' not in page.split("<main>")[1], "inline-html would rewrite script text"
     empty = tempfile.mkdtemp()
     assert subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", empty], capture_output=True).returncode == 5
     print("all checks passed")
