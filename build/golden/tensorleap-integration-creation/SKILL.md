@@ -817,40 +817,25 @@ yes/no question.
    blind creates duplicate versions. Re-push only with `-o/--overwrite`.
    Push from the repo root. `-m` uploads the model separately (it is not
    bundled); the code bundle comes from `leap.yaml`'s `include` (`leap push -h`
-   for `--branch` and the other flags). Pick the flow by what the CLI supports — `leap run info -h` exits 0 →
-   **server-chained** (default); otherwise **legacy**.
-   - **Server-chained** — the push returns once the model is uploaded and the
-     server starts the Evaluate itself when the push finishes, so nothing local
-     has to survive:
-     ```
-     leap push -m <model> -n <version> -b <batch> --eval --no-wait < /dev/null > push.log 2>&1
-     ```
-     A non-zero exit is a push failure: read `push.log` and fix it. If the CLI
-     warns before pushing and stops for confirmation, read the warning, tell the
-     user, and add `--yes` only once the warning is understood — never by default.
-   - **Legacy** (no `leap run info`) — **never use `--no-wait`** here: on these
-     CLIs it returns before the push completes and no Evaluate is ever created.
-     A push can take well over 10 minutes, so run it as a **background shell**:
-     ```
-     # background shell
-     leap push -m <model> -n <version> -b <batch> --eval < /dev/null > push.log 2>&1
-     ```
-     The command returns once the Evaluate has *started*. If the harness kills the
-     shell, the push keeps running server-side: check `leap run list -t Push` for
-     one still in flight (`PENDING`/`INITIALIZING`/`STARTED`) before pushing again.
-     **`leap` ≤ 0.0.155** does not exit on a **build failure** — it stalls at
-     `View errors in interactive mode? (Y/n):`. If `push.log` contains that line,
-     the push FAILED: kill it, read the error with `leap run list -t Push`
-     (newest) → `leap run logs <run-id>`, fix it, and re-push (`-o/--overwrite`).
-     Then find the new Evaluate with `leap run list -t Evaluate` and continue at
-     step 6 with its id.
+   for `--branch` and the other flags). The push needs a CLI with `leap run
+   info`: if `leap run info -h` fails, ask the user to upgrade the CLI
+   (`leap cli upgrade`) and stop until they have.
+   ```
+   leap push -m <model> -n <version> -b <batch> --eval --no-wait < /dev/null > push.log 2>&1
+   ```
+   The command returns once the push has started on the server and prints its
+   run id; the server starts the Evaluate itself when the push finishes, so
+   nothing local has to survive. A non-zero exit is a push failure: read
+   `push.log` and fix it. If the CLI warns before pushing and stops for
+   confirmation, read the warning, tell the user, and add `--yes` only once the
+   warning is understood — never by default.
 6. **Watch the push and its Evaluate without spending turns.** A clean push does
    **not** mean a clean evaluation, and on the full dataset the Evaluate can take
    hours to a day. Launch the watcher as a **background shell** — it follows the
    push to its Evaluate, saves both ids, and exits only when there is something
    to act on:
    ```
-   # background shell; server-chained flow (legacy: pass the Evaluate id instead of --push-log)
+   # background shell
    <env-python> scripts/watch_run.py --push-log push.log
    ```
    Then, in this order:
