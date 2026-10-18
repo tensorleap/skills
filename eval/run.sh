@@ -486,6 +486,13 @@ for _ in $(seq 1 150); do          # up to ~5 min
     tmux send-keys -t "${SESS}" Down; sleep 0.5
     tmux send-keys -t "${SESS}" Enter; sleep 2
   fi
+  # Workspace-trust prompt: every fixture is a fresh clone, so it is never trusted.
+  # Default is "No, exit"; select "Yes, I trust this folder" and confirm.
+  if grep -qiE 'trust this folder' <<<"${pane}"; then
+    log "  accepting workspace-trust prompt"
+    tmux send-keys -t "${SESS}" Down; sleep 0.5
+    tmux send-keys -t "${SESS}" Enter; sleep 2
+  fi
   sleep 2
 done
 rm -f "${PROMPT_FILE}"
