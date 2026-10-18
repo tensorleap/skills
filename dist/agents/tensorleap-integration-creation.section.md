@@ -425,22 +425,16 @@ order:
      Use the agreed environment for every command below; the bundled scripts default
      to `poetry run …`, so set `TL_PY=<path-to-python>` to point them at a different
      interpreter.
-   - **Check the env's Python version before installing anything.** Recent
-     `code-loader` releases support only Python `>=3.8,<3.13`. pip silently skips
-     releases whose `Requires-Python` excludes the interpreter, so on Python 3.13+
-     it installs an ancient `0.2.x` with no error. Create the env with an explicit
-     interpreter (`python3.11 -m venv .venv`, `poetry env use 3.11`,
-     `uv venv -p 3.11`), never a bare `python`, which may be a newer system or
-     Homebrew build. Then confirm with the env's own interpreter:
-     `<env-python> --version`. Prefer 3.10–3.12 and match `leap.yaml`'s
-     `pythonVersion`. For the current range, run
-     `curl -s https://pypi.org/pypi/code-loader/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['requires_python'])"`.
-     If the env's Python is outside the range, recreate the env. Don't work around it.
+   - **Use a Python version `code-loader` supports.** Create the env with an
+     explicit interpreter (`python<version> -m venv .venv`, `poetry env use
+     <version>`, `uv venv -p <version>`), never a bare `python`, which may be a
+     newer system or Homebrew build, and match `leap.yaml`'s `pythonVersion`. If
+     pip reports `No matching distribution found for code-loader`, the env's
+     Python is not supported: recreate the env with a supported one. Don't work
+     around it.
    - **Validate `code_loader`.** If it isn't installed, install the latest release.
      If it is, require `code-loader >= 1.0.142`; if older, stop and report it as a
-     blocker. If a fresh install resolves below 1.0.142, the cause is almost always
-     the interpreter (step above), not the package index. Re-check `--version`
-     before blaming the index.
+     blocker.
    - **Make the dataset reachable — pick the Data delivery row.** A file is
      readable on the platform only if it's in `leap.yaml`, the data volume, or
      runtime-fetched into the volume (see **Data delivery** above). For the common
@@ -623,11 +617,12 @@ isn't obvious. The highest-frequency ones:
   already contains it]" error.
 - Set `state=`, `channel_dim=`, and prediction-type semantics explicitly — never
   rely on the defaults the warnings flag.
-- **Exporting a model** (only when you produce the `.onnx` yourself): trace with
-  a dummy batch of **at least 2** distinct inputs. `dynamic_axes` only relaxes the
-  declared input shape — it does not make the graph batch-correct: Python loops
-  over the batch and `.shape` values used as Python ints are frozen at trace time.
-  Re-run the batch-truth check (Step 3) on every re-export.
+- **Exporting a model** (only when you produce the `.onnx` yourself): handle the
+  batch with tensor ops, not Python. The exporter records only the operations
+  that ran for the example input, so a Python loop over the batch or a `.shape`
+  value used as an int becomes a constant, and `dynamic_axes` does not undo
+  that. After every export, run the batch-truth check (Step 3) on the exported
+  file.
 - **A failing platform job is not a spec.** If an evaluate fails inside the
   engine (a traceback in engine code, not in your integration), report it to the
   user as a suspected platform bug with the job id and the error line. Do not
@@ -791,30 +786,28 @@ yes/no question.
    Data delivery). If the integration reads a remote store, ensure its credential
    is registered as `AUTH_SECRET` (`leap secrets create` + `leap secrets set`,
    which writes `secretId` into `leap.yaml` for auto-injection).
-4. **Push + evaluate** — from the repo root, with
-   `leap push -m <model> -n <version> -b <batch> --eval` plus the flags step 5
-   picks. `-m` uploads the model separately (it is not bundled); the code bundle
-   comes from `leap.yaml`'s `include`. (`leap push -h` for `-o/--overwrite`,
-   `--branch`.) By default the push evaluates the **full dataset** (no
-   `sample_limit_per_split`); apply a cap only if the **user explicitly asked**
-   for a smaller initial evaluation, in which case that key in
-   `project_config.yaml` holds it.
-   **Free Tier exception.** When step 1 showed `Free Tier` and the dataset has
-   more than 5,000 samples, cap it **before** pushing: sum the real split sizes
-   (what `preprocess` returns on the server's data — on a local server
-   `tl_check.py`'s `setup.preprocess` lengths; on a remote server the local check
-   ran on a 1-sample subset, so count the actual splits), then set
-   `sample_limit_per_split` so the total is ≤ 5,000 (balanced: ⌊5000 / number of
-   splits⌋ each). Say that you did, why, and where the key lives. Without the cap
-   the push itself succeeds but the Evaluate is refused with a `LICENSE_LIMIT`
-   message naming the counts.
+4. **Evaluation size** — decide it before pushing. The Evaluate runs on the
+   **full dataset** (no `sample_limit_per_split` in `project_config.yaml`)
+   unless one of these applies:
+   - **The user explicitly asked** for a smaller initial evaluation → set
+     `sample_limit_per_split` to what they asked for.
+   - **Free Tier** (step 1) and the dataset has more than 5,000 samples → cap
+     it. Sum the real split sizes (what `preprocess` returns on the server's
+     data — on a local server `tl_check.py`'s `setup.preprocess` lengths; on a
+     remote server the local check ran on a 1-sample subset, so count the
+     actual splits), then set `sample_limit_per_split` so the total is ≤ 5,000
+     (balanced: ⌊5000 / number of splits⌋ each). Say that you did, why, and
+     where the key lives. Without the cap the push itself succeeds but the
+     Evaluate is refused with a `LICENSE_LIMIT` message naming the counts.
 5. **Run the push.** **The server, not your shell, is the source of truth**, and
    the ids of this push and its Evaluate are kept in `.tensorleap/runs.json`.
    Before any push or re-push, check for an earlier one: if that file exists, run
    `<env-python> .tensorleap/scripts/watch_run.py --resume --once` and, unless it
    reports a finished or failed run, continue from step 6 with it — re-pushing
    blind creates duplicate versions. Re-push only with `-o/--overwrite`.
-   Pick the flow by what the CLI supports — `leap run info -h` exits 0 →
+   Push from the repo root. `-m` uploads the model separately (it is not
+   bundled); the code bundle comes from `leap.yaml`'s `include` (`leap push -h`
+   for `--branch` and the other flags). Pick the flow by what the CLI supports — `leap run info -h` exits 0 →
    **server-chained** (default); otherwise **legacy**.
    - **Server-chained** — the push returns once the model is uploaded and the
      server starts the Evaluate itself when the push finishes, so nothing local

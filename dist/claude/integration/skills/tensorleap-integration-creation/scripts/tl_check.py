@@ -36,10 +36,8 @@ def _code_loader_too_old():
     if release >= MIN_CODE_LOADER:
         return None
     return ("code-loader %s is below the required %s (this env runs Python %d.%d). "
-            "If the Python is newer than code-loader supports (currently <3.13), pip "
-            "silently falls back to an old 0.2.x: recreate the env with an explicit "
-            "supported interpreter (e.g. python3.11 -m venv .venv). Otherwise upgrade "
-            "code-loader."
+            "Upgrade code-loader; if pip finds no matching version, this Python is not "
+            "supported by code-loader: recreate the env with a supported interpreter."
             % (installed, ".".join(map(str, MIN_CODE_LOADER)), *sys.version_info[:2]))
 
 
