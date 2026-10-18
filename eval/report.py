@@ -64,7 +64,81 @@ UNGRADED = {
     "PREREQ-FAIL":  "required data prerequisite missing — agent not run",
     "SKILL-UNUSED": "agent ran but the skill under test was never used — verdict void",
     "RUN-ERROR":    "harness error (not a skill verdict)",
+    "LEAKED":       "agent reached a reference integration — verdict void",
 }
+
+# Leak scan. The deny-list only gates the file tools; Bash and the web are open,
+# and reference clones of the fixture repos can sit anywhere on disk.
+# So scan what the agent actually touched instead of trusting what it was denied.
+HOME = os.path.expanduser("~")
+# Path-like tokens: absolute under $HOME, ~ / $HOME / ${HOME} forms, and ../ (cwd is pre/).
+_PATH_RE = re.compile(r"(?:" + re.escape(HOME) + r"|~|\$\{?HOME\}?|\.\.)(?=/)[^\s'\"`;:|&<>()\\,]*")
+# Where people keep repo clones (a reference integration lives in each one).
+CLONE_ROOTS = [os.path.normpath(os.path.expanduser(r)) for r in
+               os.environ.get("EVAL_CLONE_ROOTS", "~/projects").split(":") if r]
+# An integration's own file names — leap.yaml is required by the CLI — so a
+# reference copy is recognizable wherever it was cloned, under any repo name.
+_ANSWER_PATH_RE = re.compile(r"(?<![\w.~/-])(?:~|\$\{?HOME\}?|\.\.)?/[^\s'\"`;:|&<>()\\,]*"
+                             r"/(?:leap_integration\.py|leap_binder\.py|leap_mapping\.yaml|leap\.yaml)(?![\w.])")
+
+
+def _norm(tok, pre_dir):
+    tok = re.sub(r"^(?:~|\$\{?HOME\}?)", HOME, tok)
+    return os.path.normpath(os.path.join(pre_dir, tok) if tok.startswith("..") else tok)
+
+
+def scan_leaks(path, fixture):
+    """Places a run's agent reached that could hold this fixture's answer.
+
+    Flags, in tool calls and tool output alike: an integration file
+    (leap.yaml, leap_integration.py, ...) anywhere outside this fixture's pre/.
+    In tool calls also: any path under a clone root (EVAL_CLONE_ROOTS, default
+    ~/projects) or eval/.fixtures outside pre/ and the skill itself; other
+    sessions' transcripts under ~/.claude/projects; any tensorleap-hub URL.
+    Not caught: a relative path typed after `cd ..`.
+    """
+    pre = os.path.join(SCRIPT_DIR, ".fixtures", fixture, "pre")
+    own = os.path.dirname(os.path.abspath(path))
+    roots = CLONE_ROOTS + [os.path.join(SCRIPT_DIR, ".fixtures")]
+    sessions = os.path.join(HOME, ".claude", "projects")
+
+    def outside(p, root, *allowed):
+        return (p + "/").startswith(root + "/") and not any((p + "/").startswith(a + "/") for a in allowed)
+
+    def allowed_in_projects(p):  # inside a clone root, but not an answer
+        return (f"/skills/{SKILL_NAME}" in p                       # the skill under test, any copy
+                or (p + "/").startswith(os.path.join(SCRIPT_DIR, ".shim") + "/"))
+
+    hits = []
+    for line in open(path, errors="ignore"):
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        for c in (rec.get("message") or {}).get("content") or []:
+            if not isinstance(c, dict):
+                continue
+            if c.get("type") == "tool_use":
+                s = json.dumps(c.get("input"))
+                if "tensorleap-hub" in s.lower():
+                    hits.append(f"{c.get('name')}: tensorleap-hub reference — {s[:160]}")
+                for tok in _PATH_RE.findall(s):
+                    p = _norm(tok, pre)
+                    if ((any(outside(p, r, pre) for r in roots) and not allowed_in_projects(p))
+                            or outside(p, sessions, own)):
+                        hits.append(f"{c.get('name')}: {p.replace(HOME, '~')}")
+            if c.get("type") in ("tool_use", "tool_result"):
+                where = c.get("name") if c["type"] == "tool_use" else "tool output surfaced"
+                for tok in _ANSWER_PATH_RE.findall(json.dumps(c.get("input") or c.get("content"))):
+                    p = _norm(tok, pre)
+                    if not (p + "/").startswith(pre + "/") and f"/skills/{SKILL_NAME}" not in p:
+                        hits.append(f"{where}: {p.replace(HOME, '~')}")
+    return list(dict.fromkeys(hits))
+
+
+def leak_line(leaks):
+    shown = "; ".join(f"`{h}`" for h in leaks[:8]) + (f" (+{len(leaks) - 8} more)" if len(leaks) > 8 else "")
+    return f"- **⚠️ LEAKED (possible leak — verdict void, review these paths):** {shown}"
 
 
 def latest_transcript(transcript_dir, since=0):
@@ -147,7 +221,7 @@ def stuck_where(result, push_status, eval_id):
 # --------------------------------------------------------------------------- #
 # Per-fixture report
 # --------------------------------------------------------------------------- #
-def render(args, m, transcript, notes, where, void):
+def render(args, m, transcript, notes, where, void, leaks=()):
     total = m["in"] + m["out"] + m["cache_read"] + m["cache_write"]
     emoji = {"PASS": "✅", "FAIL": "❌", "STUCK": "⚠️"}.get(args.result, "❔")
     tick = "✅" if args.push_status == "FINISHED" else "❌"
@@ -158,6 +232,8 @@ def render(args, m, transcript, notes, where, void):
     ]
     if void:
         lines.append(f"- **⚠️ VERDICT VOID:** {void}")
+    if leaks:
+        lines.append(leak_line(leaks))
     lines += [
         f"- **Push:** {tick} {args.push_status or '(none created)'}"
         f"{' — ' + args.push_id if args.push_id else ''}",
@@ -222,7 +298,7 @@ def render(args, m, transcript, notes, where, void):
     return "\n".join(lines)
 
 
-def sidecar(args, m, transcript, where, out, void):
+def sidecar(args, m, transcript, where, out, void, leaks=()):
     total = m["in"] + m["out"] + m["cache_read"] + m["cache_write"]
     return {
         "fixture": args.fixture,
@@ -233,6 +309,7 @@ def sidecar(args, m, transcript, where, out, void):
         "eval_id": args.eval_id,
         "stuck_where": where,
         **({"void_reason": void} if void else {}),
+        "leaks": list(leaks),
         "turns": m["turns"],
         "skill_turns": m["skill_turns"],
         "out_tokens": m["out"],
@@ -293,6 +370,10 @@ def _rows(reports_dir, verdicts):
         # run and says nothing about this one — grade it as not evaluated.
         if harness in UNGRADED:
             data = None
+        # The agent reached a reference integration: whatever it pushed may be
+        # copied, so it grades nothing about the skill.
+        if data and data.get("leaks"):
+            harness, data = "LEAKED", None
         # A voided sidecar (skill never used) is platform-true but says nothing
         # about the skill — keep it out of the graded set even when this roll-up
         # runs without run_all's verdicts (bare `report.py --aggregate`).
@@ -468,6 +549,29 @@ def aggregate(args):
     return out_md, None
 
 
+def rescan_leaks(reports_dir):
+    """Re-score finished reports with the current leak scan, in place."""
+    for side in sorted(glob.glob(os.path.join(reports_dir, "*.json"))):
+        if os.path.basename(side).startswith("REPORT_V"):
+            continue
+        data = json.load(open(side))
+        t = data.get("transcript") or ""
+        if not os.path.isfile(t):
+            print(f"{data['fixture']}: no transcript — skipped")
+            continue
+        data["leaks"] = scan_leaks(t, data["fixture"])
+        json.dump(data, open(side, "w"), indent=1)
+        md = os.path.splitext(side)[0] + ".md"
+        if os.path.isfile(md):
+            lines = [l for l in open(md).read().split("\n") if not l.startswith("- **⚠️ LEAKED")]
+            if data["leaks"]:
+                at = next(i for i, l in enumerate(lines) if l.startswith("- **Result:**")) + 1
+                lines.insert(at, leak_line(data["leaks"]))
+            open(md, "w").write("\n".join(lines))
+        print(f"{data['fixture']}: " + (f"LEAKED ({len(data['leaks'])})\n  " + "\n  ".join(data["leaks"])
+                                        if data["leaks"] else "clean"))
+
+
 # --------------------------------------------------------------------------- #
 def _selfcheck():
     import tempfile
@@ -492,6 +596,34 @@ def _selfcheck():
         assert latest_transcript(td, since=os.path.getmtime(p) + 3600) is None
         assert latest_transcript(td, since=0) == p
 
+    # Leak scan: each flagged route once, each allowed route never.
+    pre = os.path.join(SCRIPT_DIR, ".fixtures", "fx", "pre")
+    def call(name, **inp):
+        return {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}
+    def result(text):
+        return {"type": "user", "message": {"content": [{"type": "tool_result", "content": text}]}}
+    clean = [call("Read", file_path=f"{pre}/train.py"),
+             call("Bash", command=f"python3 ~/projects/skills/dist/claude/integration/skills/{SKILL_NAME}/scripts/x.py"),
+             call("Bash", command=f"ls {SCRIPT_DIR}/.shim/leap ~/tensorleap/data ~/.keras/datasets"),
+             call("WebFetch", url="https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"),
+             call("Bash", command="cat tensorleap/leap.yaml sub/dir/leap_integration.py"),
+             result(f"{pre}/leap_integration.py written")]
+    leaky = [call("Bash", command="cat ~/projects/IMDb/leap_integration.py"),
+             call("Bash", command="cat ../post/leap.yaml"),
+             call("Grep", pattern="x", path=f"{SCRIPT_DIR}/.fixtures/other/pre"),
+             call("Read", file_path=f"{HOME}/.claude/projects/-elsewhere/s.jsonl"),
+             call("WebFetch", url="https://github.com/Tensorleap-hub/IMDb"),
+             result(f"{HOME}/projects/renault/leap_integration.py:3: @tensorleap_preprocess"),
+             call("Bash", command="cat ~/code/IMDb2/leap_integration.py /tmp/x/leap.yaml")]
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, "session.jsonl")
+        open(p, "w").write("\n".join(json.dumps(r) for r in clean) + "\n")
+        assert scan_leaks(p, "fx") == [], scan_leaks(p, "fx")
+        open(p, "w").write("\n".join(json.dumps(r) for r in clean + leaky) + "\n")
+        hits = scan_leaks(p, "fx")
+        assert len(hits) == 8, hits
+        assert any("fx/post/leap.yaml" in h for h in hits) and any("tensorleap-hub" in h for h in hits), hits
+
     assert stuck_where("PASS", "FINISHED", "e1") == "—"
     assert "FAILED" in stuck_where("FAIL", "FINISHED", "e1")
     assert "no Evaluate was ever created" in stuck_where("STUCK", "FINISHED", "")
@@ -512,12 +644,14 @@ def _selfcheck():
         put("good", "PASS", True, 90, 50_000, "e1")
         put("bad", "FAIL", True, 200, 90_000, "e2", skill_fingerprint="aaa111")
         put("ghost", "PASS", True, 20, 9_000, "e9", void="no turns under the skill")
-        a = argparse.Namespace(reports_dir=d, fixtures="good:PASS,bad:FAIL,broken:PREP-FAIL,ghost:PASS",
+        put("copier", "PASS", True, 10, 5_000, "e8", leaks=["Bash: ~/projects/IMDb/leap.yaml"])
+        a = argparse.Namespace(reports_dir=d, fixtures="good:PASS,bad:FAIL,broken:PREP-FAIL,ghost:PASS,copier:PASS",
                                version=None, out="")
         path, err = aggregate(a)
         assert err is None and os.path.isfile(path) and path.endswith("REPORT_V1.md"), (path, err)
         txt = open(path).read()
-        assert "2/2 pushed, 1/2 completed eval" in txt, txt   # ghost excluded
+        assert "2/2 pushed, 1/2 completed eval" in txt, txt   # ghost + copier excluded
+        assert "LEAKED" in txt, txt
         assert "median turns=145" in txt, txt
         assert "SKILL-UNUSED" in txt, txt
         assert "PREP-FAIL" in txt and "## What worked" in txt and "## Shared problems" in txt
@@ -544,6 +678,8 @@ def main():
     ap.add_argument("--fixtures", default="",
                     help="roll-up: id:VERDICT,... from run_all.sh — sets the row order and "
                          "includes fixtures whose agent never ran")
+    ap.add_argument("--rescan-leaks", action="store_true",
+                    help="re-run the leak scan over every existing per-fixture report")
     ap.add_argument("--reports-dir", default=os.path.join(SCRIPT_DIR, "reports"))
     ap.add_argument("--fixture")
     ap.add_argument("--result", default="UNKNOWN")
@@ -579,6 +715,9 @@ def main():
     if args.selfcheck:
         _selfcheck()
         return 0
+    if args.rescan_leaks:
+        rescan_leaks(args.reports_dir)
+        return 0
     if args.aggregate:
         path, err = aggregate(args)
         if err:
@@ -599,11 +738,12 @@ def main():
                 + ("no transcript found for this run" if not transcript
                    else f"{m['turns']} turns in {transcript}, none calling it")
                 + " — this verdict does not grade the skill.")
+    leaks = scan_leaks(transcript, args.fixture) if transcript else []
     where = stuck_where(args.result, args.push_status, args.eval_id)
     out = args.out or os.path.join(args.reports_dir, f"{args.fixture}.md")
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-    open(out, "w").write(render(args, m, transcript, args.notes, where, void))
-    json.dump(sidecar(args, m, transcript, where, out, void),
+    open(out, "w").write(render(args, m, transcript, args.notes, where, void, leaks))
+    json.dump(sidecar(args, m, transcript, where, out, void, leaks),
               open(os.path.splitext(out)[0] + ".json", "w"), indent=1)
     print(f"wrote {out}")
     return 0

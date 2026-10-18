@@ -260,6 +260,18 @@ recalled well-known model) away. Treat a green run on those as "the skill still
 produces a working integration," not proof it derived the answer unaided. A
 future hardening step is network egress control during the agent run.
 
+The deny-list also only gates the file tools — a Bash `cat` walks past it — and
+says nothing about your own clones of the source repos. So `report.py` scans
+every run's transcript for what the agent actually reached: an integration file
+(`leap.yaml`, `leap_integration.py`, …) anywhere outside the fixture's own `pre/`
+— in a command or in a tool's output, under any directory or repo name — plus
+any path under a clone root (`EVAL_CLONE_ROOTS`, colon-separated, default
+`~/projects`) or `eval/.fixtures` outside `pre/`, other sessions' transcripts,
+and any `tensorleap-hub` URL. A hit marks the run **LEAKED**, which voids its
+verdict and keeps it out of the pass ratio. It detects, it does not prevent, and
+it misses a relative path typed after `cd ..` and recall from training memory.
+Re-score existing reports with `python3 report.py --rescan-leaks`.
+
 ---
 
 ## Privacy
