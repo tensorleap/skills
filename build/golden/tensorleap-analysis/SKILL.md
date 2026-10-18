@@ -419,7 +419,9 @@ and the **"Analyze insight"** header button using the insight's
 `deep_link` (lands on the insight already analyzed, opened as the
 dashboard's top panel with its cluster filter applied, what the panel's
 "Analyze" button does; insights without a cluster blob fall back to the
-version-level Insights-panel link).
+version-level Insights-panel link). The script adds an **Approve** toggle to
+every card and a review box with "Save with my approvals" to the header;
+they need nothing from you.
 Then render and make it self-contained:
 
 ```
