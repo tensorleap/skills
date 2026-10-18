@@ -88,21 +88,23 @@ running two fixtures at once corrupts both. Never parallelize. `run.sh` (and the
 `run_all.sh` wrapper) gate each fixture on the previous fixture's Evaluate
 reaching a terminal state before starting the next.
 
-### 5. The push must run in the foreground — enforced by the skill, not here
+### 5. The Evaluate must be chained on the server — enforced by the skill, not here
 
-`leap push --eval` does two things: push, then trigger the evaluate **after the
-push finishes**. Kill the command in between and you get a Push with no
-Evaluate — a silent, expensive dead end. It gets killed two ways: in headless
-`claude -p` the session exits the instant the agent yields, and in *any* session
-the harness periodically sweeps background tasks (we have seen a backgrounded
-push reaped 35 min in, mid-build).
+An older `leap push --eval` did two things in the local process: push, then
+trigger the evaluate **after the push finished**. Killing the command in between
+left a Push with no Evaluate — a silent, expensive dead end. It got killed two
+ways: in headless `claude -p` the session exits the instant the agent yields, and
+in *any* session the harness periodically sweeps background tasks (we saw a
+backgrounded push reaped 35 min in, mid-build).
 
-`run.sh` drives an **interactive** tmux session (no `-p`), which removes the
-first of those — but not the second. What removed the need for a harness-side
-override is that the rule now lives in the skill under test, which mandates a
-synchronous push (see `skill.md`, "Deploy"). So the operator prompt deliberately
-says nothing about foregrounding: if the skill regresses and backgrounds the
-push, the run reports STUCK, and that is the correct verdict.
+The skill now pushes with `leap push … --eval --no-wait` (see `skill.md`,
+"Deploy"): the command returns once the push has started, and the **server**
+starts the Evaluate when the push finishes, so nothing local has to survive. The
+agent then follows both jobs with the skill's `watch_run.py` in a background
+shell. `run.sh` still drives an **interactive** tmux session (no `-p`) so the
+agent is alive to be woken by that watcher. The operator prompt deliberately
+says nothing about how to push: if the skill regresses and the Evaluate is never
+created, the run reports STUCK, and that is the correct verdict.
 
 ---
 
@@ -257,6 +259,18 @@ source repos are public, so their reference integration is a web fetch (or a
 recalled well-known model) away. Treat a green run on those as "the skill still
 produces a working integration," not proof it derived the answer unaided. A
 future hardening step is network egress control during the agent run.
+
+The deny-list also only gates the file tools — a Bash `cat` walks past it — and
+says nothing about your own clones of the source repos. So `report.py` scans
+every run's transcript for what the agent actually reached: an integration file
+(`leap.yaml`, `leap_integration.py`, …) anywhere outside the fixture's own `pre/`
+— in a command or in a tool's output, under any directory or repo name — plus
+any path under a clone root (`EVAL_CLONE_ROOTS`, colon-separated, default
+`~/projects`) or `eval/.fixtures` outside `pre/`, other sessions' transcripts,
+and any `tensorleap-hub` URL. A hit marks the run **LEAKED**, which voids its
+verdict and keeps it out of the pass ratio. It detects, it does not prevent, and
+it misses a relative path typed after `cd ..` and recall from training memory.
+Re-score existing reports with `python3 report.py --rescan-leaks`.
 
 ---
 
