@@ -88,21 +88,26 @@ running two fixtures at once corrupts both. Never parallelize. `run.sh` (and the
 `run_all.sh` wrapper) gate each fixture on the previous fixture's Evaluate
 reaching a terminal state before starting the next.
 
-### 5. The push must run in the foreground — enforced by the skill, not here
+### 5. The push runs as a background shell — recovery is the skill's job, not ours
 
 `leap push --eval` does two things: push, then trigger the evaluate **after the
 push finishes**. Kill the command in between and you get a Push with no
-Evaluate — a silent, expensive dead end. It gets killed two ways: in headless
-`claude -p` the session exits the instant the agent yields, and in *any* session
-the harness periodically sweeps background tasks (we have seen a backgrounded
-push reaped 35 min in, mid-build).
+Evaluate — a silent, expensive dead end. A push can take well over 10 minutes,
+longer than the harness allows a foreground command, so the skill runs it as a
+**background shell** (see `skill.md`, "Deploy", step 5) — and background tasks
+get killed two ways: in headless `claude -p` the session exits the instant the
+agent yields, and in *any* session the harness periodically sweeps background
+tasks (we have seen a push reaped 35 min in, mid-build).
 
 `run.sh` drives an **interactive** tmux session (no `-p`), which removes the
-first of those — but not the second. What removed the need for a harness-side
-override is that the rule now lives in the skill under test, which mandates a
-synchronous push (see `skill.md`, "Deploy"). So the operator prompt deliberately
-says nothing about foregrounding: if the skill regresses and backgrounds the
-push, the run reports STUCK, and that is the correct verdict.
+first of those — but not the second. The recovery rule lives in the skill under
+test: the server, not the shell, is the source of truth, so before any re-push
+it reconciles with `leap run list -t Push`, re-pushes `-o <version> --eval` when
+the Push finished but no Evaluate exists, and stops its own broken run with
+`leap run stop` instead of piling a second push on top. So the operator prompt
+deliberately says nothing about foregrounding or recovery: if the skill
+regresses and leaves a Push without an Evaluate, the run reports STUCK, and that
+is the correct verdict.
 
 ---
 
