@@ -494,12 +494,18 @@ rm -f "${PROMPT_FILE}"
 log "Prompt submitted. Tracking Evaluate to a terminal state…"
 
 cancel_eval() {
-  # The CLI has no `run stop`, but Evaluate pods are owned by a batch/v1 Job named
-  # exactly `evaluate-<run id>` — the id `run list` prints — so the job we polled is
-  # the job we can delete (cascades to its pod). Best-effort: `server tools` only
-  # exists for a LOCAL install, so a remote run just warns and moves on.
-  local id="$1"
-  if env PATH="${RUN_PATH}" "${LEAP_CMD}" server tools kubectl \
+  # `leap run stop` terminates through the server and works against any install.
+  # A CLI without it prints the `run` group's help and still exits 0, so success
+  # is the output naming the run, not the exit code. That CLI falls back to
+  # deleting the batch/v1 Job named exactly `evaluate-<run id>` — the id `run list`
+  # prints — which cascades to its pod but only works on a LOCAL install
+  # (`server tools`). Best-effort either way: a remote run on an old CLI just
+  # warns and moves on.
+  local id="$1" out
+  if out="$(env PATH="${RUN_PATH}" "${LEAP_CMD}" run stop "${id}" 2>&1)" \
+     && grep -q "run ${id}" <<<"${out}"; then
+    log "  cancelled: ${out}"
+  elif env PATH="${RUN_PATH}" "${LEAP_CMD}" server tools kubectl \
        delete job "evaluate-${id}" -n tensorleap >/dev/null 2>&1; then
     log "  cancelled: deleted job evaluate-${id}"
   else

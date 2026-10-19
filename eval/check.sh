@@ -105,7 +105,7 @@ else
       | awk '$NF ~ /^[0-9a-f]{24}$/ && $(NF-1) !~ /^(FINISHED|FAILED|STOPPED|TERMINATED)$/ {print $(NF-1), $NF}' | head -3)"
     if [[ -n "${inflight}" ]]; then
       bad "no active job" "a Push/Evaluate is already running: ${inflight}"
-      hint "wait for it to reach a terminal state (leap run list) — or kill it — before starting a run"
+      hint "wait for it to reach a terminal state (leap run list) — or stop it with 'leap run stop <id>' — before starting a run"
     else
       ok "no active job" "no non-terminal Push/Evaluate on the server"
     fi
