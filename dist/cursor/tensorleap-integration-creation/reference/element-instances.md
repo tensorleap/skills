@@ -219,4 +219,5 @@ the same run; each is tagged with its latent space and population.
   `None`-able keys.
 - Declare `direction` on every instance metric.
 - Instance mode multiplies the row count (one row per GT element): mind the
-  sample cap in `project_config.yaml` when datasets are instance-dense.
+  sample cap in `project_config.yaml` when datasets are instance-dense. The Free
+  Tier's 5,000-sample Evaluate cap counts these rows too.
