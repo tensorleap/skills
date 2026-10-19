@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.5.1, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.5.2, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -780,7 +780,9 @@ yes/no question.
    `tl_check.py`'s `setup.preprocess` lengths; on a remote server the local check
    ran on a 1-sample subset, so count the actual splits), then set
    `sample_limit_per_split` so the total is ≤ 5,000 (balanced: ⌊5000 / number of
-   splits⌋ each). Say that you did, why, and where the key lives. Without the cap
+   splits⌋ each). Say that you did, why, and where the key lives. In instance mode
+   the cap counts **rows** — each image plus one row per element instance (e.g. 800
+   COCO images → 6,698 rows) — so size the limit by rows, not images. Without the cap
    the push itself succeeds but the Evaluate is refused with a `LICENSE_LIMIT`
    message naming the counts.
 5. **Run the push and get the Evaluate started.** A push (model upload + build)
