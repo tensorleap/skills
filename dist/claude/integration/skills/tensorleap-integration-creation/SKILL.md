@@ -803,23 +803,34 @@ yes/no question.
    `--eval` starts an Evaluate job **after the push completes**; the command
    returns once that job has *started* (not finished). `< /dev/null` and the
    `push.log` redirect keep the push non-interactive and keep the loader's output
-   out of your context.
+   out of your context. Note the push's run id: the CLI logs `Push job <id> started`
+   once the job exists (`grep -o 'Push job [0-9a-f]*' push.log`); on older CLIs that
+   don't print it, take the newest `leap run list -t Push`. That id (`PUSH_ID`) is
+   the only Push run you may stop.
    **The server, not your shell, is the source of truth.** The harness may kill a
    background job at any time (compaction, session restart) while the push keeps
    running server-side. A dead or missing local process does **not** mean the push
    failed, and re-pushing blind creates duplicate versions. So **before any push or
    re-push, reconcile**: run `leap run list -t Push` — if a Push run for this
    project is still in flight (`PENDING`/`INITIALIZING`/`STARTED`), do **not** push
-   again; wait for it (poll the run list, not the dead process). If it finished,
-   continue from step 6 as if your push returned. Kill any stale local `leap push`
-   process before starting a new one. Only re-push after the server shows no
-   in-flight Push, using `-o/--overwrite`.
+   on top of it. If it is *your* run (`PUSH_ID`) and you **already know it is
+   broken** — you found and fixed the bug locally, or `leap run logs <PUSH_ID>`
+   already shows the failure — stop it: `leap run stop <PUSH_ID>` (the run is
+   reported `TERMINATED`; a run that already ended is skipped, so the call is safe
+   to repeat). Otherwise wait for it (poll the run list, not the dead process).
+   Never stop a run you did not start — the server is shared. On a CLI without
+   `run stop` (unknown command), wait instead. If it finished, continue from step 6
+   as if your push returned. Kill any stale local `leap push` process before
+   starting a new one. Only re-push after the server shows no in-flight Push,
+   using `-o/--overwrite`.
    **Failure behavior you must handle (`leap` ≤ 0.0.155):** on a **build failure**
    these versions do **not** exit — on a non-interactive shell they stall at the
    prompt `View errors in interactive mode? (Y/n):`, waiting for input that never
    comes, so the command **hangs**. (Dev/newer CLIs exit non-zero instead.) So **if
    `push.log` contains `View errors in interactive mode`, the push FAILED** — stop
-   waiting for it and kill it; never treat a non-returning push as "still working".
+   waiting for it and kill the local process (the run already ended server-side, so
+   there is nothing to `run stop`); never treat a non-returning push as "still
+   working".
    The real error is **not** in `push.log` — read it from the failed Push run's
    server-side log: `leap run list -t Push` (newest) → `leap run logs <run-id>`.
    Fix the error, then re-push (`-o/--overwrite`).
@@ -853,6 +864,10 @@ yes/no question.
    If the watcher shell itself dies or goes missing (the harness may kill
    background jobs), the eval is unaffected — check `leap run list -t Evaluate`
    and relaunch the watcher; **never re-push** because a watcher died.
+   If, while it runs, you learn the version is broken — `leap run logs $EVAL_ID`
+   shows a real error, the user reports one, or a local re-check fails — don't wait
+   hours for the inevitable: `leap run stop $EVAL_ID`, fix, re-push (reconcile
+   first, step 5), and re-arm the watcher on the new run.
    When it exits: **`FINISHED`** → the integration is done. **`FAILED` / `STOPPED` /
    `TERMINATED`** → pull `leap run logs <run-id>`, read the earliest real error, fix
    it in the integration, re-push, and track the new eval the same way. (Errors that
