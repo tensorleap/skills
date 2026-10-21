@@ -42,6 +42,25 @@ image — see #32/#34/#35). If the probe container can't run at all the installe
 `Unable to check docker storage. Do you want to continue anyway?` with default **No**, and
 answering the default returns `not enough resources`.
 
+### 1d. macOS: the whole server vanishes under load — Docker's VM is sized too close to the Mac's RAM
+A working install disappears mid-session: the dashboard stops answering, `leap server tools
+kubectl` gets "connection refused" (#12), `docker ps -a` shows `k3d-tensorleap-server-0`
+Exited or freshly restarted, and Docker Desktop itself restarted. No pod shows `OOMKilled`;
+inside the cluster memory looked fine. Typically while a few population explorers or an
+evaluate run with a browser open. Seen on a 36GB MacBook Pro with Docker Desktop at 33GB
+(EN-2556).
+**Why:** Docker Desktop runs everything in one Linux VM. Linux fills the VM's unused memory
+with file cache and never hands it back, so after a few image pulls the VM holds its *whole*
+allocation on the Mac regardless of what the pods use. What remains (physical RAM minus the
+allocation) is all macOS, the browser and the CLI get; under ~4GB, macOS pages the VM to disk,
+the VM stalls, and Docker Desktop restarts it. The in-cluster job memory budget
+(`--cluster-memory-gb`) governs pods inside the VM only and cannot see any of this.
+**Check:** `sysctl -n hw.memsize` minus `docker info -f '{{.MemTotal}}'` should be ≥4GB.
+Newer installers run this comparison at preflight and ask before continuing.
+**Fix:** Docker Desktop → Settings → Resources → set Memory to at most RAM − 4GB (on a 36GB
+Mac: ≤32GB; keep ≥12GB so Elasticsearch schedules, #1b), apply, then `leap server run`.
+Raising `--cluster-memory-gb` does not help — it is the budget *inside* the VM.
+
 ### 2. Docker data-root on the wrong (small) disk
 Signature: `docker info` shows `Docker Root Dir: /var/lib/docker` on a nearly-full root
 filesystem while a big NVMe/EBS/data mount sits idle. The single most common field fix across

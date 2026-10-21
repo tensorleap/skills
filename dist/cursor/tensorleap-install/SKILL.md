@@ -207,7 +207,10 @@ before compacting to 50–150 GB.
 - **macOS** — resources are Docker Desktop's allocation (Settings → Resources), not the
   machine's. If the alpine probe's *total* is under ~80GB, no amount of pruning reaches 65GB
   free — the virtual disk limit itself must be raised. Suggested values: memory ≈ half the
-  host RAM (≥8GB), virtual disk ≥150GB. No GPU support.
+  host RAM (≥8GB) **and at least 4GB below the Mac's physical RAM** (`sysctl -n hw.memsize`):
+  the VM ends up holding its whole allocation resident, and a near-total allocation starves
+  macOS until Docker Desktop restarts the VM under load (catalog #1d). Virtual disk ≥150GB.
+  No GPU support.
 - **Linux + GPU** — the canonical pre-check (the single most commonly forgotten prerequisite is
   nvidia-container-toolkit):
 

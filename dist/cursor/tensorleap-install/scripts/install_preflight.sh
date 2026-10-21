@@ -47,6 +47,13 @@ else
   else
     ok "docker memory ${MEM_GB}GB"
   fi
+  if [ "$(uname -s)" = "Darwin" ]; then
+    HOST_MEM="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+    HOST_GB=$((HOST_MEM / 1024 / 1024 / 1024))
+    if [ "$HOST_MEM" -gt 0 ] && [ $((HOST_MEM - MEM)) -lt 4294967296 ]; then
+      warn "docker memory ${MEM_GB}GB leaves $(((HOST_MEM - MEM) / 1024 / 1024 / 1024))GB of this ${HOST_GB}GB Mac for macOS; the VM keeps it all resident - lower Docker Desktop memory to <= $((HOST_GB - 4))GB (catalog #1d)"
+    fi
+  fi
   echo "  docker data-root: $ROOT (move it if this sits on a small OS disk - catalog #2)"
   FREE_KB="$(docker run --rm alpine:3.18.3 df -P / 2>/dev/null | awk 'NR==2{print $4}')"
   if [ -n "$FREE_KB" ]; then

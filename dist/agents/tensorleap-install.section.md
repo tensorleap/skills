@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-install -->
-<!-- Tensorleap skill 'tensorleap-install' v0.1.1, generated from skills/tensorleap-install/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-install' v0.1.2, generated from skills/tensorleap-install/skill.md; do not edit here. -->
 # Install Tensorleap
 
 `leap server install` creates a single-node k3d Kubernetes cluster inside Docker, then installs
@@ -204,7 +204,10 @@ before compacting to 50–150 GB.
 - **macOS** — resources are Docker Desktop's allocation (Settings → Resources), not the
   machine's. If the alpine probe's *total* is under ~80GB, no amount of pruning reaches 65GB
   free — the virtual disk limit itself must be raised. Suggested values: memory ≈ half the
-  host RAM (≥8GB), virtual disk ≥150GB. No GPU support.
+  host RAM (≥8GB) **and at least 4GB below the Mac's physical RAM** (`sysctl -n hw.memsize`):
+  the VM ends up holding its whole allocation resident, and a near-total allocation starves
+  macOS until Docker Desktop restarts the VM under load (catalog #1d). Virtual disk ≥150GB.
+  No GPU support.
 - **Linux + GPU** — the canonical pre-check (the single most commonly forgotten prerequisite is
   nvidia-container-toolkit):
 
