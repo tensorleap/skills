@@ -25,6 +25,7 @@ set -uo pipefail
 
 REPO_ROOT="${1:-.}"
 ENTRY_FILE="${2:-leap_integration.py}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
 
 cd "$REPO_ROOT" || { echo "run_integration: cannot cd to $REPO_ROOT" >&2; exit 2; }
 
@@ -67,5 +68,8 @@ if [[ "$CODE" -ne 0 ]]; then
 else
   echo "RESULT: clean exit. Confirm the current stage's row is exercised before advancing."
 fi
+
+# Count this pass for the skill_run event the skill sends when it finishes.
+python3 "$HERE/skill_run.py" tensorleap-integration-creation iteration >/dev/null 2>&1 || true
 
 exit "$CODE"

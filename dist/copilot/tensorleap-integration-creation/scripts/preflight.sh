@@ -89,6 +89,10 @@ if [[ -z "${TL_SKILL_NO_UPDATE:-}" && -f "$(dirname "$0")/self_update.sh" ]]; th
   [[ $rc -eq 10 ]] && TL_SKILL_NO_UPDATE=1 exec "$0" "$@"
 fi
 
+# Record the run's start (one anonymous skill_run event; TL_DISABLE_ANALYTICS=1 turns it off).
+record_start() { python3 "$(dirname "$0")/skill_run.py" tensorleap-integration-creation started --exit-code "$1" >/dev/null 2>&1 || true; }
+trap 'record_start $?' EXIT
+
 echo "Tensorleap preflight"
 
 # 1. CLI on PATH -------------------------------------------------------------

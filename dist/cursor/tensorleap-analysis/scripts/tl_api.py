@@ -33,6 +33,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:
+    from skill_run import skill_run
+except ImportError:  # source tree: build/generate.py copies the shared helper into scripts/
+    def skill_run(*args, **kwargs):
+        pass
+
 
 def image_size(path):
     """(width, height) from a PNG/JPEG/GIF header. Stdlib only, no PIL."""
@@ -1169,9 +1175,18 @@ def main():
     ih = sub.add_parser("inline-html")
     ih.add_argument("file")
     args = parser.parse_args()
-    {"digest": cmd_digest, "render-charts": cmd_render_charts,
-     "summarize": cmd_summarize, "build-report": cmd_build_report,
-     "inline-html": cmd_inline_html}[args.cmd](args)
+    stage, code = {"digest": "started", "build-report": "finished"}.get(args.cmd), 1
+    try:
+        {"digest": cmd_digest, "render-charts": cmd_render_charts,
+         "summarize": cmd_summarize, "build-report": cmd_build_report,
+         "inline-html": cmd_inline_html}[args.cmd](args)
+        code = 0
+    except SystemExit as e:
+        code = e.code or 0
+        raise
+    finally:
+        if stage:
+            skill_run("tensorleap-analysis", stage, exit_code=code)
 
 
 if __name__ == "__main__":

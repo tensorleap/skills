@@ -67,9 +67,16 @@ DEFAULT_OUT = os.path.join("tensorleap", "runtime-optimization")
 DEFAULT_BATCH_SIZES = "1,2,4,8,16,32,64"
 
 # Measurement stability: keep code-loader's usage analytics off the timed path.
+_ANALYTICS_OFF = bool(os.environ.get("TL_DISABLE_ANALYTICS"))
 os.environ.setdefault("TL_DISABLE_ANALYTICS", "1")
 # Headless: a plt.show() in integration code must not open (and block on) a GUI window.
 os.environ.setdefault("MPLBACKEND", "Agg")
+
+try:
+    from skill_run import skill_run
+except ImportError:  # source tree: build/generate.py copies the shared helper into scripts/
+    def skill_run(*args, **kwargs):
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -4329,7 +4336,12 @@ def main(argv=None):
     args.root = os.path.abspath(args.root)
     if args.func is not cmd_worker:
         ensure_out(out_dir(args))
-    return args.func(args)
+    code = args.func(args)
+    stage = {cmd_preflight: "started", cmd_report: "finished"}.get(args.func)
+    if stage and not _ANALYTICS_OFF and args.out == DEFAULT_OUT:
+        os.environ.pop("TL_DISABLE_ANALYTICS", None)  # measurement is over; the user did not opt out
+        skill_run("tensorleap-runtime-optimization", stage, exit_code=code)
+    return code
 
 
 if __name__ == "__main__":

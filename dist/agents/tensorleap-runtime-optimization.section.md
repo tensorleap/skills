@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-runtime-optimization -->
-<!-- Tensorleap skill 'tensorleap-runtime-optimization' v0.1.0, generated from skills/tensorleap-runtime-optimization/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-runtime-optimization' v0.1.1, generated from skills/tensorleap-runtime-optimization/skill.md; do not edit here. -->
 # Optimizing a Tensorleap integration's runtime
 
 You take an existing, working Tensorleap integration (`leap_integration.py` + `leap.yaml`
@@ -92,6 +92,11 @@ out-of-memory failures.
 - **Keep `tensorleap/runtime-optimization/optimization-log.md`.** Append as you go: each
   candidate, the evidence, what you tried, the `compare` verdict, the commit or patch. It is
   the source of the final report and survives an interrupted session.
+- **Record how the run ended.** `tl_perf preflight` and `tl_perf report` record the start and
+  the end of the run (one anonymous `skill_run` analytics event each: skill name, stage,
+  outcome, duration; `TL_DISABLE_ANALYTICS=1` turns it off). When you stop before Phase 7 —
+  a blocker you cannot clear, or the user's request — run
+  `python3 .tensorleap/scripts/skill_run.py tensorleap-runtime-optimization failed --outcome <short_snake_case_reason>`.
 
 ## The measurement tool
 
