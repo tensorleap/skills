@@ -55,11 +55,13 @@ allocation on the Mac regardless of what the pods use. What remains (physical RA
 allocation) is all macOS, the browser and the CLI get; under ~4GB, macOS pages the VM to disk,
 the VM stalls, and Docker Desktop restarts it. The in-cluster job memory budget
 (`--cluster-memory-gb`) governs pods inside the VM only and cannot see any of this.
-**Check:** `sysctl -n hw.memsize` minus `docker info -f '{{.MemTotal}}'` should be ≥4GB.
-Newer installers run this comparison at preflight and ask before continuing.
+**Check:** `sysctl -n hw.memsize` minus `docker info -f '{{.MemTotal}}'` (both bytes) should be
+≥4GB. Installers built from tensorleap/helm-charts#501 onward run this comparison at preflight
+and ask before continuing.
 **Fix:** Docker Desktop → Settings → Resources → set Memory to at most RAM − 4GB (on a 36GB
-Mac: ≤32GB; keep ≥12GB so Elasticsearch schedules, #1b), apply, then `leap server run`.
-Raising `--cluster-memory-gb` does not help — it is the budget *inside* the VM.
+Mac: ≤32GB) and at least 12GB so Elasticsearch schedules (#1b); a Mac under 16GB cannot
+satisfy both and is below the platform's floor. Apply, then `leap server run`. Raising
+`--cluster-memory-gb` does not help — it is the budget *inside* the VM.
 
 ### 2. Docker data-root on the wrong (small) disk
 Signature: `docker info` shows `Docker Root Dir: /var/lib/docker` on a nearly-full root

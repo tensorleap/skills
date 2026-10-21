@@ -226,8 +226,9 @@ before compacting to 50–150 GB.
   free — the virtual disk limit itself must be raised. Suggested values: memory ≈ half the
   host RAM (≥8GB) **and at least 4GB below the Mac's physical RAM** (`sysctl -n hw.memsize`):
   the VM ends up holding its whole allocation resident, and a near-total allocation starves
-  macOS until Docker Desktop restarts the VM under load (catalog #1d). Virtual disk ≥150GB.
-  No GPU support.
+  macOS until Docker Desktop restarts the VM under load (catalog #1d). With the 12GB
+  Elasticsearch floor (#1b) that means a 16GB Mac is the smallest that works. Virtual disk
+  ≥150GB. No GPU support.
 - **Linux + GPU** — the canonical pre-check (the single most commonly forgotten prerequisite is
   nvidia-container-toolkit):
 
