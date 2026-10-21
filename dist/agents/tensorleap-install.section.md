@@ -640,7 +640,9 @@ state, or (with a purge first — catalog #39) switch online↔airgap. Moving th
   **server node** carries `restart: unless-stopped` — the ephemeral `k3d-tensorleap-tools`
   container does not, and does not need to) — typically ready a couple of minutes after
   boot. No wake-up command is needed on current versions; don't tell users to re-install.
-- After an explicit `leap server stop` it stays down until `leap server run`.
+- After an explicit `leap server stop` it stays down until `leap server run`. `leap server
+  start` and `leap server up` are aliases of `run` (hidden from `--help`, valid since the
+  first CLI release); never tell a user they are not real commands.
 - Both commands print `Cluster 'tensorleap' not found` and exit 0 when there is no cluster —
   that is "nothing to do", not a failure.
 - `leap server tools` wraps both `kubectl` and `k3d`, resolving its kubeconfig as
