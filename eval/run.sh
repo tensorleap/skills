@@ -470,7 +470,7 @@ PROMPT_FILE="$(mktemp)"; printf '%s' "${MSG}" > "${PROMPT_FILE}"
 tmux new-session -d -s "${SESS}" -x 220 -y 50 -c "${PRE_DIR}"
 AGENT_ALIVE=1
 # CLAUDE_CONFIG_DIR unset inside the pane (empty string hides the plugin); shim + local bin on PATH.
-tmux send-keys -t "${SESS}" 'unset CLAUDE_CONFIG_DIR; export PATH='"$(printf '%q' "${RUN_PATH}")" Enter
+tmux send-keys -t "${SESS}" 'unset CLAUDE_CONFIG_DIR; export TL_DISABLE_ANALYTICS=1 PATH='"$(printf '%q' "${RUN_PATH}")" Enter
 SUBMIT_EPOCH="$(date +%s)"   # platform jobs created at/after this belong to THIS run
 tmux send-keys -t "${SESS}" "${CLAUDE_LAUNCH} \"\$(cat $(printf '%q' "${PROMPT_FILE}"))\"" Enter
 

@@ -406,6 +406,16 @@ Cursor, Copilot and Devin resolve them skill-relative (self-contained folders);
 AGENTS.md resolves them to `.tensorleap/scripts` and `.tensorleap/reference`,
 where the installer places them.
 
+## Analytics
+
+Each skill records when a run starts and how it ends: one `skill_run` event per stage in
+Tensorleap's product analytics, carrying the skill's name and version, the stage
+(`started` / `finished` / `failed`), the outcome, the duration and, for the integration
+skill, how many run-loop passes it took — with the same anonymous device id the leap CLI
+uses (`~/.tensorleap/device_id`) and, once you have run `leap auth login`, its user id.
+No code, paths, data or prompts are sent. Set `TL_DISABLE_ANALYTICS=1` to turn it off
+(code-loader honors the same variable).
+
 ## Developing
 
 ```bash

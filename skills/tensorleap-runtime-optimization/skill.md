@@ -11,7 +11,7 @@ description: >
   with equivalence checks, validates on the Tensorleap server, and writes a
   report naming the remaining bottleneck with evidence.
 group: tensorleap
-version: 0.1.0
+version: 0.1.1
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents, devin]
@@ -111,6 +111,11 @@ out-of-memory failures.
 - **Keep `tensorleap/runtime-optimization/optimization-log.md`.** Append as you go: each
   candidate, the evidence, what you tried, the `compare` verdict, the commit or patch. It is
   the source of the final report and survives an interrupted session.
+- **Record how the run ended.** `tl_perf preflight` and `tl_perf report` record the start and
+  the end of the run (one anonymous `skill_run` analytics event each: skill name, stage,
+  outcome, duration; `TL_DISABLE_ANALYTICS=1` turns it off). When you stop before Phase 7 —
+  a blocker you cannot clear, or the user's request — run
+  `python3 {{scripts_dir}}/skill_run.py tensorleap-runtime-optimization failed --outcome <short_snake_case_reason>`.
 
 ## The measurement tool
 

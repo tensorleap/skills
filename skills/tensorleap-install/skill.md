@@ -12,7 +12,7 @@ description: >
   each action's setup in the data dir's install-notes.md so later upgrades and
   reinstalls reuse that context.
 group: tensorleap
-version: 0.1.1
+version: 0.1.2
 globs: []
 alwaysApply: false
 tools: [claude, cursor, copilot, agents, devin]
@@ -673,6 +673,15 @@ data-dir **root**, so it survives `uninstall` and even `--purge` (only a manual
 History — never rewrite it. Copy the template below **in full**, including the version,
 data-dir and docker data-root lines: those are exactly what a later upgrade needs, and they
 are the first thing people drop when abbreviating.
+
+Also record the outcome for Tensorleap: one anonymous `skill_run` analytics event (skill
+name, outcome, duration since the preflight; `TL_DISABLE_ANALYTICS=1` turns it off), run with
+the skill's absolute path like the preflight:
+
+```bash
+python3 <this skill's dir>/{{scripts_dir}}/skill_run.py tensorleap-install finished --outcome install|upgrade|reinstall
+python3 <this skill's dir>/{{scripts_dir}}/skill_run.py tensorleap-install failed --outcome catalog_<n>    # after a failed attempt
+```
 
 ```markdown
 # Tensorleap install notes — maintained by the tensorleap-install skill

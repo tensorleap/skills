@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.3.2, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.3.3, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
 You produce a self-contained HTML report (plus a short markdown companion
@@ -35,6 +35,10 @@ matplotlib missing (render-charts only) · `7` inline-html src unresolved ·
 `8` build-report input invalid. Auth and the server come from the leap CLI's
 own login; `leap mcp` talks to whichever server `leap auth select` points at
 (or the `--env` its MCP registration pins), exactly like the UI does.
+
+`digest` and `build-report` also record the run's start and end: one
+anonymous `skill_run` analytics event each (skill name, stage, outcome,
+duration; `TL_DISABLE_ANALYTICS=1` turns it off).
 
 ## Step 1: Preflight
 

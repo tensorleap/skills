@@ -8,7 +8,7 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.5.1
+version: 0.5.2
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents, devin]
@@ -884,7 +884,17 @@ yes/no question.
 ## Finish report (consent required)
 
 When the integration reaches its terminal outcome — the eval `FINISHED`, or
-you are stopping for good on a failure — ask the user, verbatim:
+you are stopping for good on a failure — first record how it went. No consent
+is needed: this is one anonymous `skill_run` analytics event carrying only the
+skill name, the outcome, the duration and the number of run-loop passes
+(`TL_DISABLE_ANALYTICS=1` turns it off):
+
+```
+python3 {{scripts_dir}}/skill_run.py tensorleap-integration-creation finished --outcome eval_finished
+python3 {{scripts_dir}}/skill_run.py tensorleap-integration-creation failed --outcome <short_snake_case_reason>   # when stopping on a failure
+```
+
+Then ask the user, verbatim:
 
 > May I send a short report to Tensorleap so the team knows how this
 > integration went? It contains only: your name, customer name, use-case, and

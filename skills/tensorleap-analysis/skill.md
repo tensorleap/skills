@@ -11,7 +11,7 @@ description: >
   self-contained HTML report with evidence, embedded sample visualizations,
   and concrete action items for an ML engineer.
 group: tensorleap
-version: 0.3.2
+version: 0.3.3
 globs: ["leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents]
@@ -54,6 +54,10 @@ matplotlib missing (render-charts only) · `7` inline-html src unresolved ·
 `8` build-report input invalid. Auth and the server come from the leap CLI's
 own login; `leap mcp` talks to whichever server `leap auth select` points at
 (or the `--env` its MCP registration pins), exactly like the UI does.
+
+`digest` and `build-report` also record the run's start and end: one
+anonymous `skill_run` analytics event each (skill name, stage, outcome,
+duration; `TL_DISABLE_ANALYTICS=1` turns it off).
 
 ## Step 1: Preflight
 

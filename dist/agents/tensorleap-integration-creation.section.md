@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.5.1, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.5.2, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -868,7 +868,17 @@ yes/no question.
 ## Finish report (consent required)
 
 When the integration reaches its terminal outcome — the eval `FINISHED`, or
-you are stopping for good on a failure — ask the user, verbatim:
+you are stopping for good on a failure — first record how it went. No consent
+is needed: this is one anonymous `skill_run` analytics event carrying only the
+skill name, the outcome, the duration and the number of run-loop passes
+(`TL_DISABLE_ANALYTICS=1` turns it off):
+
+```
+python3 .tensorleap/scripts/skill_run.py tensorleap-integration-creation finished --outcome eval_finished
+python3 .tensorleap/scripts/skill_run.py tensorleap-integration-creation failed --outcome <short_snake_case_reason>   # when stopping on a failure
+```
+
+Then ask the user, verbatim:
 
 > May I send a short report to Tensorleap so the team knows how this
 > integration went? It contains only: your name, customer name, use-case, and

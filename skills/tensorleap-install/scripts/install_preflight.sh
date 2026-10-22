@@ -8,6 +8,9 @@ FAILS=0
 ok()   { printf '  [ok]   %s\n' "$*"; }
 warn() { printf '  [warn] %s\n' "$*"; }
 fail() { printf '  [FAIL] %s\n' "$*"; FAILS=$((FAILS + 1)); }
+# Record the run's start (one anonymous skill_run event; TL_DISABLE_ANALYTICS=1 turns it off).
+record_start() { python3 "$(dirname "$0")/skill_run.py" tensorleap-install started --exit-code "$1" >/dev/null 2>&1 || true; }
+trap 'record_start $?' EXIT
 
 echo "== Prior state =="
 CFG="$HOME/.config/tensorleap/config.yaml"
