@@ -192,8 +192,9 @@ diagnostics `reads` and `repeated_calls`), `score.json` (ratio to inference, evi
 
 - **L — float16 inputs:** metric/loss inputs arrive as float16; torch CPU ops may reject
   them. Cast to float32 at the boundary.
-- **M — `NaN`/`None` metric values:** break numeric storage downstream. Return a
-  meaningful float.
+- **M — `NaN`/`None` metric values:** correct only where the metric is undefined for
+  that sample (e.g. recall on an image with no objects); the platform stores them as
+  `null`, so keep those. An accidental `NaN` (e.g. float16 overflow) is a bug: fix it.
 - **N — reshaping passed arrays:** `np.expand_dims` on the prediction/ground truth handed
   to a metric/loss breaks Tensorleap's wiring. Only reshape inside standalone tests.
   (Correctness issues that surface only on the platform — fix them when seen.)

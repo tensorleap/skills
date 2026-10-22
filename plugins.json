@@ -11,7 +11,7 @@
     {
       "name": "integration",
       "description": "Tensorleap's AI-assistant skills for authoring and debugging Tensorleap integrations.",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "skills": [
         "tensorleap-integration-creation"
       ]
@@ -38,7 +38,7 @@
     {
       "name": "optimization",
       "description": "Tensorleap's AI-assistant skills for measuring and optimizing integration runtime: model inference floor, component-level profiling, lossless fixes with equivalence checks, and a bottleneck report.",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "skills": [
         "tensorleap-runtime-optimization"
       ]

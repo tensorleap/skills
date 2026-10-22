@@ -8,7 +8,7 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.5.2
+version: 0.5.3
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents, devin]
@@ -708,7 +708,7 @@ Add these one at a time, running after each:
   sample)**, not a single scalar. Give a metric its `direction`
   (`MetricDirection.Upward`/`Downward`). A metric/loss must **discriminate
   better predictions from worse ones** — "it runs and returns varying numbers"
-  is **not** sufficient. Stop and repair if either holds:
+  is **not** sufficient. Stop and repair if any holds:
     1. **Placeholder** — it ignores its prediction/GT arguments, or returns
        zeros/constants/echoes an input. A no-op must not satisfy the wiring.
     2. **Doesn't track quality** — it returns a real, varying value, but that
@@ -717,6 +717,17 @@ Add these one at a time, running after each:
        meaningful direction? If not, it's a descriptor, not a metric — replace
        it. (A prediction-only value is acceptable *only* as a genuine
        unsupervised quality signal, e.g. calibration or uncertainty.)
+    3. **Stand-in for an undefined value** (scalar metrics only; a loss stays a
+       real number on every sample) — on a sample that gives the metric nothing
+       to measure (a zero denominator), it returns `0.0`, `1.0` or an
+       `eps`-guarded ratio. Return `None` there instead (`np.nan` in a float32
+       array): the platform stores it as `null` and insights skip it, while a
+       stand-in reads as a real failure or a perfect score. Object detection:
+       precision = TP / kept predictions is `None` when nothing is kept, recall =
+       TP / GT objects is `None` on an image with no objects, and a false
+       positive on an empty image is a real error (precision `0`, recall
+       `None`). Same policy as missing metadata
+       (`{{reference_dir}}/metadata.md`).
 
 ## Acceptance (staged definition of done)
 
