@@ -204,7 +204,11 @@ before compacting to 50–150 GB.
 - **macOS** — resources are Docker Desktop's allocation (Settings → Resources), not the
   machine's. If the alpine probe's *total* is under ~80GB, no amount of pruning reaches 65GB
   free — the virtual disk limit itself must be raised. Suggested values: memory ≈ half the
-  host RAM (≥8GB), virtual disk ≥150GB. No GPU support.
+  host RAM (≥8GB) **and at least 4GB below the Mac's physical RAM** (`sysctl -n hw.memsize`):
+  the VM ends up holding its whole allocation resident, and a near-total allocation starves
+  macOS until Docker Desktop restarts the VM under load (catalog #1d). With the 12GB
+  Elasticsearch floor (#1b) that means a 16GB Mac is the smallest that works. Virtual disk
+  ≥150GB. No GPU support.
 - **Linux + GPU** — the canonical pre-check (the single most commonly forgotten prerequisite is
   nvidia-container-toolkit):
 
@@ -636,7 +640,9 @@ state, or (with a purge first — catalog #39) switch online↔airgap. Moving th
   **server node** carries `restart: unless-stopped` — the ephemeral `k3d-tensorleap-tools`
   container does not, and does not need to) — typically ready a couple of minutes after
   boot. No wake-up command is needed on current versions; don't tell users to re-install.
-- After an explicit `leap server stop` it stays down until `leap server run`.
+- After an explicit `leap server stop` it stays down until `leap server run`. `leap server
+  start` and `leap server up` are aliases of `run` (hidden from `--help`, valid since the
+  first CLI release); never tell a user they are not real commands.
 - Both commands print `Cluster 'tensorleap' not found` and exit 0 when there is no cluster —
   that is "nothing to do", not a failure.
 - `leap server tools` wraps both `kubectl` and `k3d`, resolving its kubeconfig as
