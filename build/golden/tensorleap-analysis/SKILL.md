@@ -494,6 +494,9 @@ server irregularity) goes in the companion's Notes, not the closing
 message.
 Then answer follow-up questions from the analysis you already did, the
 conversational depth is for when the user asks, never volunteered up front.
+When the user asks to fix one of the groups, hand over to the
+`tensorleap-aggressor-fixing` skill (same plugin): it starts from this
+export.
 
 **Last rule, binding: the closing message is at most two sentences naming
 `report.html` and `report.md`, with no bullet lists, findings or extra sections.**
