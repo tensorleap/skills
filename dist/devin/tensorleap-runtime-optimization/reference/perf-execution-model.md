@@ -63,9 +63,10 @@ handled by different worker processes. **Do not rely on processing order for cac
 - Metric and loss inputs arrive as **float16** on the platform (code-loader ≥ 1.0.202
   simulates this locally). Cast explicitly (`.astype(np.float32)`) before torch/numpy ops
   that lack half-precision support.
-- Don't emit `NaN`/`None` as metric values (use a concrete, meaningful float), and don't
-  reshape the arrays Tensorleap passes into metric/loss functions (e.g. `np.expand_dims`):
-  Tensorleap adds the batch dimension itself.
+- Emit `NaN`/`None` as a metric value only where the metric is undefined for that sample
+  (the platform stores it as `null`), never from a numeric accident such as float16
+  overflow; and don't reshape the arrays Tensorleap passes into metric/loss functions
+  (e.g. `np.expand_dims`): Tensorleap adds the batch dimension itself.
 
 ## 5. What `tl_perf` does to mirror this
 
