@@ -76,6 +76,7 @@ run (or in `tl_check.py` output) to its row, apply the fix, then re-run.
 | `Supported models are Keras and onnxruntime only …` | Return a Keras model or ONNX `InferenceSession`. |
 | `number of declared prediction types(…) != number of model outputs(…)` | Fix declarations or the model (fires on first invocation). |
 | `Missing required input(s): […]` | Supply every required ONNX input name. |
+| Batch-truth check fails (a batch of 2 raises, e.g. `Cannot split using values in 'split' attribute`, or differs from each sample run alone) | The export froze the batch at trace time — often a Python loop over the batch unrolled into `x[0]`. Fix the export so the batch flows through tensor ops, or re-export with a static batch of 1 and push with `-b 1`. See `authoring-order.md` Step 3. |
 | `Unsupported ONNX input type: …` | Encoders return float32 but the ONNX expects int (e.g. int64 `input_ids`). Re-export the model wrapped so its inputs are float32 and cast to int internally (`input_ids.long()`), instead of changing the encoders. |
 
 ## Integration test
