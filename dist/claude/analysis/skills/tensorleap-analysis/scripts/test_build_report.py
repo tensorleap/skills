@@ -153,6 +153,19 @@ def check_string_root_cause_or_add_comment_rejected():
     assert not bad, bad
 
 
+def check_list_family_without_chip_builds():
+    r, _, _ = build([make_card(root_cause={"family": ["Label quality"], "caption": "x"})])
+    assert r.returncode == 0 and "Traceback" not in r.stderr, (r.returncode, r.stderr.strip()[-300:])
+
+
+def check_list_family_with_mislabeled_chip_rejected():
+    card = make_card(id="insight-9", chips=["2 samples", "Mislabeled"],
+                     root_cause={"family": ["Label quality"], "caption": "x"})
+    r, _, _ = build([card])
+    assert r.returncode == 8 and "insight-9" in r.stderr and "Traceback" not in r.stderr, \
+        (r.returncode, r.stderr.strip()[-300:])
+
+
 def check_cards_without_chip_unchanged():
     for family in ("Label quality", "Data gap", "Model behavior", "Split problem"):
         card = make_card(root_cause={"family": family, "caption": "c"}, chips=["2 samples", "label noise"])

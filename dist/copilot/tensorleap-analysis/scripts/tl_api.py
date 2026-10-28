@@ -1083,9 +1083,11 @@ def cmd_build_report(args):
         invalid = []
         for group in spec.get("groups", []):
             for c in group.get("cards", []):
-                family = ((c.get("root_cause") or {}).get("family") or "").strip()
                 for chip in c.get("chips", []):
-                    if re.fullmatch(r"\s*mis+-?label+ed\s*", str(chip), re.I) and family != "Label quality":
+                    if not re.fullmatch(r"\s*mis+-?label+ed\s*", str(chip), re.I):
+                        continue
+                    family = (c.get("root_cause") or {}).get("family")
+                    if not (isinstance(family, str) and family.strip() == "Label quality"):
                         invalid.append(f'report.json invalid: card {c.get("id")} has a "{chip}" chip but its root cause '
                                        f'is "{family or "none"}"; the Mislabeled chip is only for a Failure Mode group '
                                        f'that is just coherent mislabelling (root cause Label quality alone)')
