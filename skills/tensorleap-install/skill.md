@@ -12,10 +12,10 @@ description: >
   each action's setup in the data dir's install-notes.md so later upgrades and
   reinstalls reuse that context.
 group: tensorleap
-version: 0.1.3
+version: 0.1.4
 globs: []
 alwaysApply: false
-tools: [claude, cursor, copilot, agents, devin]
+tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
 scripts_dir: .tensorleap/scripts
 reference_dir: .tensorleap/reference
 ---
@@ -145,6 +145,10 @@ reason an install call is wasted is that IT hasn't prepared the machine. Hand ov
 Quick path: `bash <this skill's dir>/{{scripts_dir}}/install_preflight.sh` (use the skill's
 absolute path — your shell's cwd is the user's project, not the skill) runs every read-only check in this
 step and prints a report; the sections below explain how to read it and what to fix.
+It first checks for a newer version of this skill. A `Tensorleap skill: updating …` line means
+the skill's files were just refreshed: re-read this file before continuing. A `NOTE:` line means
+a project-local install has an update available: ask the user before running the printed command.
+A Claude Code plugin update loads in the next session; continue with the installed version.
 
 Fix failures before installing — the installer's own checks happen late and some failures roll
 back a 20-minute install.

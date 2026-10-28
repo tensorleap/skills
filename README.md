@@ -2,7 +2,7 @@
 
 The single source of truth for Tensorleap's AI-assistant **skills**. Each skill is
 authored **once** in a canonical format; this repo generates thin, per-tool
-wrappers (GitHub Copilot, Claude Code, Cursor, Devin, `AGENTS.md`) from it and
+wrappers (GitHub Copilot, Claude Code, Cursor, Codex, Windsurf, Devin, `AGENTS.md`) from it and
 ships the shared scripts each skill needs.
 
 > **Skills in this repo:**
@@ -24,15 +24,13 @@ ships the shared scripts each skill needs.
 >   naming what limits runtime and memory now
 >   ([guide](skills/tensorleap-runtime-optimization/docs/README.md)).
 
-**No clone needed** — every install command below fetches what it needs.
+## Get started: install the leap CLI, then run `leap mcp config`
 
-## Connect your AI assistant to Tensorleap (MCP server + skills)
+You never install anything from this repo by hand. The leap CLI sets up your assistant:
+the **Tensorleap MCP server** (insights, metrics, samples, integration code, job logs) and
+**every skill** in this repo. No Tensorleap server or sign-in is needed yet.
 
-Your assistant reads your Tensorleap analysis through the **Tensorleap MCP server**
-(insights, metrics, samples, integration code, job logs) and uses the **skills** in this
-repo to turn it into answers and reports. One command sets up both.
-
-**1. Install or upgrade the leap CLI** (0.0.163 or newer has `leap mcp`):
+**1. Install or upgrade the leap CLI:**
 
 ```bash
 curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash
@@ -40,38 +38,38 @@ curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh 
 
 Already installed? `leap cli upgrade -s | bash`
 
-**2. Sign in to your Tensorleap server** (skip if you already push with `leap`):
-
-```bash
-leap auth login
-```
-
-**3. Connect your assistant:**
+**2. Connect your assistant:**
 
 ```bash
 leap mcp config
 ```
 
 It asks which assistant (the ones on your machine are marked) and, if you use more than
-one Tensorleap server, which one. Then it checks the server answers, writes the
-assistant's MCP settings (keeping everything else in the file, with a `.bak` copy), and
-installs the skills where the assistant loads them. You can also name the assistant:
-`leap mcp config cursor`.
+one Tensorleap server, which one. It writes the assistant's MCP settings (keeping
+everything else in the file, with a `.bak` copy) and installs every skill where the
+assistant loads them. Skills that are already there are left alone: each skill keeps
+itself up to date. You can also name the assistant: `leap mcp config cursor`.
 
-**4. Restart the assistant and ask:**
+**3. Restart the assistant and ask for the next step leap prints**, for example:
 
-> What is my model's biggest weakness in project `<name>`?
+> Install Tensorleap on this machine
+>
+> Write a Tensorleap integration for my model
 >
 > Write a Tensorleap analysis report for project `<name>`
 
 | Assistant | What `leap mcp config` sets up |
 |---|---|
-| Claude Code | the `analysis` plugin: MCP server + skills, updated through the plugin marketplace |
+| Claude Code | the `analysis` (MCP server + skill), `installer`, `integration` and `optimization` plugins |
 | Cursor | MCP server in `~/.cursor/mcp.json` + skills in `~/.cursor/skills` |
 | VS Code (GitHub Copilot) | MCP server in your user `mcp.json` + skills in `~/.copilot/skills` |
-| OpenAI Codex | MCP server in `~/.codex/config.toml` |
-| Windsurf | MCP server in `~/.codeium/windsurf/mcp_config.json` |
-| Claude Desktop | MCP server in `claude_desktop_config.json` |
+| OpenAI Codex | MCP server in `~/.codex/config.toml` + skills in `~/.agents/skills` |
+| Windsurf | MCP server in `~/.codeium/windsurf/mcp_config.json` + skills in `~/.codeium/windsurf/skills` |
+| Claude Desktop | MCP server in `claude_desktop_config.json` (the chat app adds skills only through its own settings) |
+
+**Staying up to date:** every skill checks for a newer version when it starts. Skill
+folders (Cursor, Copilot, Codex, Windsurf) update in place; a Claude Code plugin updates
+through its marketplace and loads in your next session.
 
 <details>
 <summary>More: manual setup, several servers, AI access, troubleshooting</summary>
@@ -79,9 +77,6 @@ installs the skills where the assistant loads them. You can also name the assist
 - **Set it up by hand or for a whole team:** `leap mcp config <assistant> --print` shows
   the exact snippet and changes nothing. For Claude Code it also shows a `.mcp.json` you
   can commit to a repo.
-- **Claude Code from the plugin marketplace instead:** inside Claude Code run
-  `/plugin marketplace add tensorleap/skills` then `/plugin install analysis@tensorleap`.
-  The plugin starts `leap mcp`, so the leap CLI still has to be installed and signed in.
 - **Several Tensorleap servers:** the assistant follows your current `leap auth`
   environment; switch it with `leap auth select`. `leap mcp config <assistant> --env <name>`
   pins one server instead (for Claude Code that registers the MCP server without the plugin).
@@ -103,7 +98,8 @@ installs the skills where the assistant loads them. You can also name the assist
 
 </details>
 
-The sections below install the skills for one assistant at a time, without the MCP server.
+The sections below install the skills by hand for one assistant at a time (for example
+into one project), without the MCP server. `leap mcp config` is the usual way.
 
 ## GitHub Copilot (VS Code and Copilot CLI)
 
@@ -160,8 +156,8 @@ preflight gate runs. A global install (`~/.copilot/skills`) updates itself
 automatically; a **project-local install is never changed without your
 approval** — Copilot will ask you first (or you'll get a `y/N` prompt when
 running preflight yourself in a terminal). Offline runs skip the check
-silently. This applies to Copilot and Cursor installs only — Claude installs
-are not touched (Claude updates come through its plugin marketplace).
+silently. Cursor, Codex and Windsurf installs behave the same; a Claude Code
+plugin updates through its marketplace and loads in your next session.
 
 **Upgrading from an older install:** earlier installer versions pasted the skill
 into `.github/copilot-instructions.md`. If that file contains a
@@ -349,9 +345,9 @@ what you need, the phrases that change its behavior, and what each phase does;
 explains every step with flow charts and examples (GitHub shows it as source: download it
 and open it in a browser).
 
-**Staying up to date:** Copilot and Cursor installs check for a newer version whenever the
-skill's preflight runs, the same way as the integration skill. Claude updates come through
-the plugin marketplace (`/plugin marketplace update tensorleap`).
+**Staying up to date:** the skill checks for a newer version whenever its preflight runs,
+the same way as the integration skill: skill folders update in place, a Claude Code plugin
+through its marketplace.
 
 ## How it works
 

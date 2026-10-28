@@ -9,16 +9,20 @@
 # folder — .github/skills/<name>/ in a repo, or ~/.copilot/skills/<name>/ with
 # --global (read by both VS Code and Copilot CLI). Cursor gets the same skill
 # folder at .cursor/skills/<name>/ in a repo, or ~/.cursor/skills/<name>/ with
+# --global. Codex gets it at .agents/skills/<name>/ in a repo, or
+# ~/.agents/skills/<name>/ with --global. Windsurf gets it at
+# .windsurf/skills/<name>/ in a repo, or ~/.codeium/windsurf/skills/<name>/ with
 # --global. Devin gets the same skill folder at .devin/skills/<name>/ in a repo
 # — no --global: Devin scans the repo it clones for a session on an ephemeral
 # cloud machine, not the user's home dir. Installs every skill in the repo (the
 # Claude "plugin" grouping only matters for the native marketplace path, not
 # for this file-copy install).
 #
-# The future front door is `leap skills install <name>`; this is the bridge.
+# Users normally never run this directly: `leap mcp config` runs it for the
+# assistant they pick, and the skills re-run it to update themselves.
 #
 # Usage:
-#   ./install.sh [--tool <claude|cursor|copilot|agents|devin|all>] [--repo|--global]
+#   ./install.sh [--tool <claude|cursor|copilot|codex|windsurf|agents|devin|all>] [--repo|--global]
 #                [--ref <branch>] [TARGET_DIR]
 #   curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh \
 #     | sh -s -- --tool copilot [--global] [TARGET_DIR]
@@ -56,8 +60,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$TOOL" in
-  claude|cursor|copilot|agents|devin|all) ;;
-  *) echo "install: --tool must be one of claude|cursor|copilot|agents|devin|all" >&2; exit 2 ;;
+  claude|cursor|copilot|codex|windsurf|agents|devin|all) ;;
+  *) echo "install: --tool must be one of claude|cursor|copilot|codex|windsurf|agents|devin|all" >&2; exit 2 ;;
 esac
 
 if [ "$SCOPE" = "global" ]; then
@@ -137,11 +141,25 @@ install_shared_scripts() {
   say "shared scripts -> $TARGET/.tensorleap/scripts"
 }
 
+# One Agent Skill folder per skill from dist/$1 into $2.
+install_skill_folders() {
+  for skill in $(list_skills); do
+    src="$DIST/$1/$skill"
+    [ -d "$src" ] || continue
+    dest="$2/$skill"
+    rm -rf "$dest"   # fresh copy: files removed upstream must not linger after updates
+    mkdir -p "$dest"
+    cp -R "$src/." "$dest/"
+    chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
+    say "$1 skill -> $dest"
+  done
+}
+
 # --- installs --------------------------------------------------------------- #
 echo "Installing Tensorleap skills (tool=$TOOL, scope=$SCOPE) into $TARGET"
 
 # AGENTS references {{scripts_dir}} = .tensorleap/scripts, so place them.
-# (Claude, Cursor and Copilot skills are self-contained and don't need these.)
+# (The skill-folder tools and Claude are self-contained and don't need these.)
 if want agents; then
   install_shared_scripts
 fi
@@ -160,20 +178,26 @@ fi
 
 if want cursor; then
   if [ "$SCOPE" = "global" ]; then
-    cur_root="$HOME/.cursor/skills"      # personal skills — read in every project
+    install_skill_folders cursor "$HOME/.cursor/skills"   # personal skills — read in every project
   else
-    cur_root="$TARGET/.cursor/skills"
+    install_skill_folders cursor "$TARGET/.cursor/skills"
   fi
-  for skill in $(list_skills); do
-    src="$DIST/cursor/$skill"
-    [ -d "$src" ] || continue
-    dest="$cur_root/$skill"
-    rm -rf "$dest"   # fresh copy: files removed upstream must not linger after updates
-    mkdir -p "$dest"
-    cp -R "$src/." "$dest/"
-    chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
-    say "cursor skill -> $dest"
-  done
+fi
+
+if want codex; then
+  if [ "$SCOPE" = "global" ]; then
+    install_skill_folders codex "$HOME/.agents/skills"    # Codex's user skills — read in every repo
+  else
+    install_skill_folders codex "$TARGET/.agents/skills"
+  fi
+fi
+
+if want windsurf; then
+  if [ "$SCOPE" = "global" ]; then
+    install_skill_folders windsurf "$HOME/.codeium/windsurf/skills"
+  else
+    install_skill_folders windsurf "$TARGET/.windsurf/skills"
+  fi
 fi
 
 if want devin; then
@@ -181,17 +205,7 @@ if want devin; then
     echo "install: --tool devin has no --global install — Devin scans the repo" >&2
     echo "it clones for a session, not the user's home dir; skipping." >&2
   else
-    dev_root="$TARGET/.devin/skills"
-    for skill in $(list_skills); do
-      src="$DIST/devin/$skill"
-      [ -d "$src" ] || continue
-      dest="$dev_root/$skill"
-      rm -rf "$dest"   # fresh copy: files removed upstream must not linger after updates
-      mkdir -p "$dest"
-      cp -R "$src/." "$dest/"
-      chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
-      say "devin skill -> $dest"
-    done
+    install_skill_folders devin "$TARGET/.devin/skills"
   fi
 fi
 
@@ -204,20 +218,10 @@ fi
 
 if want copilot; then
   if [ "$SCOPE" = "global" ]; then
-    cop_root="$HOME/.copilot/skills"     # read by BOTH VS Code and Copilot CLI
+    install_skill_folders copilot "$HOME/.copilot/skills"   # read by BOTH VS Code and Copilot CLI
   else
-    cop_root="$TARGET/.github/skills"
+    install_skill_folders copilot "$TARGET/.github/skills"
   fi
-  for skill in $(list_skills); do
-    src="$DIST/copilot/$skill"
-    [ -d "$src" ] || continue
-    dest="$cop_root/$skill"
-    rm -rf "$dest"   # fresh copy: files removed upstream must not linger after updates
-    mkdir -p "$dest"
-    cp -R "$src/." "$dest/"
-    chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
-    say "copilot skill -> $dest"
-  done
 fi
 
 echo "Done."

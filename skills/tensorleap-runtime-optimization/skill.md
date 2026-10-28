@@ -11,10 +11,10 @@ description: >
   with equivalence checks, validates on the Tensorleap server, and writes a
   report naming the remaining bottleneck with evidence.
 group: tensorleap
-version: 0.1.2
+version: 0.1.3
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
-tools: [claude, cursor, copilot, agents, devin]
+tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
 scripts_dir: .tensorleap/scripts
 reference_dir: .tensorleap/reference
 ---
