@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.3.3, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.3.4, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
 You produce a self-contained HTML report (plus a short markdown companion
@@ -13,7 +13,8 @@ form an opinion.
 Data comes from the Tensorleap MCP server (`leap mcp`, part of the leap
 CLI), through its tools: `tl_status`, `tl_list_projects`, `tl_list_versions`,
 `tl_get_insights`, `tl_export_analysis`, `tl_get_integration_code`,
-`tl_view_samples`, `tl_list_samples`, `tl_query`. Read its
+`tl_view_samples`, `tl_list_samples`, `tl_query`, and `tl_publish_report`
+for the finished report. Read its
 `tensorleap://glossary` resource once. The report plumbing is one script
 (python3, stdlib only):
 
@@ -63,9 +64,9 @@ Then call `tl_status`. If the Tensorleap tools are not available at all:
   server. Then restart the assistant and stop. On `unknown command "mcp"`,
   the CLI is too old: `leap cli upgrade -s | bash` first.
 
-If `tl_status` works but `tl_export_analysis` is not among the tools, the
-leap CLI predates this skill: ask the user to run `leap cli upgrade -s | bash`
-and restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
+If `tl_status` works but `tl_export_analysis` or `tl_publish_report` is not
+among the tools, the leap CLI predates this skill: ask the user to run
+`leap cli upgrade -s | bash` and restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
 to run `leap auth login`, fix `--env`, or check the tunnel) and stop. Do not
 improvise other auth mechanisms.
 
@@ -421,7 +422,16 @@ python3 .tensorleap/scripts/tl_api.py inline-html <out-dir>/report.html
 build-report exit 8 means report.json is invalid or an image path didn't
 resolve; inline-html exit 7 means a `src` didn't resolve, fix (stderr lists
 which) and re-run; never ship a report with broken images. The result is ONE file
-the user can mail or Slack. Also write `<out-dir>/report.md`, the
+the user can mail or Slack.
+
+**Then publish it, without asking**: call `tl_publish_report` with `dir` =
+the absolute `<out-dir>`. It uploads report.html (with report.md and
+report.json) to the Tensorleap server; the team finds it in the project's
+Reports tab in the UI and the returned `link` opens it. Publishing again
+for the same evaluation replaces your previous report, so re-running after
+an edit is free. Skip it only when the user asked not to publish; if the
+tool refuses (an older server, no connection), keep the local files and
+say so in the closing message. Also write `<out-dir>/report.md`, the
 executive summary, summary table, per-insight action checklists, and the
 **Notes** section (template: one line per insight without a card, ending in
 what the reader can do; unrendered visualizations as on-demand behavior;
@@ -472,7 +482,8 @@ code (an admin's AI-access settings cannot see local renders, and the
 result would differ from what the platform shows).
 
 **Your closing message names the deliverables and stops.** Two sentences at
-most, no bullet lists: the report is ready at `<path>/report.html`, with the ticket companion
+most, no bullet lists: the report is published at the `link` tl_publish_report
+returned, and the files are at `<path>/report.html`, with the ticket companion
 at `<path>/report.md`. No findings, no summaries, no severity counts, no
 recommended first action, no observations, everything you have to say lives
 IN the report; the session message just hands it over. Anything discovered
@@ -482,6 +493,7 @@ message.
 Then answer follow-up questions from the analysis you already did, the
 conversational depth is for when the user asks, never volunteered up front.
 
-**Last rule, binding: the closing message is at most two sentences naming
-`report.html` and `report.md`, with no bullet lists, findings or extra sections.**
+**Last rule, binding: the closing message is at most two sentences naming the
+published link, `report.html` and `report.md`, with no bullet lists, findings
+or extra sections.**
 <!-- END TENSORLEAP SKILL: tensorleap-analysis -->
