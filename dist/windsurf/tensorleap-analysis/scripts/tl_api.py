@@ -707,18 +707,20 @@ a.download:hover { background: var(--acc-light); color: #fff;
 .rsaved svg { flex: none; margin-top: 2px; stroke: #6ee7b7; }
 .rsaved.warn { color: #fbbf24; }
 .rsaved.warn svg { display: none; }
-.rshare { display: flex; flex-direction: column; gap: 8px; padding-top: 10px;
-     border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; color: var(--muted); }
-.rshare[hidden], button.share[hidden], button.save[hidden], html[data-ro] button.apv { display: none; }
-.rshare .acts { display: flex; flex-wrap: wrap; gap: 8px; }
-button.save, button.share { display: inline-flex; align-items: center; justify-content: center;
-     gap: 8px; height: 32px; padding: 0 12px; border: 0; border-radius: 6px;
-     background: var(--acc); color: #fff; font: inherit; font-size: 12px;
-     font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
-     cursor: pointer; transition: background .15s; white-space: nowrap; }
-button.save.alt { background: transparent; border: 1px solid var(--line); color: var(--ink-2); }
-button.save:hover, button.share:hover { background: var(--acc-light); color: #fff; }
-button.save:focus-visible, button.share:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+.racts { display: flex; flex: none; gap: 6px; }
+.racts[hidden], html[data-ro] button.apv { display: none; }
+button.ico { display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+     border: 1px solid var(--line); border-radius: 6px; background: transparent;
+     color: var(--ink-2); cursor: pointer; transition: background .15s, border-color .15s; }
+button.ico:hover { background: rgba(255,255,255,.06); border-color: var(--muted); }
+button.ico:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+.review button.ico svg { width: 18px; height: 18px; }
+.review button.ico svg.brand { stroke: none; }
+.toast { position: fixed; left: 50%; bottom: 24px; z-index: 50; transform: translateX(-50%);
+     padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px;
+     background: var(--card); color: var(--ink-2); font-size: 13px;
+     box-shadow: 0 12px 30px -12px rgba(0,0,0,.6); }
+.toast[hidden] { display: none; }
 button.apv { display: inline-flex; align-items: center; gap: 7px; height: 32px;
      padding: 0 14px; border: 1px solid rgba(52,211,153,.55); border-radius: 6px;
      background: rgba(16,185,129,.10); color: #6ee7b7; font: inherit;
@@ -730,7 +732,7 @@ button.apv:hover { background: rgba(16,185,129,.20); border-color: #34d399;
 button.apv:focus-visible { outline: 2px solid #6ee7b7; outline-offset: 2px; }
 button.apv[aria-pressed="true"] { border-color: #10b981; background: #10b981; color: #052e1f; }
 button.apv[aria-pressed="true"]:hover { background: #34d399; border-color: #34d399; }
-.review svg, button.apv svg, button.save svg, .apvbadge svg { width: 16px; height: 16px;
+.review svg, button.apv svg, .apvbadge svg { width: 16px; height: 16px;
      fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round;
      stroke-linejoin: round; }
 .apvbadge { display: none; width: fit-content; align-items: center; gap: 6px;
@@ -843,10 +845,10 @@ REVIEW_JS = """\
     s.classList.toggle("warn", !RO && !canStore);
     s.querySelector("span").textContent = RO
       ? "Shared " + when(st.savedAt)
-      : !canStore ? "This browser isn't keeping your approvals for this file. Use Share to keep a copy."
+      : !canStore ? "This browser isn't keeping your approvals here. Download a copy to keep them."
       : savedAt ? "Saved in this browser, " + when(savedAt)
       : "Your approvals are saved in this browser as you click.";
-    q("button.share").hidden = RO;
+    q(".racts").hidden = RO;
   }
   function sharedPage() {
     var next = {reportId: st.reportId, readonly: true, approved: approved.slice(),
@@ -865,29 +867,33 @@ REVIEW_JS = """\
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
   }
-  var panel = q(".rshare"), sys = q("button.sys");
-  var probe = typeof File === "function" ? new File(["x"], FILE, {type: "text/html"}) : null;
-  sys.hidden = !(probe && navigator.canShare && navigator.canShare({files: [probe]}));
-  q("button.share").addEventListener("click", function () { panel.hidden = !panel.hidden; });
+  var toastEl = q(".toast"), toastT = null;
+  function toast(text) {
+    toastEl.textContent = text;
+    toastEl.hidden = false;
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { toastEl.hidden = true; }, 4000);
+  }
+  // Gmail and Slack have no link that attaches a file, so both download the copy first.
   q("button.dl").addEventListener("click", function () {
-    var page = sharedPage();
-    if (page) download(page);
-  });
-  sys.addEventListener("click", function () {
-    var page = sharedPage();
-    if (!page) return;
-    var f = new File([page], FILE, {type: "text/html"});
-    navigator.share({files: [f], title: q("h1").textContent}).catch(function () {});
+    download(sharedPage());
+    toast("Read-only copy downloaded");
   });
   q("button.gm").addEventListener("click", function () {
-    var page = sharedPage();
-    if (!page) return;
-    download(page);
+    download(sharedPage());
     var t = q("h1").textContent, n = approved.length;
     var body = "The Tensorleap analysis report for " + t + " is attached (" + FILE + "), with "
       + n + " of " + total + " insights approved. Open it in a browser to read it.";
     window.open("https://mail.google.com/mail/?view=cm&fs=1&su=" + encodeURIComponent("Tensorleap analysis: " + t)
       + "&body=" + encodeURIComponent(body), "_blank", "noopener");
+    toast("Copy downloaded \\u00b7 attach it to the draft");
+  });
+  q("button.sl").addEventListener("click", function () {
+    download(sharedPage());
+    // Slack on the web, like Gmail: slack:// asks to open the app, can leave a blank tab,
+    // and blocks the page's later popups in Chrome and Firefox.
+    window.open("https://app.slack.com/client", "_blank", "noopener");
+    toast("Copy downloaded \\u00b7 drop it into Slack");
   });
   window.addEventListener("storage", function (e) {
     if (RO || e.key !== KEY) return;
@@ -945,8 +951,21 @@ ICON_CHECK = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
               '<path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>')
 ICON_DOWNLOAD = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
                  '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"></path></svg>')
-ICON_SHARE = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
-              '<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v5h14v-5"></path></svg>')
+ICON_GMAIL = ('<svg class="brand" viewBox="0 0 24 24" aria-hidden="true">'
+              '<path fill="#4285F4" d="M2 7.2v10.3c0 .8.7 1.5 1.5 1.5h3V10.6z"></path>'
+              '<path fill="#34A853" d="M22 7.2v10.3c0 .8-.7 1.5-1.5 1.5h-3V10.6z"></path>'
+              '<path fill="#EA4335" d="M6.5 10.6 12 14.7l5.5-4.1V6.9L12 11 6.5 6.9z"></path>'
+              '<path fill="#C5221F" d="M2 7.2l4.5 3.4V6.9L5 5.8C3.8 4.9 2 5.8 2 7.2z"></path>'
+              '<path fill="#FBBC04" d="M22 7.2l-4.5 3.4V6.9L19 5.8c1.2-.9 3 0 3 1.4z"></path></svg>')
+ICON_SLACK = ('<svg class="brand" viewBox="0 0 24 24" aria-hidden="true">'
+              '<rect fill="#36C5F0" x="2" y="7.5" width="9" height="3" rx="1.5"></rect>'
+              '<rect fill="#36C5F0" x="8" y="2" width="3" height="4" rx="1.5"></rect>'
+              '<rect fill="#2EB67D" x="13.5" y="2" width="3" height="9" rx="1.5"></rect>'
+              '<rect fill="#2EB67D" x="18" y="8" width="4" height="3" rx="1.5"></rect>'
+              '<rect fill="#ECB22E" x="13" y="13.5" width="9" height="3" rx="1.5"></rect>'
+              '<rect fill="#ECB22E" x="13" y="18" width="3" height="4" rx="1.5"></rect>'
+              '<rect fill="#E01E5A" x="7.5" y="13" width="3" height="9" rx="1.5"></rect>'
+              '<rect fill="#E01E5A" x="2" y="13" width="4" height="3" rx="1.5"></rect></svg>')
 
 
 def _font_css():
@@ -1161,13 +1180,14 @@ REVIEW_BOX = (
     'aria-valuemin="0" aria-valuenow="0"><span></span></div>'
     '<div class="rnote"></div>'
     f'<div class="rfoot"><div class="rsaved">{ICON_CHECK}<span></span></div>'
-    f'<button type="button" class="share">{ICON_SHARE}Share</button></div>'
-    '<div class="rshare" hidden><span>Share a read-only copy with your approvals. '
-    'Gmail and Slack can’t attach a file from a link: download it, then '
-    'attach it.</span><div class="acts">'
-    f'<button type="button" class="save dl">{ICON_DOWNLOAD}Download</button>'
-    '<button type="button" class="save alt sys" hidden>Share…</button>'
-    '<button type="button" class="save alt gm">Gmail draft</button></div></div></div>')
+    '<div class="racts">'
+    f'<button type="button" class="ico dl" title="Download a read-only copy" '
+    f'aria-label="Download a read-only copy">{ICON_DOWNLOAD}</button>'
+    f'<button type="button" class="ico gm" title="Email a read-only copy with Gmail" '
+    f'aria-label="Email a read-only copy with Gmail">{ICON_GMAIL}</button>'
+    f'<button type="button" class="ico sl" title="Send a read-only copy in Slack" '
+    f'aria-label="Send a read-only copy in Slack">{ICON_SLACK}</button>'
+    '</div></div></div>')
 
 
 def _tile_html(tile):
@@ -1226,6 +1246,7 @@ def _report_html(spec, base, missing):
     parts.append("</main>")
     state = {"reportId": uuid.uuid4().hex, "readonly": False,
              "approved": [], "savedAt": ""}
+    parts.append('<div class="toast" role="status" hidden></div>')
     parts.append(f'<script type="application/json" id="tl-review">{json.dumps(state)}</script>')
     parts.append(f"<script>\n{REVIEW_JS}</script>")
     body = "\n".join(parts)
