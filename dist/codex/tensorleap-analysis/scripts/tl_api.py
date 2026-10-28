@@ -842,20 +842,15 @@ REVIEW_JS = """\
     var s = q(".rsaved");
     s.classList.toggle("warn", !RO && !canStore);
     s.querySelector("span").textContent = RO
-      ? "Approvals by " + (st.reviewer || "an unnamed reviewer") + ", " + when(st.savedAt)
+      ? "Shared " + when(st.savedAt)
       : !canStore ? "This browser isn't keeping your approvals for this file. Use Share to keep a copy."
       : savedAt ? "Saved in this browser, " + when(savedAt)
       : "Your approvals are saved in this browser as you click.";
     q("button.share").hidden = RO;
   }
   function sharedPage() {
-    var name = "";
-    try { name = localStorage.getItem("tl-reviewer") || ""; } catch (e) {}
-    name = window.prompt("Your name, shown with your approvals", name);
-    if (name === null) return null;
-    try { localStorage.setItem("tl-reviewer", name); } catch (e) {}
     var next = {reportId: st.reportId, readonly: true, approved: approved.slice(),
-                reviewer: name.trim(), savedAt: new Date().toISOString()};
+                savedAt: new Date().toISOString()};
     var json = JSON.stringify(next).replace(/</g, "\\\\u003c");
     return SRC.replace('id="tl-review">' + ORIG, function () { return 'id="tl-review">' + json; });
   }
@@ -1167,8 +1162,8 @@ REVIEW_BOX = (
     '<div class="rnote"></div>'
     f'<div class="rfoot"><div class="rsaved">{ICON_CHECK}<span></span></div>'
     f'<button type="button" class="share">{ICON_SHARE}Share</button></div>'
-    '<div class="rshare" hidden><span>Share a read-only copy with your approvals and '
-    'name. Gmail and Slack can’t attach a file from a link: download it, then '
+    '<div class="rshare" hidden><span>Share a read-only copy with your approvals. '
+    'Gmail and Slack can’t attach a file from a link: download it, then '
     'attach it.</span><div class="acts">'
     f'<button type="button" class="save dl">{ICON_DOWNLOAD}Download</button>'
     '<button type="button" class="save alt sys" hidden>Share…</button>'
@@ -1230,9 +1225,8 @@ def _report_html(spec, base, missing):
                      f'<div class="cards">{cards}</div></section>')
     parts.append("</main>")
     state = {"reportId": uuid.uuid4().hex, "readonly": False,
-             "approved": [], "reviewer": "", "savedAt": ""}
-    parts.append('<script type="application/json" id="tl-review">'
-                 f'{json.dumps(state)}</script>')
+             "approved": [], "savedAt": ""}
+    parts.append(f'<script type="application/json" id="tl-review">{json.dumps(state)}</script>')
     parts.append(f"<script>\n{REVIEW_JS}</script>")
     body = "\n".join(parts)
     return (f'<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'

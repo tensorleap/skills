@@ -105,6 +105,7 @@ def main():
     assert '<button type="button" class="apv" aria-pressed="false">' in page and 'id="approved" hidden' in page
     state = json.loads(re.search(r'id="tl-review">(\{.*?\})</script>', page).group(1))
     assert re.fullmatch(r"[0-9a-f]{32}", state["reportId"]) and state["readonly"] is False and state["approved"] == [], state
+    assert "window.prompt" not in page and '"reviewer"' not in page, "approvals carry no name"
     assert page.index('id="tl-review">') < page.index("SRC.replace"), "state block must precede the script"
     assert "localStorage.setItem(KEY" in page and "Save with my approvals" not in page
     assert 'src="' not in page.split("<main>")[1], "inline-html would rewrite script text"
