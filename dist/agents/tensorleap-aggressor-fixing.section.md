@@ -9,7 +9,7 @@ with the user, **which** of those groups to fix, **how** each one should be
 fixed, and you prove the fix with an experiment whose pass/fail rules were
 written down before it ran.
 
-Two rules shape everything below:
+Three rules shape everything below:
 
 - **Fix the aggressor, not the general problem.** A fix aimed at the
   platform's coherent group beats a fix aimed at the whole symptom. Measured:
@@ -19,13 +19,25 @@ Two rules shape everything below:
   (0.41) and raised global false boxes per image by about 50%. A general
   fix ("oversample every FP", "add more hard negatives") is the fallback,
   never the first proposal.
-- **Success has two axes.** (1) The failure mode is solved, measured on the
-  group's fixed member ids at a matched operating point, against a target
-  set before the run. (2) The global KPI does not regress beyond its noise
-  band; it does not need to improve. A fix that solves the failure mode
-  without regressing is a success even when the global KPI does not move.
-  Global ceilings ("fixing this cluster is worth +X") are information, never
-  a reason to drop a failure mode.
+- **Success has two axes.** (1) The **target metric**, agreed with the
+  user, improves on the group's fixed member ids against a target set
+  before the run. (2) No **guard metric** (the global KPI and whatever else
+  the user names) regresses beyond its noise band; none needs to improve.
+  Both are compared at a matched operating point (the fix at the baseline's
+  recall, or against the baseline's threshold curve), never at one fixed
+  threshold, on a split not carved from train. A fix that solves the
+  failure mode without regressing is a success even when the global KPI
+  does not move. Global ceilings ("fixing this cluster is worth +X") are
+  information, never a reason to drop a failure mode.
+- **The measurement is a hypothesis too.** The labels of the measuring
+  set, the matching rule that decides whether a prediction counts, and the
+  scoring pipeline each have an error of their own; a difference between
+  two models smaller than that error is not resolvable by the agreed
+  metric on the original labels. Aggressors and label noise co-locate, so
+  a fix is measured where the labels are weakest, and a model that is
+  right where the label is wrong looks worse. Step 4 checks the ruler when
+  a trigger fires; Step 7 decomposes a global change before reading it as
+  a regression. Both cost nothing when nothing is wrong.
 
 Work from the user's training repo (the one with `leap.yaml` and the
 training code). Experiment records go to `tensorleap/aggressor-fixing/`.
@@ -98,7 +110,9 @@ metric the group was flagged on (loss, a custom score, a thresholded
 metric) and at which operating point. Groups are bounded by that metric: a
 false-alarm score defined only for boxes under 0.65 confidence cannot
 produce a high-confidence-FP group. Say in the inventory what the metric
-could not see, so a group is not mistaken for the whole symptom.
+could not see, so a group is not mistaken for the whole symptom. That
+metric only flagged the group; it never scores a run. The metrics that
+score runs are agreed with the user in Step 3.
 
 Then read the training code: the model, the loss, the sampler, the
 augmentations, the optimizer, the schedule, the batch size, where BN lives,
@@ -168,6 +182,22 @@ fix**, with your recommendation first. A group the user asks for by name
 takes priority: those fits are where the targeted fix pays off most.
 Groups not picked stay in the table and come back in Step 8.
 
+Then, per chosen aggressor, **agree the metrics** that will score it. Every
+later step records them; none changes them.
+
+- **Target metric(s):** what the fix must improve, in the user's own
+  evaluation terms. Propose candidates with a recommendation: "recall on
+  the members at the deployed threshold looks like the fit; alternatives
+  are false boxes per member image, or per-box precision at matched
+  recall. One, or several?" One or several can be targets.
+- **Guard metrics:** what must not regress beyond its noise band. The
+  global KPI is one; add what the fix could plausibly push: a
+  neighbouring class's recall, a per-class precision, the look-alike
+  positives in the aggressor's context, inference cost if the fix touches
+  inference. The user confirms the list.
+- Every metric is scored by the user's evaluation code (build it when none
+  exists), never by re-reading the platform's metric.
+
 ## Step 4: Diagnose each chosen aggressor
 
 Before training, try to disprove the hypothesis cheaply, in this order
@@ -183,6 +213,34 @@ Before training, try to disprove the hypothesis cheaply, in this order
 3. **Inference probe.** A threshold sweep on the group, a mask or crop of
    the suspected cue, a resolution change. Loss near normal but the
    thresholded metric bad means the decision layer, not the representation.
+4. **Check the ruler**, under the agreed target and guard metrics, in
+   tiers; stop at the first tier with no trigger
+   (`.tensorleap/reference/measuring.md` has the procedure and the decision
+   table).
+   - *Tier 0, always, free:* from the export alone, the share of the
+     group's validation errors where the baseline is confident (confident
+     errors concentrate label noise), and the overlap with a
+     mislabeled-samples insight when the export has one. No images
+     looked at, no user involved. With no trigger, the card says "ruler:
+     no trigger" and that is all.
+   - *Tier 1, a sample, only when a trigger fires:* the confident-error
+     share is high; the expected effect is within about two noise bands;
+     the samples are correlated (frames, clips, patients, sessions) and
+     labelled per sample; the matching rule has a tolerance (boxes,
+     masks, keypoints) and the labels are known to be sparse. Then look at
+     about 50 of the baseline's errors on the group's validation members
+     and 50 global ones and class each as model error, label error,
+     matching-rule error or ambiguous. **You do the classing** from the
+     exported visualisations; report the estimate with its interval and
+     the count you could not call. Ask the user only about the ambiguous
+     items, and only when they are enough to flip the decision.
+   - *Decision, per axis:* a non-model-error share well below the noise
+     band means the agreed metric on the original labels decides. A
+     share comparable to or above the band means that axis cannot be
+     decided from the original labels: the **blind disagreement review**
+     becomes its deciding measure, its protocol goes on the card before
+     the run, and the adjudication itself happens after the run, on
+     disagreements only. It gates the verdict, not the run.
 
 Then propose **one dedicated training fix per aggressor** from
 `.tensorleap/reference/solution-map.md`, the one matching the route that
@@ -212,31 +270,36 @@ it to the user. It fixes:
    members alone are never reported as the result. If the user allows a
    re-split, keep a measuring share in validation; moving every member
    into training leaves nothing to measure.
-3. **The failure-mode metric, agreed with the user.** Propose the
-   candidates for this group, in the user's own evaluation terms, with a
-   recommendation: "recall on the members at the deployed threshold looks
-   like the fit; alternatives are false boxes per member image, or
-   per-box precision at matched recall. One, or several?" One or several
-   can be targets. Each is scored by the user's evaluation code (build it
-   when none exists), never by re-reading the platform's metric. Fix the
-   operating point (same recall or same threshold for every run), the
-   baseline value, the noise band and the target.
-4. The global KPI, its baseline value and its non-regression band.
-5. **The noise band**, for both axes, by the first of these that is
+3. **The target metric(s)**, as agreed in Step 3: the operating point
+   (matched recall or matched threshold, the same rule for every run),
+   the baseline value, the noise band and the target.
+4. **The guard metrics**, as agreed in Step 3: baseline value and
+   non-regression band each, and the gate split they are scored on (not
+   carved from train).
+5. **The noise band**, for every metric, by the first of these that is
    affordable: (a) the baseline recipe retrained on 2-3 seeds, which gives
    the spread of the global KPI and of the group's own metric (small
    groups are noisy: one swung from 87% to 100% flagged across seeds of
    the same recipe); (b) a bootstrap interval over the validation
-   samples, free, computed from the baseline's predictions; (c) none, in
-   which case every verdict carries "single seed, unvalidated against
-   noise". A floor taken from one lucky seed turns noise into a verdict.
-6. The one variable this run changes, and its parent run.
-7. The control: the same recipe without the targeted change (replay only),
+   samples, free, computed from the baseline's predictions, resampled by
+   the cluster unit (clip, patient, source) when samples are correlated;
+   (c) none, in which case every verdict carries "single seed,
+   unvalidated against noise". A floor taken from one lucky seed turns
+   noise into a verdict.
+6. **Ruler status**, per axis, from Step 4: "no trigger", or the
+   non-model-error share with its interval, and the deciding measure for
+   that axis (the agreed metric on the original labels, or the blind
+   disagreement review with its protocol: unit, answer options, who
+   adjudicates, reuse rule).
+7. The one variable this run changes, and its parent run.
+8. The control: the same recipe without the targeted change (replay only),
    and, when the fix selects samples, a random selection of the same size.
    The cluster was picked because it scored badly; retraining noise alone
    moves it.
-8. Side-effect slices to watch: neighbouring groups, the classes the fix
-   pushes away from, any group that failed the label check.
+9. Side-effect slices to watch: neighbouring groups, the classes the fix
+   pushes away from, any group that failed the label check, and the
+   look-alike positives (real objects of the target class in the
+   aggressor's context), which a hard-negative fix pushes away first.
 
 ## Step 6: Run
 
@@ -262,13 +325,23 @@ it to the user. It fixes:
   instance-level group the selected unit is the image; an FP group's
   instances have no label to upweight, they are hard negatives on those
   images.
-- Log the exact command, seed, checkpoint and commit in the card.
+- **Filter weakly labelled pools.** Unlabeled or pseudo-labelled data used
+  as negatives contains real positives; drop the baseline's
+  high-confidence candidates from it before training on it.
+- **Post-processing belongs to the model, the scorer does not.** Each run
+  may tune its own decode (thresholds, NMS, max detections, calibration)
+  on the gate split, by the same procedure and the same budget as the
+  baseline, never on test. Everything after the predictions is identical
+  for every run: the labels, the matching rule, the metric code, the
+  operating-point matching.
+- Log the exact command, seed, checkpoint, decode settings and commit in
+  the card.
 
 ## Step 7: Evaluate
 
 On validation (or the dev split the user names), never the test set:
 
-1. Score the agreed failure-mode metric on the fixed member ids at the
+1. Score the agreed target metric(s) on the fixed member ids at the
    matched operating point, for the run, its parent and the control.
 2. **Instance-level groups are scored twice.** The new model produces its
    own instances, so the old member ids are not in its output. By
@@ -280,14 +353,30 @@ On validation (or the dev split the user names), never the test set:
    missed object. The sample level catches new instances the fix created
    in the same images, which the instance match cannot see. Both go on the
    card.
-3. Score the global KPI against the band.
+3. Score every guard metric against its band. A guard regressed beyond
+   its band fails the run whatever the target did.
 4. Score the side-effect slices. A drop on a group that failed the label
    check may be the model learning to miss real objects: report it as a
    caution, not a win.
-5. Verdict per axis, from the card's rules: solved / partial / not solved;
-   within band / regressed. Partial counts: a mechanism halved with the
-   global KPI flat is a direction to continue, not a failure.
-6. Fill the card's results table. Say what part of the gain the targeted
+5. **Decompose a global change before reading it.** Split the gap to the
+   parent into four parts, in this order, and say how much each
+   explains (`.tensorleap/reference/measuring.md`): the scoring pipeline (the
+   run under the baseline's decode, a confidence shift that is not
+   uniform across groups), near-misses under the matching rule (a box at
+   IoU 0.3-0.5, a boundary outside the tolerance, the right class ranked
+   second), label error in the measuring set, and only then real change.
+   Symptom: when every variant moves by a similar amount, the control
+   included, suspect the ruler or the recipe before the selection.
+6. **Where the ruler failed (Step 4), the verdict on that axis comes from
+   the blind disagreement review**, run now on the disagreements between
+   the run and its parent, with the agreed metric on the original labels
+   reported beside it for reference. Never edit validation or test labels
+   to fix the ruler; change how you score.
+7. Verdict per target and per guard, from the card's rules: solved /
+   partial / not solved; within band / regressed. Partial counts: a
+   mechanism halved with the global KPI flat is a direction to continue,
+   not a failure.
+8. Fill the card's results table. Say what part of the gain the targeted
    selection explains (run vs control) and what part the recipe explains
    (control vs parent).
 
@@ -304,7 +393,10 @@ Write `tensorleap/aggressor-fixing/summary.md`:
 - **Hypotheses this run confirmed or refuted**, and the follow-up runs each
   result suggests (one variable each).
 - The inventory table from Step 3 again: the labelling items still open,
-  the aggressors not yet tackled, and what each needs.
+  the aggressors not yet tackled, and what each needs. Label errors found
+  in validation or test by the ruler check or the review (a missing
+  object across a clip, a class convention) are new labelling items here,
+  never edits.
 
 Then **ask the user** whether to continue: the next follow-up for an
 aggressor in progress, or a new aggressor from the table. Do not stop

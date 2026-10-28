@@ -59,6 +59,19 @@ first and measures the training fixes on top of it.
   - Single seed, dev split only.
 - **Versus the independent agent:** no overlap with the Tensorleap groups
   (max Jaccard 0.24).
+- **The ruler was broken.** Validation and test left many real objects
+  unlabelled, and neighbouring video frames had the object boxed in one
+  frame and not the next; most of the baseline's "false alarms" at its
+  operating threshold were real objects with no box. Every fine-tune,
+  the replay-only control included, looked 1-4% worse than the baseline
+  on the original labels, a gap the size of the label error. A blind
+  review of the disagreements only (model hidden, four answers, bootstrap
+  interval) put the aggressor-fixing model above the baseline's threshold
+  curve on test and tied on validation; the targeted cases dropped by
+  about 40-45% on both. Cleaning the training labels did not on its own
+  recover recall. → Check the ruler when a trigger fires, decompose a
+  global change before reading it, decide with the review where the
+  original labels cannot (Steps 4 and 7, `measuring.md`).
 
 ## ISIC 2024 (public competition)
 
