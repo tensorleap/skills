@@ -11,7 +11,7 @@ description: >
   self-contained HTML report with evidence, embedded sample visualizations,
   and concrete action items for an ML engineer.
 group: tensorleap
-version: 0.4.3
+version: 0.4.4
 globs: ["leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents]
@@ -32,7 +32,8 @@ form an opinion.
 Data comes from the Tensorleap MCP server (`leap mcp`, part of the leap
 CLI), through its tools: `tl_status`, `tl_list_projects`, `tl_list_versions`,
 `tl_get_insights`, `tl_export_analysis`, `tl_get_integration_code`,
-`tl_view_samples`, `tl_list_samples`, `tl_query`. Read its
+`tl_view_samples`, `tl_list_samples`, `tl_query`, and `tl_publish_report`
+for the finished report. Read its
 `tensorleap://glossary` resource once. The report plumbing is one script
 (python3, stdlib only):
 
@@ -83,9 +84,9 @@ Then call `tl_status`. If the Tensorleap tools are not available at all:
   server. Then restart the assistant and stop. On `unknown command "mcp"`,
   the CLI is too old: `leap cli upgrade -s | bash` first.
 
-If `tl_status` works but `tl_export_analysis` is not among the tools, the
-leap CLI predates this skill: ask the user to run `leap cli upgrade -s | bash`
-and restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
+If `tl_status` works but `tl_export_analysis` or `tl_publish_report` is not
+among the tools, the leap CLI predates this skill: ask the user to run
+`leap cli upgrade -s | bash` and restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
 to run `leap auth login`, fix `--env`, or check the tunnel) and stop. To sign in,
 run `leap auth login <url> --non-interactive < /dev/null` yourself in the
 background, show the user the sign-in link it prints, wait for it to finish (on
@@ -458,7 +459,16 @@ python3 {{scripts_dir}}/tl_api.py inline-html <out-dir>/report.html
 build-report exit 8 means report.json is invalid or an image path didn't
 resolve; inline-html exit 7 means a `src` didn't resolve, fix (stderr lists
 which) and re-run; never ship a report with broken images. The result is ONE file
-the user can mail or Slack. Also write `<out-dir>/report.md`, the
+the user can mail or Slack.
+
+**Then publish it, without asking**: call `tl_publish_report` with `dir` =
+the absolute `<out-dir>`. It uploads report.html (with report.md and
+report.json) to the Tensorleap server; the team finds it in the project's
+Reports tab in the UI and the returned `link` opens it. Publishing again
+for the same evaluation replaces your previous report, so re-running after
+an edit is free. Skip it only when the user asked not to publish; if the
+tool refuses (an older server, no connection), keep the local files and
+say so in the closing message. Also write `<out-dir>/report.md`, the
 executive summary, summary table, per-insight action checklists, and the
 **Notes** section (template: one line per insight without a card, ending in
 what the reader can do; unrendered visualizations as on-demand behavior;
@@ -520,8 +530,10 @@ always prints `insights panel:` when the export had that link.
 **Your closing message hands the report over and stops.** At most four short
 sentences, plus one code block only when you give the `copy:`/`tunnel:`
 commands; no bullet lists:
-1. Where the report is: `<path>/report.html` (say you opened it when the
-   script printed `opened:`), with the ticket companion at `<path>/report.md`.
+1. Where the report is: the `link` tl_publish_report returned (it opens the
+   report in the project's Reports tab), and `<path>/report.html` (say you
+   opened it when the script printed `opened:`), with the ticket companion at
+   `<path>/report.md`.
    After `not opened:` in an SSH session or without a display, give the `copy:`
    command and, when printed, the `tunnel:` command in one code block, and say
    to keep the tunnel open while reviewing: the report's **Approve** buttons
@@ -541,7 +553,7 @@ Then answer follow-up questions from the analysis you already did, the
 conversational depth is for when the user asks, never volunteered up front.
 
 **Last rule, binding: the closing message is at most four short sentences:
-where `report.html` and `report.md` are, the ask to approve the insights the
+the published link, where `report.html` and `report.md` are, the ask to approve the insights the
 user agrees with, and the Insights panel link; plus one code block with the
 `copy:`/`tunnel:` commands when the script printed them. No bullet lists,
 findings or extra sections.**
