@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Read-only preflight for `leap server install|upgrade|reinstall`.
-# Prints a report and changes nothing. Exit 1 only on blocking issues.
+# Prints a report and changes nothing on the machine. Exit 1 only on blocking issues.
+# One exception: step 0 may refresh the skill's OWN files — see self_update.sh.
 # Catalog numbers refer to reference/install-troubleshooting.md.
 set -u
 
