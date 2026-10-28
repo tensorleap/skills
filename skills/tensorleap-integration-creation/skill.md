@@ -8,10 +8,10 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.6.1
+version: 0.6.2
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
-tools: [claude, cursor, copilot, agents, devin]
+tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
 scripts_dir: .tensorleap/scripts
 reference_dir: .tensorleap/reference
 ---

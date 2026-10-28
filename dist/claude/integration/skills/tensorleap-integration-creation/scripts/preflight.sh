@@ -5,7 +5,7 @@
 # CHECK-ONLY. Detects the platform prerequisites, prints a PASS/FAIL table, and
 # exits non-zero when something is wrong. It NEVER installs, authenticates,
 # starts a server, or configures anything on the platform — it reports and
-# stops. One exception: on Copilot/Cursor installs (skill folders that ship a
+# stops. One exception: on skill-folder installs (the ones that ship a
 # VERSION file) step 0 may refresh the skill's OWN files — automatically for a
 # global install, only with approval for a project-local one. Run it FIRST,
 # before authoring (see SKILL.md "Preflight gate").
@@ -81,7 +81,7 @@ fail(){ printf '  [FAIL] %-24s %s\n' "$1" "$2"; }
 note(){ printf '         -> %s\n' "$1"; }
 blocked(){ echo; echo "BLOCKED — do not begin authoring. Resolve the item above and re-run preflight."; exit 2; }
 
-# 0. Skill self-update (Copilot/Cursor installs only, see self_update.sh).
+# 0. Skill self-update (see self_update.sh).
 #    An update may replace THIS running file, so after one we exec a fresh
 #    copy, never read further from a possibly-stale offset.
 if [[ -z "${TL_SKILL_NO_UPDATE:-}" && -f "$(dirname "$0")/self_update.sh" ]]; then

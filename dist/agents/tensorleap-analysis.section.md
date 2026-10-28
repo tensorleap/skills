@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.3.3, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.3.4, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
 You produce a self-contained HTML report (plus a short markdown companion
@@ -45,8 +45,8 @@ duration; `TL_DISABLE_ANALYTICS=1` turns it off).
 Run `bash .tensorleap/scripts/self_update.sh` first. Exit 0: nothing to do.
 Exit 10: the skill's files were just refreshed, re-read this file and start
 over. A `NOTE:` line means a project-local install has an update available:
-ask the user before running the printed command. The script only acts on
-Copilot/Cursor installs; Claude updates through the plugin marketplace.
+ask the user before running the printed command. A Claude Code plugin update
+loads in the next session; continue with the installed version.
 
 Then call `tl_status`. If the Tensorleap tools are not available at all:
 

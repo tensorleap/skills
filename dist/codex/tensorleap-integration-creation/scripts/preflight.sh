@@ -1,0 +1,264 @@
+#!/usr/bin/env bash
+#
+# Preflight gate for the Tensorleap integration loop.
+#
+# CHECK-ONLY. Detects the platform prerequisites, prints a PASS/FAIL table, and
+# exits non-zero when something is wrong. It NEVER installs, authenticates,
+# starts a server, or configures anything on the platform — it reports and
+# stops. One exception: on skill-folder installs (the ones that ship a
+# VERSION file) step 0 may refresh the skill's OWN files — automatically for a
+# global install, only with approval for a project-local one. Run it FIRST,
+# before authoring (see SKILL.md "Preflight gate").
+#
+# It intentionally checks only prerequisites that do NOT need a Python
+# environment, so it can run before the project env is provisioned. The Python
+# environment and `code_loader` (install + version floor) are handled separately
+# by the skill as a setup step — they require the env to exist, so they are not
+# part of this gate.
+#
+# Server topology is decided from the API URL in `leap auth whoami` (the server
+# the CLI actually talks to — a local install may exist yet the CLI point at a
+# remote server; whoami wins), unless TL_TOPOLOGY forces it. Decision order:
+#   1. TL_TOPOLOGY=local|remote set  -> use it verbatim (the skill sets this when
+#      the user has already stated they work remotely, or after resolving an
+#      ambiguous case below).
+#   2. API URL host is NOT localhost (127.0.0.1/::1/0.0.0.0 count as local)
+#      -> REMOTE.
+#   3. Host IS localhost (any port) -> probe `server info` to disambiguate:
+#      a. No server answers -> exit 6 AMBIGUOUS: with ANY local port this may be a
+#         remote server reached via a port-forward (a forward can bind any local
+#         port), or simply no server installed here. The skill asks whether it is
+#         installed remotely; yes -> re-run TL_TOPOLOGY=remote, no -> install/start
+#         the local server and STOP.
+#      b. A server answers on a NON-4589 port -> exit 5 AMBIGUOUS: could be a local
+#         server on a custom port, or a live remote port-forward. The skill asks,
+#         then re-runs with TL_TOPOLOGY set.
+#      c. A server answers on port 4589 (or unspecified) -> LOCAL.
+# Then:
+#   - LOCAL  -> full local checks (server online + data volume), plus
+#     informational lines on whether the server release supports the custom
+#     latent space step (DISABLED for <= 1.6.85 or an unreadable version) and
+#     element instances (DISABLED for <= 1.6.74 or an unreadable version).
+#   - REMOTE -> NOT a blocker. The local `server info` cannot describe a remote
+#     host and the data volume cannot be inferred/verified from here, so the
+#     script stops with exit 4 and the skill drives the remote flow (confirm
+#     intent -> ask for the remote volume + remote `server info` -> creds via
+#     `leap secrets`).
+#
+# Usage:   scripts/preflight.sh
+# CLI:     default `leap`; override with TL_CLI (e.g. TL_CLI=leapdev)
+# Topology override: TL_TOPOLOGY=local|remote (skips the URL-based decision)
+#
+# Exit codes:
+#   0  all clear — LOCAL platform prerequisites met
+#   2  BLOCKER (CLI missing / invalid TL_TOPOLOGY / local server up but no data
+#      volume / forced-local with no server) —
+#      relay the printed guidance to the user and STOP; do not fix it here
+#   3  SETUP pending (not authenticated) — the skill guides login, then re-run
+#   4  REMOTE server detected — NOT an error. The skill must confirm the user
+#      wants to work remotely and then follow the remote data flow (see SKILL.md
+#      "Preflight gate"). If the user does NOT want remote, they re-point the CLI
+#      at the local server and re-run preflight.
+#   5  AMBIGUOUS topology (localhost on a non-4589 port, and a server ANSWERS) —
+#      NOT an error. Could be a local server on a custom port or a live remote
+#      port-forward. The skill must ask the user which it is, then re-run with
+#      TL_TOPOLOGY=local|remote.
+#   6  NO local server answered at a DERIVED localhost URL (ANY port; `server info`
+#      reports not running / not installed) — NOT an error. Ambiguous: this may be a
+#      REMOTE server reached via a port-forward (which can bind any local port), or
+#      simply no server installed here. The skill must ask whether the server is
+#      installed REMOTELY. Yes -> re-run TL_TOPOLOGY=remote (remote flow). No -> the
+#      local server must be installed/started; relay guidance and STOP.
+#      (If TL_TOPOLOGY=local was forced, the explicit choice wins: no server is a
+#      plain blocker -> exit 2, not this remote question.)
+#
+set -uo pipefail
+
+TL_CLI="${TL_CLI:-leap}"
+
+pass(){ printf '  [PASS] %-24s %s\n' "$1" "$2"; }
+fail(){ printf '  [FAIL] %-24s %s\n' "$1" "$2"; }
+note(){ printf '         -> %s\n' "$1"; }
+blocked(){ echo; echo "BLOCKED — do not begin authoring. Resolve the item above and re-run preflight."; exit 2; }
+
+# 0. Skill self-update (see self_update.sh).
+#    An update may replace THIS running file, so after one we exec a fresh
+#    copy, never read further from a possibly-stale offset.
+if [[ -z "${TL_SKILL_NO_UPDATE:-}" && -f "$(dirname "$0")/self_update.sh" ]]; then
+  bash "$(dirname "$0")/self_update.sh"; rc=$?
+  [[ $rc -eq 10 ]] && TL_SKILL_NO_UPDATE=1 exec "$0" "$@"
+fi
+
+# Record the run's start (one anonymous skill_run event; TL_DISABLE_ANALYTICS=1 turns it off).
+record_start() { python3 "$(dirname "$0")/skill_run.py" tensorleap-integration-creation started --exit-code "$1" >/dev/null 2>&1 || true; }
+trap 'record_start $?' EXIT
+
+echo "Tensorleap preflight"
+
+# 1. CLI on PATH -------------------------------------------------------------
+if ! command -v "$TL_CLI" >/dev/null 2>&1; then
+  fail "CLI present" "'$TL_CLI' not found on PATH"
+  note "This skill runs on the Tensorleap server host, where the CLI ships with the install."
+  note "If you are on that host and the CLI is missing, contact Tensorleap."
+  blocked
+fi
+pass "CLI present" "$(command -v "$TL_CLI")"
+
+# 2. Topology (the API URL from whoami decides which server the CLI talks to) --
+#    A local install may exist yet the CLI point at a remote server — whoami wins.
+WHO="$("$TL_CLI" auth whoami 2>&1)"
+URL="$(printf '%s\n' "$WHO" | sed -n 's/^API Url:[[:space:]]*//p' | head -1)"
+if [[ -z "$URL" ]]; then
+  fail "Server endpoint" "could not read the API URL from '$TL_CLI auth whoami'"
+  note "Authenticate first: $TL_CLI auth login"
+  echo; echo "SETUP PENDING — authenticate, then re-run preflight."; exit 3
+fi
+AUTHED=0
+printf '%s\n' "$WHO" | grep -q "^User email:" && AUTHED=1
+NOSCHEME="$(printf '%s' "$URL" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#/.*$##')"  # host[:port]
+HOST="$(printf '%s' "$NOSCHEME" | sed 's#:.*$##' | tr 'A-Z' 'a-z')"
+PORT="$(printf '%s' "$NOSCHEME" | sed -n 's#^[^:]*:##p')"                                    # empty if no port
+
+# Decide topology (see header). TL_TOPOLOGY forces it; otherwise derive from URL.
+FORCED="${TL_TOPOLOGY:-}"
+if [[ -n "$FORCED" && "$FORCED" != "local" && "$FORCED" != "remote" ]]; then
+  fail "Server topology" "TL_TOPOLOGY='$FORCED' is invalid (use local|remote)"
+  blocked
+fi
+case "$HOST" in
+  localhost|127.0.0.1|::1|0.0.0.0) IS_LOCALHOST=1 ;;
+  *) IS_LOCALHOST=0 ;;
+esac
+
+# REMOTE — forced remote, or (no override) a non-localhost host. Not a blocker;
+# local `server info` cannot describe a remote server, so the skill drives the flow.
+if [[ "$FORCED" == "remote" || ( -z "$FORCED" && "$IS_LOCALHOST" -eq 0 ) ]]; then
+  pass "Server topology" "remote server ($URL)"
+  if [[ "$AUTHED" -ne 1 ]]; then
+    fail "Authenticated" "not logged in to $URL"
+    note "Authenticate first: $TL_CLI auth login, then re-run preflight."
+    echo; echo "SETUP PENDING — authenticate, then re-run preflight."; exit 3
+  fi
+  pass "Authenticated" "$(printf '%s\n' "$WHO" | sed -n 's/^User email:[[:space:]]*//p' | head -1)"
+  note "Local 'server info' describes only a LOCAL install, so it cannot see this"
+  note "remote server's data volume — data presence cannot be verified from here."
+  echo
+  echo "REMOTE SERVER DETECTED — confirm intent before authoring. The skill must:"
+  echo "  1. Ask whether you want to work remotely (you may have BOTH a local and a"
+  echo "     remote server; the CLI is currently pointed at the remote one)."
+  echo "     - If NOT remote: re-point the CLI at the local server (reconfigure"
+  echo "       apiUrl / re-auth), then re-run preflight."
+  echo "  2. If remote: ask for the remote data volume path, and ask you to run"
+  echo "     '$TL_CLI server info' ON THE REMOTE HOST and paste its datasetvolumes."
+  echo "  3. For a remote data store, register credentials via '$TL_CLI secrets'"
+  echo "     (they become env vars on the platform); the local test uses the same"
+  echo "     env vars set in your local shell."
+  exit 4
+fi
+
+# LOCAL-ish (forced local, or a localhost URL). The real test is whether a local
+# server actually answers — probe it before committing to the local flow.
+# --- 3 + 4. Server running + data volume (server info reports the LOCAL install) --
+INFO="$("$TL_CLI" server info 2>&1)"
+if printf '%s\n' "$INFO" | grep -qiE "no installation information|not running|cluster not found"; then
+  if [[ "$FORCED" == "local" ]]; then
+    # The user explicitly said LOCAL — honor it. No server responding is then a
+    # plain blocker (install/start the local server), NOT a remote question.
+    fail "Server online" "topology forced local, but no local server responded at $URL"
+    note "Install/start the local server:  $TL_CLI server run"
+    blocked
+  fi
+  # DERIVED localhost + no server answering — AMBIGUOUS regardless of port. It may
+  # be a REMOTE server reached via a port-forward (a forward can bind ANY local
+  # port), or simply no server installed here. Do NOT block outright; the skill asks.
+  fail "Server online" "no local server responded at $URL (not running or not installed)"
+  echo
+  echo "NO LOCAL SERVER — the URL is local but nothing answered. This may be a REMOTE"
+  echo "server reached via a port-forward (which can be on ANY local port, not just 4589),"
+  echo "or no server installed here. The skill must:"
+  echo "  1. Ask whether the Tensorleap server is installed REMOTELY."
+  echo "     - Yes: ensure the CLI points at a REACHABLE remote endpoint (the remote URL,"
+  echo "            or a live port-forward on whatever port), then re-run as remote:"
+  echo "            TL_TOPOLOGY=remote $0   (then follow the remote flow)."
+  echo "     - No:  the local server must be installed/started -> $TL_CLI server run; then STOP."
+  exit 6
+fi
+
+# A server answered. If topology was DERIVED (no override) from a localhost URL on
+# a NON-4589 port, it is still ambiguous whether this is a local server on a custom
+# port or a live remote port-forward — the skill must ask.
+if [[ -z "$FORCED" && "$IS_LOCALHOST" -eq 1 && -n "$PORT" && "$PORT" != "4589" ]]; then
+  pass "Server topology" "localhost:$PORT — AMBIGUOUS (local custom port or live remote port-forward?)"
+  echo
+  echo "AMBIGUOUS TOPOLOGY — a server answers on localhost:$PORT, not the default"
+  echo "local-server port 4589. This may be a local server on a custom port, or a"
+  echo "REMOTE server reached via a live port-forward. The skill must:"
+  echo "  1. Ask the user which it is."
+  echo "  2. Re-run this gate with the answer:"
+  echo "     - local:  TL_TOPOLOGY=local  $0"
+  echo "     - remote: TL_TOPOLOGY=remote $0"
+  exit 5
+fi
+
+# LOCAL server confirmed (localhost:4589 / unspecified, or forced local).
+pass "Server topology" "local server ($URL)"
+pass "Server online" "reachable at $URL"
+
+VOL="$(printf '%s\n' "$INFO" | awk '
+  /datasetvolumes:/ {f=1; next}
+  f && /^[[:space:]]*-[[:space:]]*/ { sub(/^[[:space:]]*-[[:space:]]*/,""); print; exit }
+  f && /^[^[:space:]]/ { exit }
+')"
+if [[ -z "$VOL" ]]; then
+  fail "Data volume" "no dataset volume is configured on this server"
+  note "Contact Tensorleap to configure a dataset volume."
+  blocked
+fi
+pass "Data volume" "$(printf '%s' "$VOL" | cut -d: -f1)"
+
+# 4b. Custom latent space support (informational, never blocks) --------------
+#     The custom-latent-space step needs a server release newer than
+#     CUSTOM_LS_MAX_UNSUPPORTED; an unreadable version counts as unsupported.
+CUSTOM_LS_MAX_UNSUPPORTED="1.6.85"
+SRV_VER="$(printf '%s\n' "$INFO" | grep -E '(^|[[:space:]])version:' | head -1 | sed -n 's/.*version:[[:space:]]*\([0-9][0-9.]*\).*/\1/p')"
+if [[ -z "$SRV_VER" ]]; then
+  pass "Custom latent space" "DISABLED (server version unknown) — skip the custom latent space step"
+elif awk -v a="$SRV_VER" -v b="$CUSTOM_LS_MAX_UNSUPPORTED" 'BEGIN {
+       n = split(a, x, "."); m = split(b, y, "."); k = (n > m) ? n : m
+       for (i = 1; i <= k; i++) { if (x[i] + 0 < y[i] + 0) exit 0; if (x[i] + 0 > y[i] + 0) exit 1 }
+       exit 0 }'; then
+  pass "Custom latent space" "DISABLED (server $SRV_VER <= $CUSTOM_LS_MAX_UNSUPPORTED) — skip the custom latent space step"
+else
+  pass "Custom latent space" "ENABLED (server $SRV_VER)"
+fi
+
+# 4c. Element instances support (informational, never blocks) ----------------
+#     Instance mode (element-instance preprocess, instance metrics/metadata,
+#     instance custom latent space) needs a server release newer than
+#     ELEMENT_INSTANCES_MAX_UNSUPPORTED; an unreadable version counts as
+#     unsupported.
+ELEMENT_INSTANCES_MAX_UNSUPPORTED="1.6.74"
+if [[ -z "$SRV_VER" ]]; then
+  pass "Element instances" "DISABLED (server version unknown) — skip the instance-mode surface"
+elif awk -v a="$SRV_VER" -v b="$ELEMENT_INSTANCES_MAX_UNSUPPORTED" 'BEGIN {
+       n = split(a, x, "."); m = split(b, y, "."); k = (n > m) ? n : m
+       for (i = 1; i <= k; i++) { if (x[i] + 0 < y[i] + 0) exit 0; if (x[i] + 0 > y[i] + 0) exit 1 }
+       exit 0 }'; then
+  pass "Element instances" "DISABLED (server $SRV_VER <= $ELEMENT_INSTANCES_MAX_UNSUPPORTED) — skip the instance-mode surface"
+else
+  pass "Element instances" "ENABLED (server $SRV_VER)"
+fi
+
+# 5. Auth (setup — the skill guides login; not a hard blocker) ---------------
+if printf '%s\n' "$WHO" | grep -q "^User email:"; then
+  pass "Authenticated" "$(printf '%s\n' "$WHO" | sed -n 's/^User email:[[:space:]]*//p' | head -1)"
+  echo
+  echo "PREFLIGHT OK — platform prerequisites met. (Env + code_loader are set up next by the skill.)"
+  exit 0
+fi
+
+fail "Authenticated" "not logged in to $URL"
+note "The skill will guide login:  $TL_CLI auth login"
+echo
+echo "SETUP PENDING — authenticate, then re-run preflight."
+exit 3
