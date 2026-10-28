@@ -173,6 +173,15 @@ top samples and ask:
    image shows dark hair"), naming the samples, never counting the
    displayed ones. A metadata tag disagreeing with the image is a metadata
    problem; call it a *label* problem only when it's the label itself.
+   **The `Mislabeled` chip.** Add the chip with the exact text `Mislabeled`
+   to a card only when ALL of these hold: it is a Failure Mode card that
+   passed the coherence gate (item 3); the group fails because the same
+   label is wrong across the group; the label is human-interpretable; named
+   samples visibly contradict it; and the root cause is `Label quality` and
+   nothing else. Never add it for scattered individual mislabels, opaque
+   labels that can't be judged from outside, mixed causes, data gap, model
+   behavior, split problems, or old-type Mislabeled cards. The chip lives
+   only in the report; it is not written to the platform.
 2. **What do these samples share that the metadata can't express?**
    Lighting, pose, occlusion, background clutter, image quality, phrasing
    style, topic. If you spot one, name it AND recommend adding it as a

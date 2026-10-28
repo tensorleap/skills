@@ -133,7 +133,9 @@ are relative to that directory. It contains:
   carries `aggressor_fixing`), `deep_link` (the insight opened and analyzed
   in the platform), `add_test_link` (present when the insight has engine-made
   `automatic_tests`; opens the platform, which offers to create the insight's
-  regression test on the user's confirmation), `samples` (per sample id: downloaded `payload.json`
+  regression test on the user's confirmation), `add_comment_link` (present
+  when the platform supports it; opens the platform, which writes the card's
+  title into the insight's Note on the user's confirmation), `samples` (per sample id: downloaded `payload.json`
   + assets, and `overlay*.jpg` heatmaps already rendered over the image),
   `errors`, and top-level `counts` and `skipped`, plus `prediction_labels`
   (per prediction type, the class-name list the integration declared,
@@ -409,6 +411,8 @@ when opened), action items,
 the **download button** (`download_csv`) when the digest has
 `files.fixing_csv`, the platform's selected samples to label/acquire,
 the **"Test" header button** (`add_test`) when the digest has `add_test_link`,
+the **"Add comment" header button** (`add_comment`) when the digest has
+`add_comment_link`,
 and the **"Analyze insight"** header button using the insight's
 `deep_link` (lands on the insight already analyzed, opened as the
 dashboard's top panel with its cluster filter applied, what the panel's

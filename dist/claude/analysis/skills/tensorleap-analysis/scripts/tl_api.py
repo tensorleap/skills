@@ -155,6 +155,8 @@ def cmd_digest(args):
         }
         if ins.get("createTestLink"):
             d["add_test_link"] = ins["createTestLink"]
+        if ins.get("addCommentLink"):
+            d["add_comment_link"] = ins["addCommentLink"]
         if summary:
             d["population"] = {"samples": summary.get("groupSize"), "csv_rows": summary.get("csvRows")}
         for smp in ins.get("samples") or []:
@@ -723,6 +725,8 @@ ICON_MAGNIFIER = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
                   '<path d="m21 21-4.3-4.3"></path></svg>')
 ICON_PLUS = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
              '<path d="M12 5v14M5 12h14"></path></svg>')
+ICON_COMMENT = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
+                '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>')
 
 
 def _font_css():
@@ -842,6 +846,12 @@ def _card_html(card, kind, base, missing, modality):
         buttons.append(f'<a class="button" href="{_esc(ex["link"])}" '
                        f'target="_blank" rel="noopener" title="{_esc(tip)}">'
                        f'{ICON_MAGNIFIER}Analyze insight</a>')
+    ac = card.get("add_comment")
+    if ac:
+        href = ac["link"] + urllib.parse.quote(card["heading"], safe="")
+        buttons.append(f'<a class="button" href="{_esc(href)}" target="_blank" rel="noopener" '
+                       f'title="Write this card\'s title into the insight\'s note in Tensorleap (you confirm there)">'
+                       f'{ICON_COMMENT}Add comment</a>')
     btns = f'<span class="cbtns">{"".join(buttons)}</span>' if buttons else ""
     chips = [f'<span class="chip sev"><span class="k">Severity</span>'
              f'<b>{sev} of 3</b></span>']
@@ -1044,6 +1054,9 @@ def _report_txt(spec):
                 lines.append(f'[header button] Test, {c["add_test"]["label"]} '
                              f'(opens Tensorleap, user confirms; '
                              f'{c["add_test"].get("tip", "")})')
+            if c.get("add_comment"):
+                lines.append("[header button] Add comment (opens Tensorleap, user confirms; "
+                             "writes the heading into the insight's note)")
     return "\n".join(lines) + "\n"
 
 
@@ -1064,6 +1077,23 @@ def cmd_build_report(args):
         spec = _no_dashes(json.load(open(spec_path)))
     except Exception as e:
         print(f"cannot read {spec_path}: {e}", file=sys.stderr)
+        raise SystemExit(8)
+    invalid = []
+    for group in spec.get("groups", []):
+        for c in group.get("cards", []):
+            family = ((c.get("root_cause") or {}).get("family") or "").strip()
+            for chip in c.get("chips", []):
+                if re.search(r"\bmis+-?label+ed\b", str(chip), re.I) and family != "Label quality":
+                    invalid.append(f'report.json invalid: card {c.get("id")} has a "{chip}" chip but its root cause '
+                                   f'is "{family or "none"}"; the Mislabeled chip is only for a Failure Mode group '
+                                   f'that is just coherent mislabelling (root cause Label quality alone)')
+            ac = c.get("add_comment")
+            if ac and not str(ac.get("link", "")).endswith("="):
+                invalid.append(f'card {c.get("id")}: add_comment.link must be the digest\'s '
+                               f'add_comment_link, copied verbatim')
+    if invalid:
+        for msg in invalid:
+            print(msg, file=sys.stderr)
         raise SystemExit(8)
     missing = []
     try:

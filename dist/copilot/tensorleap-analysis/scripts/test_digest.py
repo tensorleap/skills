@@ -32,19 +32,52 @@ def make_export(root, relative=False):
         "insights": [
             {"index": 1, "type": "low_performance", "name": "Failure Mode", "status": "InReview", "dir": os.path.join(root, "insight_1_low_performance"),
              "samplesCsv": csv1, "fixingCsv": fix, "link": "http://ui/i1", "createTestLink": "http://ui/i1?addTestFromInsight=c1",
+             "addCommentLink": "http://ui/i1?x=1&addCommentToInsight=c1&comment=",
              "summary": {"groupSize": 2, "csvRows": 2, "rankedBy": "metrics.loss"}, "engine": {"n_samples": 2, "is_train_aggressor": True},
              "samples": [{"id": "training_1", "rank": 1, "rendered": True, "files": [payload]}, {"id": "training_2", "rank": 2, "rendered": False},
                          {"id": "training_3", "rank": 3, "rendered": True}]},
             {"index": 2, "type": "low_performance", "name": "Failure Mode", "parentIndex": 1, "dir": os.path.join(root, "insight_1_low_performance", "sub_2_low_performance"),
-             "samplesCsv": csv2, "link": "http://ui/i2", "summary": {"groupSize": 1, "csvRows": 1}, "engine": {"n_samples": 1}, "samples": []},
+             "samplesCsv": csv2, "link": "http://ui/i2", "addCommentLink": "http://ui/i2?x=1&addCommentToInsight=c2&comment=",
+             "summary": {"groupSize": 1, "csvRows": 1}, "engine": {"n_samples": 1}, "samples": []},
             {"index": 4, "type": "duplication", "name": "Duplication", "dir": os.path.join(root, "insight_4_duplication"),
-             "samplesCsv": csv4, "link": "http://ui/i4", "summary": {"groupSize": 2, "csvRows": 2}, "engine": {"n_samples": 2}, "samples": []},
+             "samplesCsv": csv4, "link": "http://ui/i4", "addCommentLink": "http://ui/i4?x=1&addCommentToInsight=c4&comment=",
+             "summary": {"groupSize": 2, "csvRows": 2}, "engine": {"n_samples": 2}, "samples": []},
         ],
     }
     w("manifest.json", json.dumps(manifest))
 
 
-def main():
+def digest(root):
+    out = subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", root], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    return json.load(open(os.path.join(root, "insights.json")))
+
+
+def check_add_comment_link():
+    root = tempfile.mkdtemp()
+    make_export(root)
+    d = digest(root)
+    p, dup = d["insights"]
+    assert p.get("add_comment_link", "").endswith("addCommentToInsight=c1&comment="), p.get("add_comment_link")
+    assert p["subinsights"][0].get("add_comment_link", "").endswith("addCommentToInsight=c2&comment="), p["subinsights"][0]
+    assert dup["index"] == 4 and dup.get("add_comment_link", "").endswith("addCommentToInsight=c4&comment="), dup
+
+
+def check_no_comment_link_without_platform_support():
+    legacy = tempfile.mkdtemp()
+    make_export(legacy)
+    path = os.path.join(legacy, "manifest.json")
+    manifest = json.load(open(path))
+    for ins in manifest["insights"]:
+        ins.pop("addCommentLink", None)
+    json.dump(manifest, open(path, "w"))
+    d = digest(legacy)
+    every = d["insights"] + [s for i in d["insights"] for s in i["subinsights"]]
+    assert len(every) == 3
+    assert not any("add_comment_link" in i for i in every), every
+
+
+def check_existing():
     root = tempfile.mkdtemp()
     make_export(root)
     out = subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", root], capture_output=True, text=True)
@@ -96,6 +129,19 @@ def main():
     assert "is_low_perf_root_member" not in lr["metadata"]
     empty = tempfile.mkdtemp()
     assert subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", empty], capture_output=True).returncode == 5
+
+
+def main():
+    failed = []
+    for check in (check_existing, check_add_comment_link, check_no_comment_link_without_platform_support):
+        try:
+            check()
+            print(f"PASS {check.__name__}")
+        except Exception as e:
+            failed.append(check.__name__)
+            print(f"FAIL {check.__name__}: {type(e).__name__}: {e}")
+    if failed:
+        raise SystemExit(1)
     print("all checks passed")
 
 
