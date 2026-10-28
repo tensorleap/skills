@@ -8,7 +8,7 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.6.0
+version: 0.6.1
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, agents, devin]
@@ -817,6 +817,9 @@ yes/no question.
      store): draw once with the same seed, write the chosen ids to
      `tensorleap/subsample_ids.json` (covered by `include`), and have
      `preprocess` return only those.
+   In instance mode the cap counts **rows** — each image plus one row per element
+   instance (e.g. 800 COCO images → 6,698 rows) — so size the subsample by rows,
+   not images.
    Say that you did, why, and where the seed and limit live. Without the cap
    the push itself succeeds but the Evaluate is refused with a `LICENSE_LIMIT`
    message naming the counts.
