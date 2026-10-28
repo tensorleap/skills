@@ -24,19 +24,19 @@ def make_card(**over):
     return {k: v for k, v in card.items() if v is not None}
 
 
-def make_report(cards):
+def make_report(cards, group_type="Failure Mode"):
     return {"project": "p", "version": "v", "meta": "1 insight", "insights_link": "http://ui/p",
             "executive_summary": "x",
-            "overview": [{"type": "Failure Mode", "rows": [{"anchor": c["id"], "num": "#1", "issue": "x",
+            "overview": [{"type": group_type, "rows": [{"anchor": c["id"], "num": "#1", "issue": "x",
                                                             "severity": "3 of 3", "samples": "2", "first_action": "x"}
                                                            for c in cards]}],
-            "groups": [{"type": "Failure Mode", "count": str(len(cards)), "meaning": "m", "cards": cards}]}
+            "groups": [{"type": group_type, "count": str(len(cards)), "meaning": "m", "cards": cards}]}
 
 
-def build(cards):
+def build(cards, group_type="Failure Mode"):
     root = tempfile.mkdtemp()
     with open(os.path.join(root, "report.json"), "w") as f:
-        json.dump(make_report(cards), f)
+        json.dump(make_report(cards, group_type), f)
     r = subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "build-report", root],
                        capture_output=True, text=True)
     page = txt = ""
@@ -136,11 +136,35 @@ def check_chip_that_only_mentions_mislabeling_accepted():
              ("mislabeled-sample check: clean", {"family": "Data gap", "caption": "few night samples."}),
              ("12 mislabels", {"family": "Model behavior", "caption": "c"})]
     bad = []
-    for chip, rc in cases:
-        card = make_card(chips=["2 samples", chip], root_cause=rc)
-        r, page, _ = build([card])
-        if r.returncode != 0 or chip not in chips(page, "insight-1"):
-            bad.append((chip, rc and rc["family"], r.returncode, r.stderr.strip()[:200]))
+    for group_type in ("Failure Mode", "Mislabeled", "Duplication"):
+        for chip, rc in cases:
+            card = make_card(chips=["2 samples", chip], root_cause=rc)
+            r, page, _ = build([card], group_type)
+            if r.returncode != 0 or chip not in chips(page, "insight-1"):
+                bad.append((group_type, chip, rc and rc["family"], r.returncode, r.stderr.strip()[:200]))
+    assert not bad, bad
+
+
+def check_mislabeled_chip_outside_failure_mode_rejected():
+    bad = []
+    for group_type in ("Mislabeled", "Duplication"):
+        card = make_card(id="insight-5", chips=["2 samples", "Mislabeled"])
+        r, _, _ = build([card], group_type)
+        if r.returncode != 8 or "insight-5" not in r.stderr or "Traceback" in r.stderr:
+            bad.append((group_type, r.returncode, r.stderr.strip()[-200:]))
+    assert not bad, bad
+
+
+def check_mislabeled_chip_variants_need_label_quality():
+    families = ({"family": "Data gap", "caption": "c"}, {"family": "Model behavior", "caption": "c"})
+    variants = ("Mislabeling", "Coherent mislabeling", "Coherently mislabeled", "Mis labeled", "Mislabeled \u2713")
+    bad = []
+    for rc in families:
+        for chip in variants:
+            card = make_card(id="insight-6", chips=["2 samples", chip], root_cause=rc)
+            r, _, _ = build([card])
+            if r.returncode != 8 or "insight-6" not in r.stderr or "Traceback" in r.stderr:
+                bad.append((chip, rc["family"], r.returncode, r.stderr.strip()[-200:]))
     assert not bad, bad
 
 

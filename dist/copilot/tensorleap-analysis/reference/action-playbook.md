@@ -178,7 +178,12 @@ top samples and ask:
    passed the coherence gate (item 3); the group fails because the same
    label is wrong across the group; the label is human-interpretable; named
    samples visibly contradict it; and the root cause is `Label quality` and
-   nothing else. Never add it for scattered individual mislabels, opaque
+   nothing else. No column measures "wrong", so the evidence that the same
+   label is wrong across the group is the pair: the group's ground-truth
+   label column in samples.csv (counted by `summarize`) is dominated by one
+   value, AND the named top samples you viewed visibly contradict that value
+   (ids resolved through `prediction_labels`); that pair is enough for this
+   chip. Never add it for scattered individual mislabels, opaque
    labels that can't be judged from outside, mixed causes, data gap, model
    behavior, split problems, or old-type Mislabeled cards. The chip lives
    only in the report; it is not written to the platform.

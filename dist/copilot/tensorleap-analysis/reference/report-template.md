@@ -188,8 +188,10 @@ restate severity in `chips`. Card content, in render order:
    action items) describes that same set. `Mislabeled` is the only verdict
    chip: add it only per the playbook rule (action-playbook "Look for
    yourself" §1); build-report rejects a chip that is just that word (any
-   spelling) unless the root cause is `Label quality` alone (exit 8); chips
-   that merely mention it ("88 mislabeled candidates") are untouched.
+   spelling, "Mislabeling", "Coherently mislabeled") unless the card is in
+   the Failure Mode group and its root cause is `Label quality` alone
+   (exit 8); chips that merely mention it ("88 mislabeled candidates") are
+   untouched.
 3. **Bottom line** (`lede`): ONE bold sentence, what is going
    wrong and why it matters. A reader who stops here still got the point.
    *Items 4–6 render inside the collapsed **Analysis info** fold.*
