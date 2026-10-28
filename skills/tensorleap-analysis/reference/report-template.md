@@ -30,11 +30,13 @@ is for users who know the platform and want to continue there.
 
 **The reader reviews the report in place.** Every card header leads with an
 **Approve** toggle; approved cards move to an "Approved" section above the
-type groups, and a "Your review" box in the sticky header counts them. "Save
-with my approvals" downloads `report-reviewed.html`, the same page with the
-approvals (and the reviewer's name) baked in, so whoever opens the forwarded
-file sees what was confirmed. All of it is script-owned: no report.json
-field, nothing for you to write, and never mention it in the prose.
+type groups, and a "Your review" box in the sticky header counts them. Every
+click is saved in the reader's browser, keyed by a report id baked in at build
+time, so the approvals survive reloads, browser restarts and moving or renaming
+the file. "Share" makes a read-only copy with the approvals and the reviewer's
+name baked in (download, the system share sheet where the browser has one, or a
+Gmail draft to attach it to). All of it is script-owned: no report.json field,
+nothing for you to write, and never mention it in the prose.
 
 **The page is dark-only**, the Tensorleap product palette (Nunito Sans,
 embedded; each insight type carries its own accent color). All of that is

@@ -411,8 +411,8 @@ and the **"Analyze insight"** header button using the insight's
 dashboard's top panel with its cluster filter applied, what the panel's
 "Analyze" button does; insights without a cluster blob fall back to the
 version-level Insights-panel link). The script adds an **Approve** toggle to
-every card and a review box with "Save with my approvals" to the header;
-they need nothing from you.
+every card and a review box to the header that saves approvals in the
+reader's browser and shares a read-only copy; they need nothing from you.
 Then render and make it self-contained:
 
 ```

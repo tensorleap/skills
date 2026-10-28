@@ -32,6 +32,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 try:
     from skill_run import skill_run
@@ -699,20 +700,25 @@ a.download:hover { background: var(--acc-light); color: #fff;
 .rbar span { display: block; height: 100%; width: 0; border-radius: 4px;
      background: #34d399; transition: width .5s cubic-bezier(.2,.8,.2,1); }
 .rnote { font-size: 12px; line-height: 1.5; color: var(--muted); }
-.rsave, .rsaved { display: flex; flex-direction: column; gap: 6px; padding-top: 10px;
-     border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; }
-.rsave[hidden], .rsaved[hidden] { display: none; }
-.rsave span { color: #fbbf24; }
-.rsaved { flex-direction: row; align-items: flex-start; gap: 8px; color: var(--muted); }
+.rfoot { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+     padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; }
+.rsaved { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); }
 .rsaved b { color: var(--ink-2); }
 .rsaved svg { flex: none; margin-top: 2px; stroke: #6ee7b7; }
-button.save { display: inline-flex; align-items: center; justify-content: center;
-     gap: 8px; height: 36px; padding: 0 14px; border: 0; border-radius: 6px;
+.rsaved.warn { color: #fbbf24; }
+.rsaved.warn svg { display: none; }
+.rshare { display: flex; flex-direction: column; gap: 8px; padding-top: 10px;
+     border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; color: var(--muted); }
+.rshare[hidden], button.share[hidden], button.save[hidden], html[data-ro] button.apv { display: none; }
+.rshare .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+button.save, button.share { display: inline-flex; align-items: center; justify-content: center;
+     gap: 8px; height: 32px; padding: 0 12px; border: 0; border-radius: 6px;
      background: var(--acc); color: #fff; font: inherit; font-size: 12px;
      font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
-     cursor: pointer; transition: background .15s; }
-button.save:hover { background: var(--acc-light); }
-button.save:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+     cursor: pointer; transition: background .15s; white-space: nowrap; }
+button.save.alt { background: transparent; border: 1px solid var(--line); color: var(--ink-2); }
+button.save:hover, button.share:hover { background: var(--acc-light); color: #fff; }
+button.save:focus-visible, button.share:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
 button.apv { display: inline-flex; align-items: center; gap: 7px; height: 32px;
      padding: 0 14px; border: 1px solid rgba(52,211,153,.55); border-radius: 6px;
      background: rgba(16,185,129,.10); color: #6ee7b7; font: inherit;
@@ -747,15 +753,24 @@ tr.approved a.rownum { border-color: #34d399; color: #6ee7b7; }
 @media (max-width: 700px) { header { position: static; } }
 """
 
-# Review state lives in the page itself: "Save with my approvals" downloads a
-# copy of the page as it was loaded with only this JSON block replaced.
+# Review state: every click autosaves in the browser's localStorage, keyed by the
+# report id baked in at build time (not by the file's path, so a moved or renamed
+# report keeps its approvals). "Share" bakes the current approvals into a
+# read-only copy of the page as it was loaded, with only the JSON block replaced.
 REVIEW_JS = """\
 (function () {
   var SRC = "<!doctype html>\\n" + document.documentElement.outerHTML;
   var stateEl = document.getElementById("tl-review");
   var ORIG = stateEl.textContent;
   var st = JSON.parse(ORIG);
-  var saved = st.approved.slice(), approved = [], last = null;
+  var RO = !!st.readonly, KEY = "tl-report:" + st.reportId;
+  var approved = [], last = null, savedAt = null, canStore = true, local = null;
+  if (RO) document.documentElement.setAttribute("data-ro", "");
+  else {
+    try { local = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { canStore = false; }
+  }
+  var saved = local ? local.approved : st.approved.slice();
+  if (local) savedAt = local.savedAt;
   var shelf = document.getElementById("approved");
   var shelfCards = shelf.querySelector(".cards");
   var cards = {}, home = {}, rows = {};
@@ -776,10 +791,27 @@ REVIEW_JS = """\
     return isNaN(d) ? iso : d.toLocaleString([], {dateStyle: "medium", timeStyle: "short"});
   }
   function toggle(id) {
+    if (RO) return;
     var i = approved.indexOf(id);
     if (i >= 0) { approved.splice(i, 1); home[id].after(cards[id]); last = null; }
     else { approved.unshift(id); shelfCards.prepend(cards[id]); last = id; }
+    persist();
     render();
+  }
+  function persist() {
+    var at = new Date().toISOString();
+    try {
+      localStorage.setItem(KEY, JSON.stringify({approved: approved, savedAt: at}));
+      savedAt = at; canStore = true;
+    } catch (e) { canStore = false; }
+  }
+  function apply(ids) {
+    approved.slice().forEach(function (id) {
+      if (ids.indexOf(id) < 0) { approved.splice(approved.indexOf(id), 1); home[id].after(cards[id]); }
+    });
+    ids.forEach(function (id) {
+      if (cards[id] && approved.indexOf(id) < 0) { approved.push(id); shelfCards.append(cards[id]); }
+    });
   }
   function render() {
     var n = approved.length;
@@ -801,46 +833,75 @@ REVIEW_JS = """\
     q(".rbar").setAttribute("aria-valuemax", total);
     q(".rbar").setAttribute("aria-valuenow", n);
     q(".rbar span").style.width = Math.round(100 * n / (total || 1)) + "%";
-    q(".rnote").textContent = n === 0
+    q(".rnote").textContent = RO
+      ? "Read-only copy shared from a review; the approvals can't be changed here."
+      : n === 0
       ? "Approve the insights you agree with. They move to the top so your team sees what was confirmed."
       : n === total ? "Every insight reviewed."
       : (total - n) + " left to review. Approved insights are pinned at the top.";
-    var changed = approved.filter(function (x) { return saved.indexOf(x) < 0; }).length
-      + saved.filter(function (x) { return approved.indexOf(x) < 0; }).length;
-    q(".rsave").hidden = !changed;
-    q(".rsave span").textContent = (changed === 1 ? "1 change" : changed + " changes")
-      + " not saved yet. Saving downloads report-reviewed.html; send that file so others see your approvals.";
-    q(".rsaved").hidden = !!changed || n === 0 || !st.savedAt;
-    q(".rsaved .who").textContent = st.reviewer || "an unnamed reviewer";
-    q(".rsaved .at").textContent = when(st.savedAt);
+    var s = q(".rsaved");
+    s.classList.toggle("warn", !RO && !canStore);
+    s.querySelector("span").textContent = RO
+      ? "Approvals by " + (st.reviewer || "an unnamed reviewer") + ", " + when(st.savedAt)
+      : !canStore ? "This browser isn't keeping your approvals for this file. Use Share to keep a copy."
+      : savedAt ? "Saved in this browser, " + when(savedAt)
+      : "Your approvals are saved in this browser as you click.";
+    q("button.share").hidden = RO;
   }
-  q("button.save").addEventListener("click", function () {
-    var name = st.reviewer;
-    try { name = name || localStorage.getItem("tl-reviewer") || ""; } catch (e) {}
-    name = window.prompt("Your name, shown with your approvals", name || "");
-    if (name === null) return;
+  function sharedPage() {
+    var name = "";
+    try { name = localStorage.getItem("tl-reviewer") || ""; } catch (e) {}
+    name = window.prompt("Your name, shown with your approvals", name);
+    if (name === null) return null;
     try { localStorage.setItem("tl-reviewer", name); } catch (e) {}
-    var next = {approved: approved.slice(), reviewer: name.trim(), savedAt: new Date().toISOString()};
+    var next = {reportId: st.reportId, readonly: true, approved: approved.slice(),
+                reviewer: name.trim(), savedAt: new Date().toISOString()};
     var json = JSON.stringify(next).replace(/</g, "\\\\u003c");
-    var page = SRC.replace('id="tl-review">' + ORIG, function () { return 'id="tl-review">' + json; });
+    return SRC.replace('id="tl-review">' + ORIG, function () { return 'id="tl-review">' + json; });
+  }
+  var FILE = (q("h1").textContent.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "")
+              || "report") + "-review.html";
+  function download(page) {
     var a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([page], {type: "text/html"}));
-    a.download = "report-reviewed.html";
+    a.download = FILE;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
-    st = next;
-    saved = approved.slice();
+  }
+  var panel = q(".rshare"), sys = q("button.sys");
+  var probe = typeof File === "function" ? new File(["x"], FILE, {type: "text/html"}) : null;
+  sys.hidden = !(probe && navigator.canShare && navigator.canShare({files: [probe]}));
+  q("button.share").addEventListener("click", function () { panel.hidden = !panel.hidden; });
+  q("button.dl").addEventListener("click", function () {
+    var page = sharedPage();
+    if (page) download(page);
+  });
+  sys.addEventListener("click", function () {
+    var page = sharedPage();
+    if (!page) return;
+    var f = new File([page], FILE, {type: "text/html"});
+    navigator.share({files: [f], title: q("h1").textContent}).catch(function () {});
+  });
+  q("button.gm").addEventListener("click", function () {
+    var page = sharedPage();
+    if (!page) return;
+    download(page);
+    var t = q("h1").textContent, n = approved.length;
+    var body = "The Tensorleap analysis report for " + t + " is attached (" + FILE + "), with "
+      + n + " of " + total + " insights approved. Open it in a browser to read it.";
+    window.open("https://mail.google.com/mail/?view=cm&fs=1&su=" + encodeURIComponent("Tensorleap analysis: " + t)
+      + "&body=" + encodeURIComponent(body), "_blank", "noopener");
+  });
+  window.addEventListener("storage", function (e) {
+    if (RO || e.key !== KEY) return;
+    try { var v = JSON.parse(e.newValue || "null"); } catch (x) { return; }
+    apply(v ? v.approved : st.approved);
+    savedAt = v ? v.savedAt : null;
     render();
   });
-  window.addEventListener("beforeunload", function (e) {
-    if (!q(".rsave").hidden) { e.preventDefault(); e.returnValue = ""; }
-  });
-  saved.forEach(function (id) {
-    if (cards[id]) { approved.push(id); shelfCards.append(cards[id]); }
-  });
-  saved = approved.slice();
+  apply(saved);
   render();
 })();
 """
@@ -889,6 +950,8 @@ ICON_CHECK = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
               '<path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>')
 ICON_DOWNLOAD = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
                  '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"></path></svg>')
+ICON_SHARE = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
+              '<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v5h14v-5"></path></svg>')
 
 
 def _font_css():
@@ -1102,10 +1165,14 @@ REVIEW_BOX = (
     '<div class="rbar" role="progressbar" aria-label="Insights approved" '
     'aria-valuemin="0" aria-valuenow="0"><span></span></div>'
     '<div class="rnote"></div>'
-    f'<div class="rsave" hidden><button type="button" class="save">{ICON_DOWNLOAD}'
-    'Save with my approvals</button><span></span></div>'
-    f'<div class="rsaved" hidden>{ICON_CHECK}<span>Approvals by <b class="who"></b>, '
-    '<span class="at"></span></span></div></div>')
+    f'<div class="rfoot"><div class="rsaved">{ICON_CHECK}<span></span></div>'
+    f'<button type="button" class="share">{ICON_SHARE}Share</button></div>'
+    '<div class="rshare" hidden><span>Share a read-only copy with your approvals and '
+    'name. Gmail and Slack can’t attach a file from a link: download it, then '
+    'attach it.</span><div class="acts">'
+    f'<button type="button" class="save dl">{ICON_DOWNLOAD}Download</button>'
+    '<button type="button" class="save alt sys" hidden>Share…</button>'
+    '<button type="button" class="save alt gm">Gmail draft</button></div></div></div>')
 
 
 def _tile_html(tile):
@@ -1162,8 +1229,10 @@ def _report_html(spec, base, missing):
                      f'<p class="blurb">{_esc(group["meaning"])}</p>'
                      f'<div class="cards">{cards}</div></section>')
     parts.append("</main>")
+    state = {"reportId": uuid.uuid4().hex, "readonly": False,
+             "approved": [], "reviewer": "", "savedAt": ""}
     parts.append('<script type="application/json" id="tl-review">'
-                 '{"approved": [], "reviewer": "", "savedAt": ""}</script>')
+                 f'{json.dumps(state)}</script>')
     parts.append(f"<script>\n{REVIEW_JS}</script>")
     body = "\n".join(parts)
     return (f'<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
