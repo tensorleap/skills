@@ -116,7 +116,7 @@ def check_mislabeled_chip_needs_label_quality_alone():
     data_gap = {"family": "Data gap", "caption": "few night samples."}
     mixed = {"family": "Label quality, Data gap", "caption": "both."}
     cases = [("Mislabeled", data_gap), ("Mislabelled", data_gap), ("misslabelled", data_gap),
-             ("mislabeled", data_gap), ("Mislabeled", mixed), ("Mislabeled", None)]
+             ("mislabeled", data_gap), (" mis-labeled ", data_gap), ("Mislabeled", mixed), ("Mislabeled", None)]
     bad = []
     for n, (chip, rc) in enumerate(cases):
         card_id = f"insight-{n + 3}"
@@ -127,6 +127,19 @@ def check_mislabeled_chip_needs_label_quality_alone():
             card["root_cause"] = rc
         r, _, _ = build([card])
         if r.returncode != 8 or card_id not in r.stderr:
+            bad.append((chip, rc and rc["family"], r.returncode, r.stderr.strip()[:200]))
+    assert not bad, bad
+
+
+def check_chip_that_only_mentions_mislabeling_accepted():
+    cases = [("88 mislabeled candidates", None),
+             ("mislabeled-sample check: clean", {"family": "Data gap", "caption": "few night samples."}),
+             ("12 mislabels", {"family": "Model behavior", "caption": "c"})]
+    bad = []
+    for chip, rc in cases:
+        card = make_card(chips=["2 samples", chip], root_cause=rc)
+        r, page, _ = build([card])
+        if r.returncode != 0 or chip not in chips(page, "insight-1"):
             bad.append((chip, rc and rc["family"], r.returncode, r.stderr.strip()[:200]))
     assert not bad, bad
 
