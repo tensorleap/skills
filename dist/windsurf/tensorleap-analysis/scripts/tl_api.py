@@ -709,13 +709,12 @@ a.download:hover { background: var(--acc-light); color: #fff;
 .rsaved.warn svg { display: none; }
 .racts { display: flex; flex: none; gap: 6px; }
 .racts[hidden], html[data-ro] button.apv { display: none; }
-button.ico { display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
-     border: 1px solid var(--line); border-radius: 6px; background: transparent;
-     color: var(--ink-2); cursor: pointer; transition: background .15s, border-color .15s; }
-button.ico:hover { background: rgba(255,255,255,.06); border-color: var(--muted); }
-button.ico:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
-.review button.ico svg { width: 18px; height: 18px; }
-.review button.ico svg.brand { stroke: none; }
+button.share { display: inline-flex; align-items: center; gap: 8px; height: 32px;
+     padding: 0 12px; border: 0; border-radius: 6px; background: var(--acc); color: #fff;
+     font: inherit; font-size: 12px; font-weight: 800; letter-spacing: .08em;
+     text-transform: uppercase; white-space: nowrap; cursor: pointer; transition: background .15s; }
+button.share:hover { background: var(--acc-light); }
+button.share:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
 .toast { position: fixed; left: 50%; bottom: 24px; z-index: 50; transform: translateX(-50%);
      padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px;
      background: var(--card); color: var(--ink-2); font-size: 13px;
@@ -874,26 +873,9 @@ REVIEW_JS = """\
     clearTimeout(toastT);
     toastT = setTimeout(function () { toastEl.hidden = true; }, 4000);
   }
-  // Gmail and Slack have no link that attaches a file, so both download the copy first.
-  q("button.dl").addEventListener("click", function () {
+  q("button.share").addEventListener("click", function () {
     download(sharedPage());
     toast("Read-only copy downloaded");
-  });
-  q("button.gm").addEventListener("click", function () {
-    download(sharedPage());
-    var t = q("h1").textContent, n = approved.length;
-    var body = "The Tensorleap analysis report for " + t + " is attached (" + FILE + "), with "
-      + n + " of " + total + " insights approved. Open it in a browser to read it.";
-    window.open("https://mail.google.com/mail/?view=cm&fs=1&su=" + encodeURIComponent("Tensorleap analysis: " + t)
-      + "&body=" + encodeURIComponent(body), "_blank", "noopener");
-    toast("Copy downloaded \\u00b7 attach it to the draft");
-  });
-  q("button.sl").addEventListener("click", function () {
-    download(sharedPage());
-    // Slack on the web, like Gmail: slack:// asks to open the app, can leave a blank tab,
-    // and blocks the page's later popups in Chrome and Firefox.
-    window.open("https://app.slack.com/client", "_blank", "noopener");
-    toast("Copy downloaded \\u00b7 drop it into Slack");
   });
   window.addEventListener("storage", function (e) {
     if (RO || e.key !== KEY) return;
@@ -951,21 +933,6 @@ ICON_CHECK = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
               '<path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>')
 ICON_DOWNLOAD = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
                  '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"></path></svg>')
-ICON_GMAIL = ('<svg class="brand" viewBox="0 0 24 24" aria-hidden="true">'
-              '<path fill="#4285F4" d="M2 7.2v10.3c0 .8.7 1.5 1.5 1.5h3V10.6z"></path>'
-              '<path fill="#34A853" d="M22 7.2v10.3c0 .8-.7 1.5-1.5 1.5h-3V10.6z"></path>'
-              '<path fill="#EA4335" d="M6.5 10.6 12 14.7l5.5-4.1V6.9L12 11 6.5 6.9z"></path>'
-              '<path fill="#C5221F" d="M2 7.2l4.5 3.4V6.9L5 5.8C3.8 4.9 2 5.8 2 7.2z"></path>'
-              '<path fill="#FBBC04" d="M22 7.2l-4.5 3.4V6.9L19 5.8c1.2-.9 3 0 3 1.4z"></path></svg>')
-ICON_SLACK = ('<svg class="brand" viewBox="0 0 24 24" aria-hidden="true">'
-              '<rect fill="#36C5F0" x="2" y="7.5" width="9" height="3" rx="1.5"></rect>'
-              '<rect fill="#36C5F0" x="8" y="2" width="3" height="4" rx="1.5"></rect>'
-              '<rect fill="#2EB67D" x="13.5" y="2" width="3" height="9" rx="1.5"></rect>'
-              '<rect fill="#2EB67D" x="18" y="8" width="4" height="3" rx="1.5"></rect>'
-              '<rect fill="#ECB22E" x="13" y="13.5" width="9" height="3" rx="1.5"></rect>'
-              '<rect fill="#ECB22E" x="13" y="18" width="3" height="4" rx="1.5"></rect>'
-              '<rect fill="#E01E5A" x="7.5" y="13" width="3" height="9" rx="1.5"></rect>'
-              '<rect fill="#E01E5A" x="2" y="13" width="4" height="3" rx="1.5"></rect></svg>')
 
 
 def _font_css():
@@ -1180,13 +1147,8 @@ REVIEW_BOX = (
     'aria-valuemin="0" aria-valuenow="0"><span></span></div>'
     '<div class="rnote"></div>'
     f'<div class="rfoot"><div class="rsaved">{ICON_CHECK}<span></span></div>'
-    '<div class="racts">'
-    f'<button type="button" class="ico dl" title="Download a read-only copy" '
-    f'aria-label="Download a read-only copy">{ICON_DOWNLOAD}</button>'
-    f'<button type="button" class="ico gm" title="Email a read-only copy with Gmail" '
-    f'aria-label="Email a read-only copy with Gmail">{ICON_GMAIL}</button>'
-    f'<button type="button" class="ico sl" title="Send a read-only copy in Slack" '
-    f'aria-label="Send a read-only copy in Slack">{ICON_SLACK}</button>'
+    '<div class="racts"><button type="button" class="share" '
+    f'title="Download a read-only copy to share">{ICON_DOWNLOAD}Share</button>'
     '</div></div></div>')
 
 
