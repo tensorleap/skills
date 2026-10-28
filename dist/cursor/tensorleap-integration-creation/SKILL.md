@@ -363,7 +363,8 @@ Pick the row, then act:
   dataset.** Do **not** set an initial cap on your own; apply one only when the
   **user explicitly asks** for it (e.g. a small, fast initial evaluation) **or
   the server's license caps Evaluate** — the **Free Tier** evaluates up to
-  **5,000 samples across all splits** (see *Deploy*, step 4). When you cap, tell
+  **5,000 samples across all splits**, capped by a seeded random subsample
+  instead (see *Deploy*, step 4). When you cap, tell
   the user the cap lives at that key in `project_config.yaml` and how to change
   or remove it. This is separate from the local-test subset above:
   the limit caps what `preprocess` returns; the local test iterates a few of
@@ -792,9 +793,18 @@ yes/no question.
    more than 5,000 samples, cap it **before** pushing: sum the real split sizes
    (what `preprocess` returns on the server's data — on a local server
    `tl_check.py`'s `setup.preprocess` lengths; on a remote server the local check
-   ran on a 1-sample subset, so count the actual splits), then set
-   `sample_limit_per_split` so the total is ≤ 5,000 (balanced: ⌊5000 / number of
-   splits⌋ each). Say that you did, why, and where the key lives. Without the cap
+   ran on a 1-sample subset, so count the actual splits), then keep a **seeded
+   random subsample of 5,000 samples in total**, allocated to splits in
+   proportion to their sizes. The same ids must come back on every run:
+   - **In `preprocess`** (default): list each split's ids in a stable (sorted)
+     order and draw with a **local** generator seeded from `project_config.yaml`
+     (`random.Random(subsample_seed).sample(ids, k)`) — never the global
+     `random`/`np.random` state, which other code can reseed or advance.
+   - **Offline**, when listing is slow or its order isn't stable (e.g. a remote
+     store): draw once with the same seed, write the chosen ids to
+     `tensorleap/subsample_ids.json` (covered by `include`), and have
+     `preprocess` return only those.
+   Say that you did, why, and where the seed and limit live. Without the cap
    the push itself succeeds but the Evaluate is refused with a `LICENSE_LIMIT`
    message naming the counts.
 5. **Run the push and get the Evaluate started.** A push (model upload + build)
@@ -872,12 +882,25 @@ yes/no question.
    shows a real error, the user reports one, or a local re-check fails — don't wait
    hours for the inevitable: `leap run stop $EVAL_ID`, fix, re-push (reconcile
    first, step 5), and re-arm the watcher on the new run.
-   When it exits: **`FINISHED`** → the integration is done. **`FAILED` / `STOPPED` /
+   When it exits: **`FINISHED`** → the integration is done (on a Free Tier
+   subsample, run step 7 first). **`FAILED` / `STOPPED` /
    `TERMINATED`** → pull `leap run logs <run-id>`, read the earliest real error, fix
    it in the integration, re-push, and track the new eval the same way. (Errors that
    surface only here are typically platform-only conditions the local test can't
    see — the data-root/volume switch, `AUTH_SECRET` not injected, a missing
    `include`, or a dependency absent from `requirements.txt`.)
+7. **Free Tier subsample: check for failure modes** (only when step 4 capped
+   the dataset). Once the Evaluate is `FINISHED`, call `tl_get_insights` on the
+   Tensorleap MCP server (`leap mcp`) for this version; only each insight's
+   `type` matters. Never conclude "none" from a result you couldn't read in
+   full. If no insight is a Failure Mode (type `low_performance`), tell the
+   user: **"No failure modes were detected in the random subsample."** and
+   suggest the fix — re-select the 5,000 with an **error bias**: score the full
+   dataset locally with the model (loss, or FP/FN for detection/classification),
+   fill most of the subset with the worst-scoring samples and the rest from the
+   seeded random draw, write the ids to `tensorleap/subsample_ids.json`, and
+   re-push. Offer to do it; don't do it unasked. If the MCP tools aren't
+   available, say the check was skipped and that `leap mcp config` connects them.
 
 ## Finish report (consent required)
 
@@ -912,3 +935,19 @@ Then ask the user, verbatim:
 - The fields must never contain secrets, tokens, credentials, dataset paths,
   code, or personal data beyond the user's name — only the four short facts
   above.
+
+## Free Tier closing notice
+
+If you capped the dataset for the Free Tier (Deploy, step 4), the user's last
+message from you must end with this notice, verbatim with `<UI>` filled in —
+after the finish-report question, and again after you handle their reply to it:
+
+> Your dataset has been automatically limited to **5,000 samples** as part of
+> the Free Tier restrictions.
+>
+> To upload more samples, please [contact Tensorleap](<UI>/?unlock=evaluate.sample_cap)
+> and select your preferred contact method.
+
+`<UI>` is the `API Url` from `leap auth whoami` without `/api/v2`, and with a
+leading `api.` dropped from the host (`https://api.acme.tensorleap.ai/api/v2` →
+`https://acme.tensorleap.ai`).
