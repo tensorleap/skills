@@ -541,7 +541,16 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
 4. Apply the license/trial-extension token: Settings (gear) → Manage License → insert token →
    Apply. Fresh installs start with a 1-week trial. It can also be applied without the UI —
    `leap auth license -t <token>` (or `-f <file>`), and `leap server install` itself accepts
-   `--license-token`/`--license-file`, which is the better path for scripted installs.
+   `--license-token`/`--license-file`, which is the better path for scripted installs. The
+   license period counts from the day the token was issued, not applied. A token issued to an
+   email domain applies only while logged in with an account at that domain (UI or
+   `leap auth login`), so `leap server install --license-token`, which runs before any login,
+   needs a token issued for everyone. A **colored** (not yet activated) token, the one a Free
+   Tier signup installs with, pre-registers the signup email as the admin and leaves the license
+   blocked: every action, push and Evaluate included, answers "You have yet to activate your
+   Tensorleap license…" until the emailed key is applied (Manage License, `leap auth license -t`,
+   or automatically once the email's confirmation button is pressed). On the first visit the UI
+   opens Keycloak's registration form with that email locked; the user only sets a password.
 5. CLI auth: the "generate CLI token" line copied from the UI is only one of three login
    paths — `leap auth login <url>` also accepts `--api-key` or `--username`/`--password`, and
    the URL **must** include the scheme (`http://…`). On a local install edit the copied line to
