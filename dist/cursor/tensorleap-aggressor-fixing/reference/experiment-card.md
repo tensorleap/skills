@@ -11,11 +11,12 @@ Baseline version: <Tensorleap version name / serial>  ·  Insight: #<n>  ·  Dat
 Parent run: <run name or "deployed checkpoint">  ·  Control: <run name>
 
 ## 1. Hypothesis
-<one sentence: why this group fails>
+<one sentence: why this group fails; for a shared cause, why these groups fail together; for a batch, one line per fix>
 Refuted if: <the result that would show the hypothesis wrong>
+Scope: <one group | shared cause over groups #a, #b | batch of fixes F1, F2 with attribution option sequential / batch plus ablations / batch only>
 
 ## 2. The group (fixed ids)
-- Ids file: `tensorleap/aggressor-fixing/<experiment>.ids.csv` (written by `members.py` from `tensorleap-analysis/<version>`, insight #<n>)
+- Ids file: `tensorleap/aggressor-fixing/<experiment>.ids.csv` (written by `members.py` from `tensorleap-analysis/<version>`, insight #<n>; one file per group when the scope covers several)
 - Level: sample | instance (training unit: image; scoring unit: instance and image)
 - Members: <n> total · <n> train (used for the fix) · <n> validation (used to measure) · <n> test (not used)
 - Labelling item from the inventory: <"label N selected samples (platform selection)" | none> · status: <done / pending / not available>
@@ -65,7 +66,9 @@ Review protocol, when it decides an axis: unit <sample / box / region> · items 
 
 For a sample-level group fill one number; for an instance-level group fill
 both (share of old instances still firing / caught, and share of member
-images still failing).
+images still failing). When the scope covers several groups, one "This
+run" row per group, and one row per ablation run when that option was
+chosen.
 
 - Decomposition of the global change (run vs parent): scoring pipeline <> · near-misses <> · label error <> · real <>
 - Review verdict, where the ruler decides: <real hits / real false alarms vs the parent's curve, with interval>; agreed metric on the original labels beside it: <>
@@ -94,5 +97,10 @@ images still failing).
   beside it and does not overrule it.
 - A global change is read only after its decomposition line is filled;
   the regression that counts is the "real" part.
+- A shared-cause fix is solved only when every group in its scope is
+  solved or partial; a group that did not move refutes the shared cause
+  for that group and sends it back to diagnosis. A batch has one verdict
+  per group; with "batch only" the card says that gains and regressions
+  are not attributed to a single fix.
 - With no noise band, say so in the verdict: "single seed, unvalidated
   against noise".

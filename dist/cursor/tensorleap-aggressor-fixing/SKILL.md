@@ -150,8 +150,8 @@ often change which aggressors are real.
 List **every** low-performance insight and sub-insight as a candidate, not
 only the top one, in one table:
 
-| # | Group (one phrase) | Members (train / val / test) | Contrast | Provisional route | Label first? | Fixable here? | Rank |
-|---|---|---|---|---|---|---|---|
+| # | Group (one phrase) | Members (train / val / test) | Contrast | Provisional route | Label first? | Fixable here? | Shares cause with | Rank |
+|---|---|---|---|---|---|---|---|---|
 
 - **Group:** what the samples share, named after you looked at them (the
   analysis skill's Step 5), e.g. "corner watermark", "vans labelled car",
@@ -169,21 +169,52 @@ only the top one, in one table:
   stays on the list whatever happens next.
 - **Fixable here?** Under Step 0's boundaries: yes / needs labels / needs
   new data / needs a new model / not a real failure (contrast under ~1.2x).
+- **Shares cause with:** filled by the shared-cause pass below; the row
+  numbers of the groups that look like one cause.
 - **Rank** by viability: a clear cue, enough members in train and in
   validation to train and to measure, and a route the training code can
   act on in one change. A group with no validation members
-  cannot be measured: it ranks low unless the user allows a re-split.
+  cannot be measured: it ranks low unless the user allows a re-split. A
+  shared cause ranks above its parts: more members, more validation
+  members to measure, one run for several groups.
 
-Also cross-check cues across groups: if one group carries a cue (a
-watermark in the right corner), check whether the same cue appears in the
-other groups' samples. One shortcut often explains several insights.
+**Shared-cause pass.** After the rows, look for groups that are one cause
+under several insights: the same metadata value in `mutual_info_elements`,
+the same visible cue in the samples (a watermark in the right corner seen
+in one group: check the other groups' samples for it), the same class
+pair, a non-trivial `overlaps` entry. One shortcut often explains several
+insights (a corner badge made both animals and cars read as Tree, two
+insights, one cause). Do not merge groups whose routes differ (one
+`is_train_aggressor`, one not): looking alike is not sharing a cause. A
+shared cause is a hypothesis; Step 7 scores each of its groups on its own,
+and a group that does not move says the cause was not shared.
 
 Show the table and ask two things: **is labelling available in this
 engagement** (then the labelling items run first, or in parallel, and the
 training fixes are measured on top of them), and **which aggressors to
-fix**, with your recommendation first. A group the user asks for by name
-takes priority: those fits are where the targeted fix pays off most.
-Groups not picked stay in the table and come back in Step 8.
+fix**, with your recommendation first. The recommendation is one group,
+one shared cause, or a **batch**: several groups with different causes
+that look worth fixing together (independent mechanisms, disjoint
+samples, a budget that favors fewer runs). Say so when that is the case,
+and state the attribution cost with the options for the user to choose:
+
+- *Sequential:* one fix per run, each run the parent of the next. Full
+  attribution, the most runs.
+- *Batch plus ablations:* one run with all fixes and one run per fix with
+  that fix removed. Attribution kept, one run more than sequential, all
+  in parallel.
+- *Batch only:* one run; a gain or a regression cannot be assigned to one
+  fix. Reasonable for cheap, clearly independent fixes, or the last round
+  before shipping.
+
+Fixes that touch the same samples or the same mechanism (two
+reweightings of overlapping groups, a loss change and an augmentation on
+the same group) are not independent and do not batch. A shared-cause fix
+is one fix, not a batch.
+
+A group the user asks for by name takes priority: those fits are where
+the targeted fix pays off most. Groups not picked stay in the table and
+come back in Step 8.
 
 Then, per chosen aggressor, **agree the metrics** that will score it. Every
 later step records them; none changes them.
@@ -245,11 +276,13 @@ Before training, try to disprove the hypothesis cheaply, in this order
      the run, and the adjudication itself happens after the run, on
      disagreements only. It gates the verdict, not the run.
 
-Then propose **one dedicated training fix per aggressor** from
+Then propose **one dedicated training fix per cause** from
 `reference/solution-map.md`, the one matching the route that
 survived: what this skill can do from the training side, with or without
 the labels (oversample, upweight or target-augment the group's existing
-training members, a loss term, a threshold). Use the other insights: a
+training members, a loss term, a threshold). A cause may span several
+insights (the shared-cause pass) and an insight may hold two causes (its
+sub-insights); the fix follows the cause. Use the other insights: a
 mislabeled-samples overlap points at labels, a duplication overlap means
 drop before you reweight. When labelling is costly this run doubles as the
 **sensitivity test**: run it first, and its result says whether the labels
@@ -294,7 +327,12 @@ it to the user. It fixes:
    that axis (the agreed metric on the original labels, or the blind
    disagreement review with its protocol: unit, answer options, who
    adjudicates, reuse rule).
-7. The one variable this run changes, and its parent run.
+7. The one variable this run changes, and its parent run. For a
+   shared-cause fix the ids are written per group (one `members.py` call
+   each) and the card keeps one hypothesis with a verdict row per group.
+   For a batch (Step 3) the card keeps one hypothesis per fix, the ids
+   per group, a verdict row per group, and names the attribution option
+   the user chose; the ablation runs, when chosen, are its controls.
 8. The control: the same recipe without the targeted change (replay only),
    and, when the fix selects samples, a random selection of the same size.
    The cluster was picked because it scored badly; retraining noise alone
@@ -322,7 +360,8 @@ it to the user. It fixes:
 - **Replay always.** Never fine-tune on the group alone; mix it into
   ordinary training data.
 - **One variable per run**, compared to its parent. Do not stack fixes in
-  the first run.
+  the first run unless the user chose a batch in Step 3, and then only
+  with the attribution option on the card.
 - **Targeted selection.** Upweight / oversample the group's training
   members (de-duplicated), not every sample sharing its symptom. For an
   instance-level group the selected unit is the image; an FP group's
@@ -378,7 +417,9 @@ On validation (or the dev split the user names), never the test set:
 7. Verdict per target and per guard, from the card's rules: solved /
    partial / not solved; within band / regressed. Partial counts: a
    mechanism halved with the global KPI flat is a direction to continue,
-   not a failure.
+   not a failure. A shared-cause fix or a batch gets a verdict row per
+   group; a group that did not move under a shared-cause fix means the
+   cause was not shared, and that group goes back to Step 4.
 8. Fill the card's results table. Say what part of the gain the targeted
    selection explains (run vs control) and what part the recipe explains
    (control vs parent).
