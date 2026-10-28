@@ -144,6 +144,15 @@ def check_chip_that_only_mentions_mislabeling_accepted():
     assert not bad, bad
 
 
+def check_string_root_cause_or_add_comment_rejected():
+    bad = []
+    for field, value in (("root_cause", "Label quality"), ("add_comment", "http://x?comment=")):
+        r, _, _ = build([make_card(**{field: value})])
+        if r.returncode != 8 or "Traceback" in r.stderr:
+            bad.append((field, r.returncode, r.stderr.strip()[-200:]))
+    assert not bad, bad
+
+
 def check_cards_without_chip_unchanged():
     for family in ("Label quality", "Data gap", "Model behavior", "Split problem"):
         card = make_card(root_cause={"family": family, "caption": "c"}, chips=["2 samples", "label noise"])

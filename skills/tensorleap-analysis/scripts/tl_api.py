@@ -1078,25 +1078,25 @@ def cmd_build_report(args):
     except Exception as e:
         print(f"cannot read {spec_path}: {e}", file=sys.stderr)
         raise SystemExit(8)
-    invalid = []
-    for group in spec.get("groups", []):
-        for c in group.get("cards", []):
-            family = ((c.get("root_cause") or {}).get("family") or "").strip()
-            for chip in c.get("chips", []):
-                if re.fullmatch(r"\s*mis+-?label+ed\s*", str(chip), re.I) and family != "Label quality":
-                    invalid.append(f'report.json invalid: card {c.get("id")} has a "{chip}" chip but its root cause '
-                                   f'is "{family or "none"}"; the Mislabeled chip is only for a Failure Mode group '
-                                   f'that is just coherent mislabelling (root cause Label quality alone)')
-            ac = c.get("add_comment")
-            if ac and not str(ac.get("link", "")).endswith("="):
-                invalid.append(f'card {c.get("id")}: add_comment.link must be the digest\'s '
-                               f'add_comment_link, copied verbatim')
-    if invalid:
-        for msg in invalid:
-            print(msg, file=sys.stderr)
-        raise SystemExit(8)
     missing = []
     try:
+        invalid = []
+        for group in spec.get("groups", []):
+            for c in group.get("cards", []):
+                family = ((c.get("root_cause") or {}).get("family") or "").strip()
+                for chip in c.get("chips", []):
+                    if re.fullmatch(r"\s*mis+-?label+ed\s*", str(chip), re.I) and family != "Label quality":
+                        invalid.append(f'report.json invalid: card {c.get("id")} has a "{chip}" chip but its root cause '
+                                       f'is "{family or "none"}"; the Mislabeled chip is only for a Failure Mode group '
+                                       f'that is just coherent mislabelling (root cause Label quality alone)')
+                ac = c.get("add_comment")
+                if ac and not str(ac.get("link", "")).endswith("="):
+                    invalid.append(f'card {c.get("id")}: add_comment.link must be the digest\'s '
+                                   f'add_comment_link, copied verbatim')
+        if invalid:
+            for msg in invalid:
+                print(msg, file=sys.stderr)
+            raise SystemExit(8)
         html = _report_html(spec, args.dir, missing)
         txt = _report_txt(spec)
     except (KeyError, TypeError, AttributeError) as e:
