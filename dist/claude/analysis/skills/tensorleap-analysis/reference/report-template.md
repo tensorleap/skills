@@ -33,7 +33,8 @@ is for users who know the platform and want to continue there.
 type groups, and a "Your review" box in the sticky header counts them. Cards
 start in their insight's platform status, and each click approves or unapproves
 the insight on the Tensorleap server the report was built on (no login; the card
-title is added to the insight's comment on approve). On another server, or one
+title is added to the insight's comment on approve, and taken off again on
+unapprove while it is still the comment's last line). On another server, or one
 that can't be reached, nothing changes and the card says so. Each click is also
 kept in the reader's browser, keyed by a report id baked in at build time, so a
 reload, a browser restart or a moved file shows the last confirmed state; an
