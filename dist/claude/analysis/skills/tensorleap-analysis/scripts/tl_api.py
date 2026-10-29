@@ -157,6 +157,8 @@ def cmd_digest(args):
         }
         if ins.get("createTestLink"):
             d["add_test_link"] = ins["createTestLink"]
+        if ins.get("addCommentLink"):
+            d["add_comment_link"] = ins["addCommentLink"]
         if summary:
             d["population"] = {"samples": summary.get("groupSize"), "csv_rows": summary.get("csvRows")}
         for smp in ins.get("samples") or []:
@@ -970,6 +972,8 @@ ICON_MAGNIFIER = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
                   '<path d="m21 21-4.3-4.3"></path></svg>')
 ICON_PLUS = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
              '<path d="M12 5v14M5 12h14"></path></svg>')
+ICON_COMMENT = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
+                '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>')
 ICON_CHECK = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
               '<path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>')
 ICON_DOWNLOAD = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
@@ -1077,6 +1081,17 @@ def _figure_html(sample, base, missing, pair_labels=None):
     return f'<figure>{body}<figcaption>{cap}</figcaption></figure>'
 
 
+MISLABELING = "Mislabeling"
+
+
+def _card_chips(card):
+    """The agent's chips, plus the Mislabeled verdict chip derived from the root cause."""
+    chips = list(card.get("chips", []))
+    if (card.get("root_cause") or {}).get("family") == MISLABELING:
+        chips.append("Mislabeled")
+    return chips
+
+
 def _card_html(card, kind, base, missing, modality):
     sev = int(card.get("severity", 1))
     idx = _idx(card["id"])
@@ -1094,11 +1109,17 @@ def _card_html(card, kind, base, missing, modality):
         buttons.append(f'<a class="button" href="{_esc(ex["link"])}" '
                        f'target="_blank" rel="noopener" title="{_esc(tip)}">'
                        f'{ICON_MAGNIFIER}Analyze insight</a>')
+    ac = card.get("add_comment")
+    if ac:
+        href = ac["link"] + urllib.parse.quote(card["heading"], safe="")
+        buttons.append(f'<a class="button" href="{_esc(href)}" target="_blank" rel="noopener" '
+                       f'title="Write this card\'s title into the insight\'s note in Tensorleap (you confirm there)">'
+                       f'{ICON_COMMENT}Add comment</a>')
     btns = f'<span class="cbtns">{"".join(buttons)}</span>'
     chips = [f'<span class="chip sev"><span class="k">Severity</span>'
              f'<b>{sev} of 3</b></span>']
     chips += [f'<span class="chip">{_esc(c)}</span>'
-              for c in card.get("chips", [])
+              for c in _card_chips(card)
               if not str(c).lower().startswith("insight #")]
     parts = [f'<section class="card" id="{_esc(card["id"])}" '
              f'data-kind="{kind}" data-sev="{sev}">',
@@ -1320,7 +1341,7 @@ def _report_txt(spec):
             lines += ["", f'### {_strip_tags(c["heading"])}  [#{c["id"]}]',
                       "chips: " + " · ".join(
                           [f'Severity {c.get("severity", 1)} of 3']
-                          + [_strip_tags(x) for x in c.get("chips", [])])]
+                          + [_strip_tags(x) for x in _card_chips(c)])]
             rc = c.get("root_cause")
             if rc:
                 lines.append(f'Root cause · {rc["family"]}: {_strip_tags(rc["caption"])}')
@@ -1354,6 +1375,9 @@ def _report_txt(spec):
                 lines.append(f'[header button] Test, {c["add_test"]["label"]} '
                              f'(opens Tensorleap, user confirms; '
                              f'{c["add_test"].get("tip", "")})')
+            if c.get("add_comment"):
+                lines.append("[header button] Add comment (opens Tensorleap, user confirms; "
+                             "writes the heading into the insight's note)")
     return "\n".join(lines) + "\n"
 
 
@@ -1377,6 +1401,32 @@ def cmd_build_report(args):
         raise SystemExit(8)
     missing = []
     try:
+        invalid = []
+        for group in spec.get("groups", []):
+            for c in group.get("cards", []):
+                for chip in c.get("chips", []):
+                    if re.fullmatch(r"\W*(coherent(ly)?\s+)?mis+[-\s]?label+(ed|ing)\W*", str(chip), re.I):
+                        invalid.append(f'report.json invalid: card {c.get("id")} has a hand-written "{chip}" chip; '
+                                       f'remove it, build-report adds the Mislabeled chip to cards whose root '
+                                       f'cause family is Mislabeling')
+                family = (c.get("root_cause") or {}).get("family")
+                families = family if isinstance(family, list) else str(family or "").split(",")
+                if any(re.fullmatch(r"\s*mis+[-\s]?label+(ed|ing)\s*", str(f), re.I) for f in families):
+                    if family != MISLABELING:
+                        invalid.append(f'report.json invalid: card {c.get("id")} has root cause family "{family}"; '
+                                       f'write it exactly as "{MISLABELING}", alone (never with a second family)')
+                    elif group.get("type") != "Failure Mode":
+                        invalid.append(f'report.json invalid: card {c.get("id")} has root cause {MISLABELING} but '
+                                       f'sits in the "{group.get("type")}" group; {MISLABELING} is only for a '
+                                       f'Failure Mode group that is just coherent mislabelling')
+                ac = c.get("add_comment")
+                if ac and not str(ac.get("link", "")).endswith("="):
+                    invalid.append(f'card {c.get("id")}: add_comment.link must be the digest\'s '
+                                   f'add_comment_link, copied verbatim')
+        if invalid:
+            for msg in invalid:
+                print(msg, file=sys.stderr)
+            raise SystemExit(8)
         html = _report_html(spec, args.dir, missing)
         txt = _report_txt(spec)
     except (KeyError, TypeError, AttributeError) as e:

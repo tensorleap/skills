@@ -48,9 +48,9 @@ embedded; each insight type carries its own accent color). All of that is
 script-owned; you never pick colors.
 
 **A card is skimmable first, deep on demand.** What is visible by default:
-heading, the "Test" and "Analyze insight" header buttons, chips, the bold
-bottom line, and "Do next". The diagnosis (root cause, prose, split/contrast
-bars) sits behind a collapsed **Analysis info** fold, your read of the samples
+heading, the "Test", "Analyze insight" and "Add comment" header buttons,
+chips, the bold bottom line, and "Do next". The diagnosis (root cause, prose,
+split/contrast bars) sits behind a collapsed **Analysis info** fold, your read of the samples
 behind a collapsed **LLM <modality> analysis** fold (the script derives the
 word, visual / textual / auditory, from the samples' modality, uniform
 across every card), and the sample figures
@@ -195,21 +195,35 @@ restate severity in `chips`. Card content, in render order:
    overview table; prose cross-references between cards go by NAME ("the
    tiny-objects fix above"), never by number.
    *The script's Approve toggle leads the header buttons; items 9's
-   `add_test` ("Test") and 10's `explore` ("Analyze insight") follow it,
-   opening the platform in a new tab.*
+   `add_test` ("Test") and `add_comment` ("Add comment") and 10's
+   `explore` ("Analyze insight") follow it, opening the platform in a new
+   tab.*
 2. **Chips** (`chips`): sample count, key metric, latent space (the severity
    chip is script-generated, and an "insight #N" chip is dropped, the
    header already carries the number). The count chip is
    `population.samples`, and every other number on the card (composition, contrast,
-   action items) describes that same set.
+   action items) describes that same set. `Mislabeled` is the only verdict
+   chip, and build-report adds it to every card whose root cause family is
+   `Mislabeling`; never write it yourself (build-report rejects a chip that
+   is just that word in any spelling, "Mislabeling", "Coherently
+   mislabeled", exit 8). Chips that merely mention it ("88 mislabeled
+   candidates") are untouched.
 3. **Bottom line** (`lede`): ONE bold sentence, what is going
    wrong and why it matters. A reader who stops here still got the point.
    *Items 4–6 render inside the collapsed **Analysis info** fold.*
 4. **Root cause** (`root_cause`): rendered as `Root cause · <family>:` plus
    your one caption sentence. The family vocabulary is fixed, `Data gap`,
-   `Label quality`, `Split problem`, `Model behavior` (two families allowed
-   when the diagnosis is genuinely mixed about ONE population), so the
-   label reads as a consistent grammar across every card and every report.
+   `Label quality`, `Mislabeling`, `Split problem`, `Model behavior` (two
+   families allowed when the diagnosis is genuinely mixed about ONE
+   population), so the label reads as a consistent grammar across every
+   card and every report. `Mislabeling`: the group's annotations are
+   consistently wrong and the model is actually right, annotation work,
+   not model work (playbook "Look for yourself" §1 has the rule); always
+   alone, only in the Failure Mode group (exit 8 otherwise), and it gets
+   the `Mislabeled` chip. `Label quality`: everything else about labels,
+   noisy or ambiguous annotations, inconsistent guidelines, scattered
+   mislabels mixed with real model failures; still a model problem that
+   labels make worse or harder to measure.
 5. **Prose** (`prose`, a list of paragraphs): what kind of samples fail, how
    the model gets them wrong, the evidence in plain sentences, and one
    sentence translating the latent space (playbook guide).
@@ -293,6 +307,13 @@ restate severity in `chips`. Card content, in render order:
    platform; there the user confirms creating the insight's automatic test
    (nothing is created without their click). `label` + `tip` become the
    button's hover tooltip.
+   When the digest carries `add_comment_link`, add `add_comment` =
+   `{"link": "<digest add_comment_link, verbatim>"}`, rendered as the
+   **"Add comment" button in the card header**: the script appends the
+   card's heading to the link, and the platform writes it into the
+   insight's Note on the user's confirmation. A sub-based card uses its own
+   sub-insight's `add_comment_link`. Never edit the link (build-report
+   exits 8 when it doesn't end with `=`).
 10. **Analyze insight** (`explore`): the second card-header button. `link` =
     the insight's `deep_link` from the digest, which lands on the insight
     already analyzed (opened as the dashboard's top panel with its cluster
@@ -358,6 +379,7 @@ review pass.
         "do_next": ["\u2026 1\u20133 quantified checklist items \u2026"],
         "download_csv": {"path": "insight_1_low_performance/fixing_samples.csv",
                          "label": "Download the 88 samples selected for labeling (CSV)"},
+        "add_comment": {"link": "the insight's add_comment_link from insights.json, verbatim"},
         "explore": {"link": "the insight's deep_link from insights.json",
                     "text": "\u2014 a \"low performance\" insight, severity 3, opened with its cluster filter applied.",
                     "detail": "Latent space: \u2026 \u00b7 221 test + 93 unlabeled samples \u00b7 88 samples pre-selected for labeling."}}
@@ -383,8 +405,8 @@ Field notes:
   beside `report.html` as a relative link.
 - Optional fields may be omitted (`evaluated`, `tiles`,
   `root_cause`, `split`, `contrast`, `view_intro`, `pair_labels`, `samples`,
-  `observe`, `do_next`, `download_csv`, `add_test`, `explore`); everything
-  else is required.
+  `observe`, `do_next`, `download_csv`, `add_test`, `add_comment`,
+  `explore`); everything else is required.
 
 ## report.md (the paste-into-a-ticket companion)
 
