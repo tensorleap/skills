@@ -707,10 +707,11 @@ an install that added the user to the `tensorleap` group. Write the file in plac
 or append to it); don't replace it with a renamed temp file, because the data-dir root itself
 may not be writable from this shell. Only if writing still fails with `Permission denied` (a
 CLI from before this), create it once with
-`sudo install -m 664 -o "$(id -u)" /dev/null <data-dir>/install-notes.md` and write again. Keep the "Current setup" section current and **append** to
-History — never rewrite it. Copy the template below **in full**, including the version,
-data-dir and docker data-root lines: those are exactly what a later upgrade needs, and they
-are the first thing people drop when abbreviating.
+`sudo install -m 664 -o "$(id -u)" /dev/null <data-dir>/install-notes.md` and write again.
+Keep the "Current setup" section current and **append** to History — never rewrite it. Copy
+the template below **in full**, including the version, data-dir and docker data-root lines:
+those are exactly what a later upgrade needs, and they are the first thing people drop when
+abbreviating.
 
 Also record the outcome for Tensorleap: one anonymous `skill_run` analytics event (skill
 name, outcome, duration since the preflight; `TL_DISABLE_ANALYTICS=1` turns it off), run with

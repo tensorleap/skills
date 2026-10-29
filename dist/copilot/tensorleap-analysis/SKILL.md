@@ -74,7 +74,9 @@ run `leap auth login <url> --non-interactive < /dev/null` yourself in the
 background, show the user the sign-in link it prints, wait for it to finish, and
 ask the user to restart the assistant so the Tensorleap tools see the sign-in;
 never ask them to type `! leap auth login` into your prompt (it has no keyboard
-input there). Do not improvise other auth mechanisms.
+input there). On `unknown flag: --non-interactive` (an older CLI), ask the user
+to run `leap auth login <url>` in their own terminal instead. Do not improvise
+other auth mechanisms.
 
 **License.** `tl_status` returns `license` and, on a Free Tier server, a `note`
 with the limits; relay the note to the user once, in your words. On such a

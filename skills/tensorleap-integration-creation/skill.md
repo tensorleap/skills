@@ -875,9 +875,10 @@ yes/no question.
    run id; the server starts the Evaluate itself when the push finishes, so
    nothing local has to survive. A non-zero exit is a push failure: read
    `push.log` and fix it. If `push.log` ends with a next-step paragraph (it
-   starts `When the evaluation finishes,`), show it to the user word for word. If the CLI warns before pushing and stops for
-   confirmation, read the warning, tell the user, and add `--yes` only once the
-   warning is understood — never by default.
+   starts `When the evaluation finishes,`), show it to the user word for word.
+   If the CLI warns before pushing and stops for confirmation, read the warning,
+   tell the user, and add `--yes` only once the warning is understood — never by
+   default.
 6. **Watch the push and its Evaluate without spending turns.** A clean push does
    **not** mean a clean evaluation, and on the full dataset the Evaluate can take
    hours to a day. Launch the watcher as a **background shell** — it follows the
