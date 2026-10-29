@@ -30,12 +30,17 @@ is for users who know the platform and want to continue there.
 
 **The reader reviews the report in place.** Every card header leads with an
 **Approve** toggle; approved cards move to an "Approved" section above the
-type groups, and a "Your review" box in the sticky header counts them. Every
-click is saved in the reader's browser, keyed by a report id baked in at build
-time, so the approvals survive reloads, browser restarts and moving or renaming
-the file. "Share" downloads a read-only copy with the approvals baked in, to
-send on. All of it is script-owned: no report.json field, nothing for you to
-write, and never mention it in the prose.
+type groups, and a "Your review" box in the sticky header counts them. Cards
+start in their insight's platform status, and each click approves or unapproves
+the insight on the Tensorleap server the report was built on (no login; the card
+title is added to the insight's comment on approve). On another server, or one
+that can't be reached, nothing changes and the card says so. Each click is also
+kept in the reader's browser, keyed by a report id baked in at build time, so a
+reload, a browser restart or a moved file shows the last confirmed state; an
+export from an older server, without insight ids, approves in the browser only.
+"Share" downloads a read-only copy with the approvals baked in, to send on. All
+of it is script-owned: no report.json field, nothing for you to write, and never
+mention it in the prose.
 
 **The page is dark-only**, the Tensorleap product palette (Nunito Sans,
 embedded; each insight type carries its own accent color). All of that is

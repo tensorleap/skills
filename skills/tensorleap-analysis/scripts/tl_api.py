@@ -138,6 +138,7 @@ def cmd_digest(args):
         summary = ins.get("summary") or {}
         d = {
             "index": ins.get("index"),
+            "cid": ins.get("cid"),
             "status": ins.get("status"),
             "description": ins.get("description"),
             "type": ins.get("type"),
@@ -213,6 +214,7 @@ def cmd_digest(args):
         "versionId": manifest.get("versionId"),
         "version": manifest.get("version"),
         "links": {"insights_panel": manifest.get("insightsPanelLink") or (parents[0]["deep_link"] if parents else None)},
+        "api_base": manifest.get("apiBase"),
         "population_metrics": pop_metrics,
         "population_metadata": pop_metadata,
         "prediction_labels": manifest.get("classLabels") or {},
@@ -731,6 +733,7 @@ button.apv:hover { background: rgba(16,185,129,.20); border-color: #34d399;
 button.apv:focus-visible { outline: 2px solid #6ee7b7; outline-offset: 2px; }
 button.apv[aria-pressed="true"] { border-color: #10b981; background: #10b981; color: #052e1f; }
 button.apv[aria-pressed="true"]:hover { background: #34d399; border-color: #34d399; }
+button.apv:disabled { opacity: .6; cursor: progress; }
 .review svg, button.apv svg, .apvbadge svg { width: 16px; height: 16px;
      fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round;
      stroke-linejoin: round; }
@@ -765,6 +768,8 @@ REVIEW_JS = """\
   var ORIG = stateEl.textContent;
   var st = JSON.parse(ORIG);
   var RO = !!st.readonly, KEY = "tl-report:" + st.reportId;
+  // with sync, each click updates the insight on the Tensorleap server that built the report
+  var SYNC = !RO && st.sync ? st.sync : null, busy = {}, syncedAt = null;
   var approved = [], last = null, savedAt = null, canStore = true, local = null;
   if (RO) document.documentElement.setAttribute("data-ro", "");
   else {
@@ -791,13 +796,47 @@ REVIEW_JS = """\
     var d = new Date(iso);
     return isNaN(d) ? iso : d.toLocaleString([], {dateStyle: "medium", timeStyle: "short"});
   }
-  function toggle(id) {
-    if (RO) return;
+  function setOn(id, on) {
     var i = approved.indexOf(id);
-    if (i >= 0) { approved.splice(i, 1); home[id].after(cards[id]); last = null; }
-    else { approved.unshift(id); shelfCards.prepend(cards[id]); last = id; }
+    if (on && i < 0) { approved.unshift(id); shelfCards.prepend(cards[id]); last = id; }
+    else if (!on && i >= 0) { approved.splice(i, 1); home[id].after(cards[id]); last = null; }
+  }
+  function titleOf(id) {
+    var h = cards[id].querySelector("h3").cloneNode(true), badge = h.querySelector(".apvbadge");
+    if (badge) badge.remove();
+    return h.textContent.trim();
+  }
+  function toggle(id) {
+    if (RO || busy[id]) return;
+    var want = approved.indexOf(id) < 0, cid = SYNC && SYNC.insights[id];
+    setOn(id, want);
     persist();
     render();
+    if (!cid) return;
+    busy[id] = true;
+    render();
+    fetch(SYNC.apiBase + "/insights/reportApproval", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({projectId: SYNC.projectId, insightId: cid,
+                            action: want ? "approve" : "unapprove", title: titleOf(id)})
+    }).then(function (r) {
+      if (r.status === 404) throw "elsewhere";
+      if (!r.ok) throw "failed";
+      return r.json();
+    }).then(function (res) {
+      // the server's status wins: approving an approved insight or unapproving an archived one changes nothing there
+      setOn(id, res.status === "Approved");
+      syncedAt = new Date().toISOString();
+    }, function (why) {
+      setOn(id, !want);
+      toast(why === "elsewhere" ? "This report was made on another Tensorleap server. Nothing changed."
+                                : "Couldn't reach Tensorleap. Nothing changed.");
+    }).then(function () {
+      busy[id] = false;
+      persist();
+      render();
+    });
   }
   function persist() {
     var at = new Date().toISOString();
@@ -822,6 +861,7 @@ REVIEW_JS = """\
       c.classList.toggle("settle", on && id === last);
       var b = c.querySelector("button.apv");
       b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.disabled = !!busy[id];
       b.lastChild.textContent = on ? "Approved" : "Approve";
       if (rows[id]) rows[id].classList.toggle("approved", on);
     });
@@ -841,9 +881,10 @@ REVIEW_JS = """\
       : n === total ? "Every insight reviewed."
       : (total - n) + " left to review. Approved insights are pinned at the top.";
     var s = q(".rsaved");
-    s.classList.toggle("warn", !RO && !canStore);
+    s.classList.toggle("warn", !RO && !SYNC && !canStore);
     s.querySelector("span").textContent = RO
       ? "Shared " + when(st.savedAt)
+      : SYNC ? (syncedAt ? "Saved in Tensorleap, " + when(syncedAt) : "Approvals are saved in Tensorleap as you click.")
       : !canStore ? "This browser isn't keeping your approvals here. Download a copy to keep them."
       : savedAt ? "Saved in this browser, " + when(savedAt)
       : "Your approvals are saved in this browser as you click.";
@@ -1160,6 +1201,39 @@ def _tile_html(tile):
             f'<span>{_esc(label)}</span></div>')
 
 
+def _review_state(spec, base):
+    """The page's review state. Each card is matched to its platform insight in
+    insights.json beside report.json: cards start approved when the insight is,
+    and with the server's API address and the insight ids ("sync") Approve updates
+    the insight on the server (insights/reportApproval). Without them (an older
+    server's export) approvals stay in the reader's browser."""
+    state = {"reportId": uuid.uuid4().hex, "readonly": False, "approved": [], "savedAt": ""}
+    try:
+        digest = json.load(open(os.path.join(base, "insights.json")))
+    except (OSError, ValueError):
+        return state
+    by_index = {}
+    stack = list(digest.get("insights") or [])
+    while stack:
+        d = stack.pop()
+        by_index[d.get("index")] = d
+        stack.extend(d.get("subinsights") or [])
+    ids = {}
+    for group in spec.get("groups", []):
+        for card in group.get("cards", []):
+            m = re.fullmatch(r"insight-(\d+)(?:-sub-(\d+))?", str(card.get("id")))
+            d = m and by_index.get(int(m.group(2) or m.group(1)))
+            if not d:
+                continue
+            if d.get("status") == "Approved":
+                state["approved"].append(card["id"])
+            if d.get("cid"):
+                ids[card["id"]] = d["cid"]
+    if ids and digest.get("api_base") and digest.get("projectId"):
+        state["sync"] = {"apiBase": digest["api_base"], "projectId": digest["projectId"], "insights": ids}
+    return state
+
+
 def _report_html(spec, base, missing):
     title = _esc(f'Tensorleap analysis · {spec["project"]} / {spec["version"]}')
     parts = [_header_html(spec), "<main>"]
@@ -1206,8 +1280,7 @@ def _report_html(spec, base, missing):
                      f'<p class="blurb">{_esc(group["meaning"])}</p>'
                      f'<div class="cards">{cards}</div></section>')
     parts.append("</main>")
-    state = {"reportId": uuid.uuid4().hex, "readonly": False,
-             "approved": [], "savedAt": ""}
+    state = _review_state(spec, base)
     parts.append('<div class="toast" role="status" hidden></div>')
     parts.append(f'<script type="application/json" id="tl-review">{json.dumps(state)}</script>')
     parts.append(f"<script>\n{REVIEW_JS}</script>")

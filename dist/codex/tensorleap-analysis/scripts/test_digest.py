@@ -6,6 +6,7 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+CID1, CID4 = "6a730b012e0f45b6707b83c1", "6a730b012e0f45b6707b83c4"
 
 
 def make_export(root, relative=False):
@@ -27,18 +28,19 @@ def make_export(root, relative=False):
     code = w("integration/leap_integration.py", "x = 1\n")
     manifest = {
         "dir": root, "projectId": "p", "versionId": "v", "version": "model", "insightsPanelLink": "http://ui/p",
+        "apiBase": "http://srv/api/v2",
         "classLabels": {"classes": ["cat", "dog"]}, "visualizers": [{"name": "Image", "type": "Image", "argNames": ["data"]}],
         "populationCsv": pop, "integrationDir": os.path.join(root, "integration"), "entryFile": "leap_integration.py",
         "skipped": [], "notes": [],
         "insights": [
-            {"index": 1, "type": "low_performance", "name": "Failure Mode", "status": "InReview", "dir": os.path.join(root, "insight_1_low_performance"),
+            {"index": 1, "cid": CID1, "type": "low_performance", "name": "Failure Mode", "status": "InReview", "dir": os.path.join(root, "insight_1_low_performance"),
              "samplesCsv": csv1, "fixingCsv": fix, "link": "http://ui/i1", "createTestLink": "http://ui/i1?addTestFromInsight=c1",
              "summary": {"groupSize": 2, "csvRows": 2, "rankedBy": "metrics.loss"}, "engine": {"n_samples": 2, "is_train_aggressor": True},
              "samples": [{"id": "training_1", "rank": 1, "rendered": True, "files": [payload]}, {"id": "training_2", "rank": 2, "rendered": False},
                          {"id": "training_3", "rank": 3, "rendered": True}]},
             {"index": 2, "type": "low_performance", "name": "Failure Mode", "parentIndex": 1, "dir": os.path.join(root, "insight_1_low_performance", "sub_2_low_performance"),
              "samplesCsv": csv2, "link": "http://ui/i2", "summary": {"groupSize": 1, "csvRows": 1}, "engine": {"n_samples": 1}, "samples": []},
-            {"index": 4, "type": "duplication", "name": "Duplication", "dir": os.path.join(root, "insight_4_duplication"),
+            {"index": 4, "cid": CID4, "status": "Approved", "type": "duplication", "name": "Duplication", "dir": os.path.join(root, "insight_4_duplication"),
              "samplesCsv": csv4, "link": "http://ui/i4", "summary": {"groupSize": 2, "csvRows": 2}, "engine": {"n_samples": 2}, "samples": []},
         ],
     }
@@ -55,7 +57,9 @@ def main():
     assert d["integration"] == {"dir": "integration", "entry_file": "leap_integration.py"}
     assert d["population_metrics"] == {"metrics.loss": 1.3667} and d["population_metadata"]["metadata.fog"] == {"yes": 0.6667, "no": 0.3333}
     assert [i["index"] for i in d["insights"]] == [1, 4], "sub-insight must nest under its parent"
+    assert d["api_base"] == "http://srv/api/v2"
     p = d["insights"][0]
+    assert p["cid"] == CID1 and d["insights"][1]["status"] == "Approved"
     assert p["subinsights"][0]["index"] == 2 and p["dir"] == "insight_1_low_performance"
     assert p["files"] == {"csv": "insight_1_low_performance/samples.csv", "fixing_csv": "insight_1_low_performance/fixing_samples.csv"}
     assert p["add_test_link"].endswith("addTestFromInsight=c1") and p["deep_link"] == "http://ui/i1"
@@ -96,19 +100,31 @@ def main():
     assert lr["group_rows"] == 2 and lr["csv_rows"] == 3 and lr["metrics"]["metrics.loss"]["group_mean"] == 2.0, lr
     assert "is_low_perf_root_member" not in lr["metadata"]
     card = {"id": "insight-1", "severity": 2, "heading": "Fog <frames>", "chips": [], "lede": "x"}
+    card4 = {"id": "insight-4", "severity": 1, "heading": "Copies", "chips": [], "lede": "y"}
     with open(os.path.join(root, "report.json"), "w") as f:
-        json.dump({"project": "p", "version": "v", "meta": "1 insight", "insights_link": "http://ui/p",
+        json.dump({"project": "p", "version": "v", "meta": "2 insights", "insights_link": "http://ui/p",
                    "executive_summary": "s", "overview": [],
-                   "groups": [{"type": "Failure Mode", "count": "1", "meaning": "m", "cards": [card]}]}, f)
+                   "groups": [{"type": "Failure Mode", "count": "1", "meaning": "m", "cards": [card]},
+                              {"type": "Duplication", "count": "1", "meaning": "m", "cards": [card4]}]}, f)
     subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "build-report", root], capture_output=True, check=True)
     page = open(os.path.join(root, "report.html")).read()
     assert '<button type="button" class="apv" aria-pressed="false">' in page and 'id="approved" hidden' in page
     state = json.loads(re.search(r'id="tl-review">(\{.*?\})</script>', page).group(1))
-    assert re.fullmatch(r"[0-9a-f]{32}", state["reportId"]) and state["readonly"] is False and state["approved"] == [], state
+    assert re.fullmatch(r"[0-9a-f]{32}", state["reportId"]) and state["readonly"] is False, state
+    assert state["approved"] == ["insight-4"], "cards start in the insight's platform status"
+    assert state["sync"] == {"apiBase": "http://srv/api/v2", "projectId": "p",
+                             "insights": {"insight-1": CID1, "insight-4": CID4}}, state
     assert "window.prompt" not in page and '"reviewer"' not in page, "approvals carry no name"
     assert page.index('id="tl-review">') < page.index("SRC.replace"), "state block must precede the script"
     assert "localStorage.setItem(KEY" in page and "Save with my approvals" not in page
     assert 'src="' not in page.split("<main>")[1], "inline-html would rewrite script text"
+    old = json.load(open(os.path.join(root, "insights.json")))
+    old.pop("api_base")
+    json.dump(old, open(os.path.join(root, "insights.json"), "w"))
+    subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "build-report", root], capture_output=True, check=True)
+    page = open(os.path.join(root, "report.html")).read()
+    state = json.loads(re.search(r'id="tl-review">(\{.*?\})</script>', page).group(1))
+    assert "sync" not in state and state["approved"] == ["insight-4"], "an older server's export approves in the browser only"
     empty = tempfile.mkdtemp()
     assert subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", empty], capture_output=True).returncode == 5
     print("all checks passed")
