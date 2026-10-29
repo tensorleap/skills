@@ -176,7 +176,8 @@ Memory options: `profile --memory-samples N` (samples per state in the memory pa
    show the user the sign-in link it prints, and wait for it (never ask them to type
    `! leap auth login` into your prompt: it has no keyboard input there). On
    `unknown flag: --non-interactive` (an older CLI), ask the user to run
-   `leap auth login <url>` in their own terminal instead.
+   `leap auth login <url>` in their own terminal instead. If the login ends with
+   `failed to get API key: timeout` (5 minutes, nothing saved), run it again for a new link.
    Exit 6 → ask whether the server is remote (port-forward) or must be started, when you
    reach Phase 6.
 

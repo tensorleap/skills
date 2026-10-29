@@ -262,7 +262,9 @@ server, or configures anything. React to its exit status:
   `leap auth login <url> --non-interactive < /dev/null` as a **background**
   command (`<url>` is the server, `http://localhost:4589` for a local install; it
   waits up to 5 minutes), show the user the sign-in link it prints, ask them to
-  open it and sign in, wait for it to finish, then re-run preflight. Never ask the
+  open it and sign in, wait for it to finish, then re-run preflight. If it ends
+  with `failed to get API key: timeout` (no sign-in within 5 minutes; nothing is
+  saved), run it again and show the new link. Never ask the
   user to type `! leap auth login …` into your prompt: it has no keyboard input
   there and dies with `EOF`. On `unknown flag: --non-interactive` (an older CLI),
   ask the user to run `leap auth login <url>` in their own terminal instead.

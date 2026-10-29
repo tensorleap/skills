@@ -81,7 +81,8 @@ leap CLI predates this skill: ask the user to run `leap cli upgrade -s | bash`
 and restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
 to run `leap auth login`, fix `--env`, or check the tunnel) and stop. To sign in,
 run `leap auth login <url> --non-interactive < /dev/null` yourself in the
-background, show the user the sign-in link it prints, wait for it to finish, and
+background, show the user the sign-in link it prints, wait for it to finish (on
+`failed to get API key: timeout` after 5 minutes nothing is saved: run it again), and
 ask the user to restart the assistant so the Tensorleap tools see the sign-in;
 never ask them to type `! leap auth login` into your prompt (it has no keyboard
 input there). On `unknown flag: --non-interactive` (an older CLI), ask the user

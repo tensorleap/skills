@@ -571,6 +571,8 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    `leap auth login <url> --non-interactive < /dev/null` as a **background** command (it waits
    up to 5 minutes for the sign-in), show the user the sign-in link it prints, ask them to open
    it in their browser and sign in, and wait for the command to finish (`Saved credentials to`).
+   If it ends with `failed to get API key: timeout` (no sign-in within 5 minutes; nothing is
+   saved), run it again and show the new link.
    Never ask the user to type `! leap auth login …` into the assistant's prompt: that has no
    keyboard input, so the interactive login dies with `EOF`. On a CLI that answers
    `unknown flag: --non-interactive`, ask the user to run `leap auth login <url>` in their own
