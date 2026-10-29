@@ -186,21 +186,27 @@ restate severity in `chips`. Card content, in render order:
    header already carries the number). The count chip is
    `population.samples`, and every other number on the card (composition, contrast,
    action items) describes that same set. `Mislabeled` is the only verdict
-   chip: add it only per the playbook rule (action-playbook "Look for
-   yourself" §1); build-report rejects a chip that is just that word (any
-   spelling, "Mislabeling", "Coherently mislabeled") unless the card is in
-   the Failure Mode group and its root cause is `Label quality` alone
-   (exit 8); chips that merely mention it ("88 mislabeled candidates") are
-   untouched.
+   chip, and build-report adds it to every card whose root cause family is
+   `Mislabeling`; never write it yourself (build-report rejects a chip that
+   is just that word in any spelling, "Mislabeling", "Coherently
+   mislabeled", exit 8). Chips that merely mention it ("88 mislabeled
+   candidates") are untouched.
 3. **Bottom line** (`lede`): ONE bold sentence, what is going
    wrong and why it matters. A reader who stops here still got the point.
    *Items 4–6 render inside the collapsed **Analysis info** fold.*
 4. **Root cause** (`root_cause`): rendered as `Root cause · <family>:` plus
    your one caption sentence. The family vocabulary is fixed, `Data gap`,
-   `Label quality`, `Split problem`, `Model behavior` (two families allowed
-   when the diagnosis is genuinely mixed about ONE population), so the
-   label reads as a consistent grammar across every card and every report.
-   A card with the `Mislabeled` chip uses the single family `Label quality`.
+   `Label quality`, `Mislabeling`, `Split problem`, `Model behavior` (two
+   families allowed when the diagnosis is genuinely mixed about ONE
+   population), so the label reads as a consistent grammar across every
+   card and every report. `Mislabeling`: the group's annotations are
+   consistently wrong and the model is actually right, annotation work,
+   not model work (playbook "Look for yourself" §1 has the rule); always
+   alone, only in the Failure Mode group (exit 8 otherwise), and it gets
+   the `Mislabeled` chip. `Label quality`: everything else about labels,
+   noisy or ambiguous annotations, inconsistent guidelines, scattered
+   mislabels mixed with real model failures; still a model problem that
+   labels make worse or harder to measure.
 5. **Prose** (`prose`, a list of paragraphs): what kind of samples fail, how
    the model gets them wrong, the evidence in plain sentences, and one
    sentence translating the latent space (playbook guide).

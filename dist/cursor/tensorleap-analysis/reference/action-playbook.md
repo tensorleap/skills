@@ -173,20 +173,33 @@ top samples and ask:
    image shows dark hair"), naming the samples, never counting the
    displayed ones. A metadata tag disagreeing with the image is a metadata
    problem; call it a *label* problem only when it's the label itself.
-   **The `Mislabeled` chip.** Add the chip with the exact text `Mislabeled`
-   to a card only when ALL of these hold: it is a Failure Mode card that
-   passed the coherence gate (item 3); the group fails because the same
-   label is wrong across the group; the label is human-interpretable; named
-   samples visibly contradict it; and the root cause is `Label quality` and
-   nothing else. No column measures "wrong", so the evidence that the same
-   label is wrong across the group is the pair: the group's ground-truth
-   label column in samples.csv (counted by `summarize`) is dominated by one
-   value, AND the named top samples you viewed visibly contradict that value
-   (ids resolved through `prediction_labels`); that pair is enough for this
-   chip. Never add it for scattered individual mislabels, opaque
-   labels that can't be judged from outside, mixed causes, data gap, model
-   behavior, split problems, or old-type Mislabeled cards. The chip lives
-   only in the report; it is not written to the platform.
+   **Root cause `Mislabeling`.** Use the family `Mislabeling` (alone) for a
+   card whose group fails because its annotations are consistently wrong
+   and the model is actually right: annotation work, not model work.
+   build-report then adds the `Mislabeled` chip; never write that chip
+   yourself. Today this covers a wrong class label, in classification or
+   instance datasets; missed objects, annotations of nothing, and wrong box
+   or mask extent stay `Label quality` for now. Judge in this order:
+   1. **Gate.** It is a Failure Mode card that passed the coherence gate
+      (question 3 below), and the label is human-interpretable (above).
+   2. **Samples against the annotation.** Before reading any prediction,
+      view the named top samples and decide what class each visibly
+      shows. Evidence that the same label is wrong across the group (no
+      column measures "wrong"): the group's ground-truth label column in
+      samples.csv (counted by `summarize`) is dominated by one value, AND
+      the samples you viewed visibly contradict that value (ids resolved
+      through `prediction_labels`).
+   3. **Confirm against the prediction.** Only now read the prediction
+      field (`*_prd_idx`, or without one the prediction visualizer) for the
+      group and those samples: it must agree with the class the samples
+      show. That the model is right is a check on your judgment, never its
+      input. If the prediction disagrees with
+      what you saw too, the root cause is not `Mislabeling` (often `Label
+      quality` plus `Model behavior`).
+   Never use it for scattered individual mislabels, opaque labels that
+   can't be judged from outside, mixed causes, data gap, model behavior,
+   split problems, or old-type Mislabeled cards. The chip lives only in the
+   report; it is not written to the platform.
 2. **What do these samples share that the metadata can't express?**
    Lighting, pose, occlusion, background clutter, image quality, phrasing
    style, topic. If you spot one, name it AND recommend adding it as a

@@ -17,7 +17,7 @@ def make_card(**over):
     card = {"id": "insight-1", "severity": 3, "heading": "Night-time dogs are labelled cat",
             "chips": ["2 samples", "image-non-semantic space"],
             "lede": "Every sample in this group shows a dog whose label says cat.",
-            "root_cause": {"family": "Label quality", "caption": "the group is coherent mislabelling."},
+            "root_cause": {"family": "Label quality", "caption": "the labels are noisy."},
             "add_test": {"link": "http://ui/i1?addTestFromInsight=c1", "label": "Add the suggested test"},
             "explore": {"link": "http://ui/i1", "text": "open"}}
     card.update(over)
@@ -106,28 +106,35 @@ def check_no_button_without_link():
     assert "Add comment" not in page and "Add comment" not in txt
 
 
-def check_mislabeled_chip_with_label_quality_accepted():
-    r, page, _ = build([make_card(chips=["2 samples", "Mislabeled"])])
+MISLABELING = {"family": "Mislabeling", "caption": "the model is right, the ground truth is wrong."}
+
+
+def check_mislabeling_root_cause_adds_chip():
+    r, page, txt = build([make_card(root_cause=MISLABELING)])
     assert r.returncode == 0, r.stderr
-    assert "Mislabeled" in chips(page, "insight-1"), chips(page, "insight-1")
+    assert chips(page, "insight-1")[-1] == "Mislabeled", chips(page, "insight-1")
+    assert "Root cause · Mislabeling:" in card_section(page, "insight-1")
+    chip_line = next(line for line in txt.splitlines() if line.startswith("chips: "))
+    assert chip_line.endswith(" · Mislabeled"), chip_line
 
 
-def check_mislabeled_chip_needs_label_quality_alone():
-    data_gap = {"family": "Data gap", "caption": "few night samples."}
-    mixed = {"family": "Label quality, Data gap", "caption": "both."}
-    cases = [("Mislabeled", data_gap), ("Mislabelled", data_gap), ("misslabelled", data_gap),
-             ("mislabeled", data_gap), (" mis-labeled ", data_gap), ("Mislabeled", mixed), ("Mislabeled", None)]
+def check_label_quality_gets_no_chip():
+    r, page, txt = build([make_card()])
+    assert r.returncode == 0, r.stderr
+    assert "Mislabeled" not in chips(page, "insight-1"), chips(page, "insight-1")
+    assert "Mislabeled" not in txt
+
+
+def check_hand_written_verdict_chip_rejected():
+    variants = ("Mislabeled", "Mislabelled", "misslabelled", " mis-labeled ", "Mislabeling",
+                "Coherent mislabeling", "Coherently mislabeled", "Mis labeled", "Mislabeled \u2713")
     bad = []
-    for n, (chip, rc) in enumerate(cases):
-        card_id = f"insight-{n + 3}"
-        card = make_card(id=card_id, chips=["2 samples", chip])
-        if rc is None:
-            card.pop("root_cause")
-        else:
-            card["root_cause"] = rc
-        r, _, _ = build([card])
-        if r.returncode != 8 or card_id not in r.stderr:
-            bad.append((chip, rc and rc["family"], r.returncode, r.stderr.strip()[:200]))
+    for rc in (MISLABELING, {"family": "Label quality", "caption": "c"}, None):
+        for chip in variants:
+            card = make_card(id="insight-6", chips=["2 samples", chip], root_cause=rc)
+            r, _, _ = build([card])
+            if r.returncode != 8 or "insight-6" not in r.stderr or "Traceback" in r.stderr:
+                bad.append((chip, rc and rc["family"], r.returncode, r.stderr.strip()[-200:]))
     assert not bad, bad
 
 
@@ -145,49 +152,39 @@ def check_chip_that_only_mentions_mislabeling_accepted():
     assert not bad, bad
 
 
-def check_mislabeled_chip_outside_failure_mode_rejected():
+def check_mislabeling_outside_failure_mode_rejected():
     bad = []
-    for group_type in ("Mislabeled", "Duplication"):
-        card = make_card(id="insight-5", chips=["2 samples", "Mislabeled"])
-        r, _, _ = build([card], group_type)
+    for group_type in ("Mislabeled", "Duplication", "Out of Distribution"):
+        r, _, _ = build([make_card(id="insight-5", root_cause=MISLABELING)], group_type)
         if r.returncode != 8 or "insight-5" not in r.stderr or "Traceback" in r.stderr:
             bad.append((group_type, r.returncode, r.stderr.strip()[-200:]))
     assert not bad, bad
 
 
-def check_mislabeled_chip_variants_need_label_quality():
-    families = ({"family": "Data gap", "caption": "c"}, {"family": "Model behavior", "caption": "c"})
-    variants = ("Mislabeling", "Coherent mislabeling", "Coherently mislabeled", "Mis labeled", "Mislabeled \u2713")
+def check_mislabeling_must_be_exact_and_alone():
+    families = ("Mislabeling, Model behavior", "Label quality, Mislabeling", "mislabeling", " Mislabeling",
+                "Mislabeled", "Mislabelling", ["Mislabeling"], ["Mislabeling", "Data gap"])
     bad = []
-    for rc in families:
-        for chip in variants:
-            card = make_card(id="insight-6", chips=["2 samples", chip], root_cause=rc)
-            r, _, _ = build([card])
-            if r.returncode != 8 or "insight-6" not in r.stderr or "Traceback" in r.stderr:
-                bad.append((chip, rc["family"], r.returncode, r.stderr.strip()[-200:]))
+    for family in families:
+        card = make_card(id="insight-9", root_cause={"family": family, "caption": "x"})
+        r, _, _ = build([card])
+        if r.returncode != 8 or "insight-9" not in r.stderr or "Traceback" in r.stderr:
+            bad.append((family, r.returncode, r.stderr.strip()[-200:]))
     assert not bad, bad
 
 
 def check_string_root_cause_or_add_comment_rejected():
     bad = []
-    for field, value in (("root_cause", "Label quality"), ("add_comment", "http://x?comment=")):
+    for field, value in (("root_cause", "Mislabeling"), ("add_comment", "http://x?comment=")):
         r, _, _ = build([make_card(**{field: value})])
         if r.returncode != 8 or "Traceback" in r.stderr:
             bad.append((field, r.returncode, r.stderr.strip()[-200:]))
     assert not bad, bad
 
 
-def check_list_family_without_chip_builds():
+def check_list_family_builds():
     r, _, _ = build([make_card(root_cause={"family": ["Label quality"], "caption": "x"})])
     assert r.returncode == 0 and "Traceback" not in r.stderr, (r.returncode, r.stderr.strip()[-300:])
-
-
-def check_list_family_with_mislabeled_chip_rejected():
-    card = make_card(id="insight-9", chips=["2 samples", "Mislabeled"],
-                     root_cause={"family": ["Label quality"], "caption": "x"})
-    r, _, _ = build([card])
-    assert r.returncode == 8 and "insight-9" in r.stderr and "Traceback" not in r.stderr, \
-        (r.returncode, r.stderr.strip()[-300:])
 
 
 def check_cards_without_chip_unchanged():

@@ -830,6 +830,17 @@ def _figure_html(sample, base, missing, pair_labels=None):
     return f'<figure>{body}<figcaption>{cap}</figcaption></figure>'
 
 
+MISLABELING = "Mislabeling"
+
+
+def _card_chips(card):
+    """The agent's chips, plus the Mislabeled verdict chip derived from the root cause."""
+    chips = list(card.get("chips", []))
+    if (card.get("root_cause") or {}).get("family") == MISLABELING:
+        chips.append("Mislabeled")
+    return chips
+
+
 def _card_html(card, kind, base, missing, modality):
     sev = int(card.get("severity", 1))
     idx = _idx(card["id"])
@@ -856,7 +867,7 @@ def _card_html(card, kind, base, missing, modality):
     chips = [f'<span class="chip sev"><span class="k">Severity</span>'
              f'<b>{sev} of 3</b></span>']
     chips += [f'<span class="chip">{_esc(c)}</span>'
-              for c in card.get("chips", [])
+              for c in _card_chips(card)
               if not str(c).lower().startswith("insight #")]
     parts = [f'<section class="card" id="{_esc(card["id"])}" '
              f'data-kind="{kind}" data-sev="{sev}">',
@@ -1020,7 +1031,7 @@ def _report_txt(spec):
             lines += ["", f'### {_strip_tags(c["heading"])}  [#{c["id"]}]',
                       "chips: " + " · ".join(
                           [f'Severity {c.get("severity", 1)} of 3']
-                          + [_strip_tags(x) for x in c.get("chips", [])])]
+                          + [_strip_tags(x) for x in _card_chips(c)])]
             rc = c.get("root_cause")
             if rc:
                 lines.append(f'Root cause · {rc["family"]}: {_strip_tags(rc["caption"])}')
@@ -1084,17 +1095,20 @@ def cmd_build_report(args):
         for group in spec.get("groups", []):
             for c in group.get("cards", []):
                 for chip in c.get("chips", []):
-                    if not re.fullmatch(r"\W*(coherent(ly)?\s+)?mis+[-\s]?label+(ed|ing)\W*", str(chip), re.I):
-                        continue
-                    if group.get("type") != "Failure Mode":
-                        invalid.append(f'report.json invalid: card {c.get("id")} has a "{chip}" chip but sits in the '
-                                       f'"{group.get("type")}" group; the Mislabeled chip is only for a Failure Mode '
-                                       f'group that is just coherent mislabelling')
-                    family = (c.get("root_cause") or {}).get("family")
-                    if not (isinstance(family, str) and family.strip() == "Label quality"):
-                        invalid.append(f'report.json invalid: card {c.get("id")} has a "{chip}" chip but its root cause '
-                                       f'is "{family or "none"}"; the Mislabeled chip is only for a Failure Mode group '
-                                       f'that is just coherent mislabelling (root cause Label quality alone)')
+                    if re.fullmatch(r"\W*(coherent(ly)?\s+)?mis+[-\s]?label+(ed|ing)\W*", str(chip), re.I):
+                        invalid.append(f'report.json invalid: card {c.get("id")} has a hand-written "{chip}" chip; '
+                                       f'remove it, build-report adds the Mislabeled chip to cards whose root '
+                                       f'cause family is Mislabeling')
+                family = (c.get("root_cause") or {}).get("family")
+                families = family if isinstance(family, list) else str(family or "").split(",")
+                if any(re.fullmatch(r"\s*mis+[-\s]?label+(ed|ing)\s*", str(f), re.I) for f in families):
+                    if family != MISLABELING:
+                        invalid.append(f'report.json invalid: card {c.get("id")} has root cause family "{family}"; '
+                                       f'write it exactly as "{MISLABELING}", alone (never with a second family)')
+                    elif group.get("type") != "Failure Mode":
+                        invalid.append(f'report.json invalid: card {c.get("id")} has root cause {MISLABELING} but '
+                                       f'sits in the "{group.get("type")}" group; {MISLABELING} is only for a '
+                                       f'Failure Mode group that is just coherent mislabelling')
                 ac = c.get("add_comment")
                 if ac and not str(ac.get("link", "")).endswith("="):
                     invalid.append(f'card {c.get("id")}: add_comment.link must be the digest\'s '

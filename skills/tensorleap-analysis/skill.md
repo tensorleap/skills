@@ -417,7 +417,7 @@ then affected-sample count within the group (the rendered table says so),
 and the overview table mirrors the same order with a subheader
 row per type. Each insight gets: chips, a bold
 one-sentence **bottom line**, the **root-cause label** (Data gap / Label
-quality / Split problem / Model behavior, the family your playbook walk
+quality / Mislabeling / Split problem / Model behavior, the family your playbook walk
 diagnosed, with a one-line caption; fixed vocabulary so it reads as a
 consistent grammar), the **split-composition bar** and **metric-contrast
 rows** (population
