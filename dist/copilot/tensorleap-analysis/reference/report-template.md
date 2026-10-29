@@ -28,6 +28,21 @@ write as a colleague in that domain (its terminology, its standard fixes;
 skill Step 4); the "Analyze insight" button on each insight
 is for users who know the platform and want to continue there.
 
+**The reader reviews the report in place.** Every card header leads with an
+**Approve** toggle; approved cards move to an "Approved" section above the
+type groups, and a "Your review" box in the sticky header counts them. Cards
+start in their insight's platform status, and each click approves or unapproves
+the insight on the Tensorleap server the report was built on (no login; the card
+title is added to the insight's comment on approve, and taken off again on
+unapprove while it is still the comment's last line). On another server, or one
+that can't be reached, nothing changes and the card says so. Each click is also
+kept in the reader's browser, keyed by a report id baked in at build time, so a
+reload, a browser restart or a moved file shows the last confirmed state; an
+export from an older server, without insight ids, approves in the browser only.
+"Share" downloads a read-only copy with the approvals baked in, to send on. All
+of it is script-owned: no report.json field, nothing for you to write, and never
+mention it in the prose.
+
 **The page is dark-only**, the Tensorleap product palette (Nunito Sans,
 embedded; each insight type carries its own accent color). All of that is
 script-owned; you never pick colors.
@@ -85,7 +100,8 @@ groups, and ends with the last card. Notes live in `report.md` alone
 
 1. **Sticky header**, "Tensorleap analysis" eyebrow, `PROJECT · VERSION`
    title, an "Open in Tensorleap" button (the Insights-panel link), and a
-   chip row: evaluation date (`evaluated`) and the insight counts (`meta`).
+   chip row: evaluation date (`evaluated`) and the insight counts (`meta`),
+   plus the script's "Your review" box.
    The model/version identity lives in the title alone, no model chip, no
    severity-summary chip.
 2. **KPI strip** (`.tiles`): 3–4 stat tiles with the model-level numbers a
@@ -178,8 +194,9 @@ restate severity in `chips`. Card content, in render order:
    the script derives it from `id` and renders it in the card header and the
    overview table; prose cross-references between cards go by NAME ("the
    tiny-objects fix above"), never by number.
-   *Items 9's `add_test` ("Test") and 10's `explore` ("Analyze insight")
-   render here as header buttons that open the platform in a new tab.*
+   *The script's Approve toggle leads the header buttons; items 9's
+   `add_test` ("Test") and 10's `explore` ("Analyze insight") follow it,
+   opening the platform in a new tab.*
 2. **Chips** (`chips`): sample count, key metric, latent space (the severity
    chip is script-generated, and an "insight #N" chip is dropped, the
    header already carries the number). The count chip is
