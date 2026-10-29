@@ -124,6 +124,33 @@ Before writing the loader, answer: how many inputs, each name/dtype, each shape
 without batch dim, how many outputs, what they mean, what labels /
 `PredictionTypeHandler` are required. Do this outside Tensorleap code if easier.
 
+**Then check that the declared batch dim is true.** A model may legitimately be
+batch-1 only — but then its input must *declare* a fixed batch of 1. The failure
+to catch is a model that declares a dynamic batch but only handles batch 1
+(e.g. a trace-time Python loop over the batch, unrolled once). The ONNX may
+raise at batch 2, but the platform's ONNX→Keras conversion can turn that into a
+graph that silently computes only sample 0. Every local check passes on it,
+because the integration test feeds one sample; on the platform it yields wrong
+per-sample predictions and metrics at any `-b` > 1, and the platform's automatic
+latent spaces come out empty. Run this on the exact model file you will push —
+an exception at batch 2 is a failure too:
+
+```python
+import numpy as np, onnxruntime as ort
+sess = ort.InferenceSession(MODEL_PATH)
+inp = sess.get_inputs()[0]                      # feed every input if there are several
+a, b = load_two_different_real_inputs()         # (1, ...) each; NOT zeros/copies — identical inputs prove nothing
+if not isinstance(inp.shape[0], int):           # str/None = dynamic batch; Keras: model.inputs[0].shape[0] is None
+    pair = sess.run(None, {inp.name: np.concatenate([a, b])})
+    for i, x in enumerate((a, b)):
+        for together, alone in zip(pair, sess.run(None, {inp.name: x})):
+            np.testing.assert_allclose(together[i:i + 1], alone, rtol=1e-3, atol=1e-4)
+```
+
+On failure, stop: fix the export (see **Exporting a model** in the guardrails),
+or re-export with a static batch of 1 and push with `-b 1`. Do not write the
+loader around it.
+
 ## Step 4 — minimum input encoder set
 
 One encoder per model input; enough for one real inference.
@@ -228,6 +255,11 @@ def class_gt(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
 Call directly first (is the encoder itself right?), then via `integration_test`
 (does the whole path stay mappable + binder-valid?). For an unlabeled path return
 `np.array([], dtype=np.float32)`, never `None`.
+
+Return the **same shape for every sample**. A variable count (boxes, keypoints) is
+padded to a fixed `MAX_*` taken from the dataset's real maximum, with NaN rows, and
+the loss, metrics, visualizers and GT-derived metadata drop the NaN rows. Unequal GT shapes cannot be
+batched: the evaluate runs one sample per batch and the engine warns to pad.
 
 ## Step 9 — expand beyond the first sample, then optional interfaces
 

@@ -6,7 +6,7 @@
 # and run a validation Evaluate? It never installs, authenticates, or starts anything.
 # The skill's local phases (floor, profiling, lossless fixes) do NOT need a server, so
 # a non-zero exit here only disables the validation push; it does not stop the skill.
-# One exception: on Copilot/Cursor installs (skill folders that ship a VERSION file)
+# One exception: on skill-folder installs (the ones that ship a VERSION file)
 # step 0 may refresh the skill's OWN files — see self_update.sh.
 #
 # A remote server is fine: the validation push goes to whichever server the CLI is
@@ -33,7 +33,7 @@ pass(){ printf '  [PASS] %-22s %s\n' "$1" "$2"; }
 fail(){ printf '  [FAIL] %-22s %s\n' "$1" "$2"; }
 note(){ printf '         -> %s\n' "$1"; }
 
-# 0. Skill self-update (Copilot/Cursor installs only, see self_update.sh).
+# 0. Skill self-update (see self_update.sh).
 if [[ -z "${TL_SKILL_NO_UPDATE:-}" && -f "$(dirname "$0")/self_update.sh" ]]; then
   bash "$(dirname "$0")/self_update.sh"; rc=$?
   [[ $rc -eq 10 ]] && TL_SKILL_NO_UPDATE=1 exec "$0" "$@"

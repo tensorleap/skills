@@ -11,8 +11,9 @@ update through the channels in the table at the bottom.
    - The canonical body ships to **every** tool, byte-identical. A script
      change lands in the Claude copy too, so anything tool-specific in a
      shared script must stay behaviorally inert for the other tools (see
-     `scripts/preflight.sh` step 0: it arms only when a `VERSION` file is
-     present **and** the install path matches a Copilot/Cursor skills root).
+     `scripts/preflight.sh` step 0 and `self_update.sh`: the install path
+     names the tool; skill folders need a `VERSION` file, a Claude plugin its
+     `plugin.json`).
    - If your change alters the generated **Claude** `SKILL.md`, the golden
      check will fail. That is intentional: when the Claude change is
      deliberate, update `build/golden/<name>/SKILL.md` in the same commit so
@@ -39,7 +40,7 @@ update through the channels in the table at the bottom.
    ```
 
    This rewrites `dist/` and `.claude-plugin/marketplace.json`, including
-   the `VERSION` files inside `dist/copilot/<name>/` and `dist/cursor/<name>/`
+   the `VERSION` files inside every skill-folder tool (`dist/<tool>/<name>/`)
    (they are stamped from the skill's `version:` — never edit them by hand).
 
 5. **Verify** — all of:
@@ -81,7 +82,8 @@ update through the channels in the table at the bottom.
 |---|---|---|
 | **Copilot** (`.github/skills/` / `~/.copilot/skills/`) | next `preflight.sh` run (the skill runs it first, every session) | Global installs auto-update and re-exec; project-local installs ask for approval (TTY `y/N`, or an ask-the-user note under an agent). Offline runs skip silently. `TL_SKILL_NO_UPDATE=1` opts out. |
 | **Cursor** (`.cursor/skills/` / `~/.cursor/skills/`) | same as Copilot | Same behavior. If a sandbox blocks the global write, preflight prints the manual update command instead. |
-| **Claude Code** (plugin marketplace) | plugin version in the marketplace | Updates flow through the plugin system; Claude copies ship **no `VERSION` file** and never self-update. This is why step 3 matters. |
+| **Codex** (`.agents/skills/` / `~/.agents/skills/`), **Windsurf** (`.windsurf/skills/` / `~/.codeium/windsurf/skills/`) | same as Copilot | Same behavior. |
+| **Claude Code** (plugin marketplace) | next `self_update.sh` run, keyed off the **plugin** version | Claude copies ship **no `VERSION` file**; the updater compares the installed `plugin.json` version with `main`'s and runs `claude plugin marketplace update tensorleap` + `claude plugin update <plugin>@tensorleap`. The new version loads in the next session. Without the `claude` CLI on PATH it prints those commands instead. This is why step 3 matters. |
 | **Claude / any tool via `install.sh`** | customer re-runs the README install command | Fresh copy of the current `main` (the installer `rm -rf`s the dest skill folder first, so removed files don't linger). |
 | **AGENTS.md** | customer re-runs the installer | The marked section is upserted in place; the skill version is stamped in its header comment. No self-update. |
 
@@ -91,8 +93,8 @@ update through the channels in the table at the bottom.
   `VERSION` files and the AGENTS stamp; `plugins.json` drives the Claude
   plugin/marketplace version. Bump the first for every release; bump the
   second whenever Claude-shipped bytes changed.
-- Never ship a `VERSION` file in the Claude output — it is the self-update
-  trigger, and Claude must stay marketplace-updated (`build/generate.py`
+- Never ship a `VERSION` file in the Claude output — Claude must stay
+  marketplace-updated, keyed off the plugin version (`build/generate.py`
   already enforces this shape; don't work around it).
 - Feature-branch installs (`--ref <branch>`) never self-update: the checker
   reads `main`, gets a 404 for versions that don't exist there yet, and

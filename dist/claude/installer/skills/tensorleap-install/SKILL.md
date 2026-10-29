@@ -139,6 +139,10 @@ reason an install call is wasted is that IT hasn't prepared the machine. Hand ov
 Quick path: `bash <this skill's dir>/scripts/install_preflight.sh` (use the skill's
 absolute path — your shell's cwd is the user's project, not the skill) runs every read-only check in this
 step and prints a report; the sections below explain how to read it and what to fix.
+It first checks for a newer version of this skill. A `Tensorleap skill: updating …` line means
+the skill's files were just refreshed: re-read this file before continuing. A `NOTE:` line means
+a project-local install has an update available: ask the user before running the printed command.
+A Claude Code plugin update loads in the next session; continue with the installed version.
 
 Fix failures before installing — the installer's own checks happen late and some failures roll
 back a 20-minute install.
@@ -541,7 +545,16 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
 4. Apply the license/trial-extension token: Settings (gear) → Manage License → insert token →
    Apply. Fresh installs start with a 1-week trial. It can also be applied without the UI —
    `leap auth license -t <token>` (or `-f <file>`), and `leap server install` itself accepts
-   `--license-token`/`--license-file`, which is the better path for scripted installs.
+   `--license-token`/`--license-file`, which is the better path for scripted installs. The
+   license period counts from the day the token was issued, not applied. A token issued to an
+   email domain applies only while logged in with an account at that domain (UI or
+   `leap auth login`), so `leap server install --license-token`, which runs before any login,
+   needs a token issued for everyone. A **colored** (not yet activated) token, the one a Free
+   Tier signup installs with, pre-registers the signup email as the admin and leaves the license
+   blocked: every action, push and Evaluate included, answers "You have yet to activate your
+   Tensorleap license…" until the emailed key is applied (Manage License, `leap auth license -t`,
+   or automatically once the email's confirmation button is pressed). On the first visit the UI
+   opens Keycloak's registration form with that email locked; the user only sets a password.
 5. CLI auth: the "generate CLI token" line copied from the UI is only one of three login
    paths — `leap auth login <url>` also accepts `--api-key` or `--username`/`--password`, and
    the URL **must** include the scheme (`http://…`). On a local install edit the copied line to

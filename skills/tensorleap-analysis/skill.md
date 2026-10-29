@@ -11,10 +11,10 @@ description: >
   self-contained HTML report with evidence, embedded sample visualizations,
   and concrete action items for an ML engineer.
 group: tensorleap
-version: 0.3.4
+version: 0.4.1
 globs: ["leap.yaml"]
 alwaysApply: false
-tools: [claude, cursor, copilot, agents]
+tools: [claude, cursor, copilot, codex, windsurf, agents]
 scripts_dir: .tensorleap/scripts
 reference_dir: .tensorleap/reference
 ---
@@ -64,8 +64,8 @@ duration; `TL_DISABLE_ANALYTICS=1` turns it off).
 Run `bash {{scripts_dir}}/self_update.sh` first. Exit 0: nothing to do.
 Exit 10: the skill's files were just refreshed, re-read this file and start
 over. A `NOTE:` line means a project-local install has an update available:
-ask the user before running the printed command. The script only acts on
-Copilot/Cursor installs; Claude updates through the plugin marketplace.
+ask the user before running the printed command. A Claude Code plugin update
+loads in the next session; continue with the installed version.
 
 Then call `tl_status`. If the Tensorleap tools are not available at all:
 
@@ -433,7 +433,11 @@ and the **"Analyze insight"** header button using the insight's
 `deep_link` (lands on the insight already analyzed, opened as the
 dashboard's top panel with its cluster filter applied, what the panel's
 "Analyze" button does; insights without a cluster blob fall back to the
-version-level Insights-panel link).
+version-level Insights-panel link). The script adds an **Approve** toggle to
+every card, approving the insight on the platform it was exported from (on
+servers that support it, server versions > 1.6.100; on older ones approvals
+stay in the reader's browser), and a review box to the header that shares a
+read-only copy; they need nothing from you.
 Then render and make it self-contained:
 
 ```

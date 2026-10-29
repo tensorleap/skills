@@ -17,6 +17,10 @@ OUTPUTS (into dist/, plus a generated .claude-plugin/marketplace.json)
               SKILL.md (minimal frontmatter) + scripts + reference. Discovered
               natively by Cursor from .cursor/skills/ (project) or
               ~/.cursor/skills/ (global).
+  codex    -> dist/codex/<skill>/              same Agent Skill folder for Codex, read from
+              .agents/skills/ (project) or ~/.agents/skills/ (global).
+  windsurf -> dist/windsurf/<skill>/           same Agent Skill folder for Windsurf, read from
+              .windsurf/skills/ (project) or ~/.codeium/windsurf/skills/ (global).
   agents   -> dist/agents/<skill>.section.md   flat marked-section fragment per skill.
   copilot  -> dist/copilot/<skill>/            self-contained Copilot Agent Skill:
               SKILL.md (minimal frontmatter) + scripts + reference. Discovered
@@ -275,10 +279,11 @@ def emit_claude(catalog, skills, root):
 
 
 def emit_skill_folders(skills, root, tool):
-    """Copilot / Cursor: one self-contained Agent Skill folder per skill
-    (native discovery). The VERSION file (enables the self-update check in
-    scripts/self_update.sh) ships with both folder tools but NEVER with Claude — Claude
-    updates come through the plugin marketplace and its copy stays inert."""
+    """Copilot / Cursor / Codex / Windsurf / Devin: one self-contained Agent
+    Skill folder per skill (native discovery). The VERSION file (enables the
+    self-update check in scripts/self_update.sh) ships with every folder tool but
+    NEVER with Claude — Claude updates come through the plugin marketplace, keyed
+    off the plugin version."""
     for name, canon in skills.items():
         if tool not in canon.tools():
             continue
@@ -331,6 +336,8 @@ def build_all(root):
     emit_flat(skills, root)
     emit_skill_folders(skills, root, "copilot")
     emit_skill_folders(skills, root, "cursor")
+    emit_skill_folders(skills, root, "codex")
+    emit_skill_folders(skills, root, "windsurf")
     emit_skill_folders(skills, root, "devin")
     _write(os.path.join(root, MARKETPLACE_REL), render_marketplace(catalog))
     return catalog, skills, warnings

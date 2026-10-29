@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # Read-only preflight for `leap server install|upgrade|reinstall`.
-# Prints a report and changes nothing. Exit 1 only on blocking issues.
+# Prints a report and changes nothing on the machine. Exit 1 only on blocking issues.
+# One exception: step 0 may refresh the skill's OWN files — see self_update.sh.
 # Catalog numbers refer to reference/install-troubleshooting.md.
 set -u
+
+# 0. Skill self-update (see self_update.sh). An update may replace THIS running
+#    file, so after one we exec a fresh copy, never read further from a stale offset.
+if [[ -z "${TL_SKILL_NO_UPDATE:-}" && -f "$(dirname "$0")/self_update.sh" ]]; then
+  bash "$(dirname "$0")/self_update.sh"; rc=$?
+  [[ $rc -eq 10 ]] && TL_SKILL_NO_UPDATE=1 exec "$0" "$@"
+fi
 
 FAILS=0
 ok()   { printf '  [ok]   %s\n' "$*"; }
