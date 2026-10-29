@@ -119,6 +119,12 @@ def main():
     assert "localStorage.setItem(KEY" in page and "Save with my approvals" not in page
     assert 'src="' not in page.split("<main>")[1], "inline-html would rewrite script text"
     old = json.load(open(os.path.join(root, "insights.json")))
+    old["api_base"] = "http://x/</script><b>"
+    json.dump(old, open(os.path.join(root, "insights.json"), "w"))
+    subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "build-report", root], capture_output=True, check=True)
+    page = open(os.path.join(root, "report.html")).read()
+    block = page.split('id="tl-review">')[1].split("</script>")[0]
+    assert json.loads(block)["sync"]["apiBase"] == "http://x/</script><b>", "the state block escapes '<'"
     old.pop("api_base")
     json.dump(old, open(os.path.join(root, "insights.json"), "w"))
     subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "build-report", root], capture_output=True, check=True)

@@ -1282,7 +1282,8 @@ def _report_html(spec, base, missing):
     parts.append("</main>")
     state = _review_state(spec, base)
     parts.append('<div class="toast" role="status" hidden></div>')
-    parts.append(f'<script type="application/json" id="tl-review">{json.dumps(state)}</script>')
+    state_json = json.dumps(state).replace("<", "\\u003c")  # nothing in it may close the script tag
+    parts.append(f'<script type="application/json" id="tl-review">{state_json}</script>')
     parts.append(f"<script>\n{REVIEW_JS}</script>")
     body = "\n".join(parts)
     return (f'<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
