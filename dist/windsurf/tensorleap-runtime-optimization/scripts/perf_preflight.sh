@@ -65,7 +65,7 @@ URL="$(printf '%s\n' "$WHO" | sed -n 's/^API Url:[[:space:]]*//p' | head -1)"
 EMAIL="$(printf '%s\n' "$WHO" | sed -n 's/^User email:[[:space:]]*//p' | head -1)"
 if [[ -z "$URL" || -z "$EMAIL" ]]; then
   fail "Authenticated" "not logged in${URL:+ to $URL}"
-  note "Log in: $TL_CLI auth login   (then re-run this gate)"
+  note "Log in: $TL_CLI auth login ${URL:-<url>} --non-interactive   (prints a sign-in link; then re-run this gate)"
   exit 3
 fi
 pass "Authenticated" "$EMAIL"

@@ -161,8 +161,10 @@ Memory options: `profile --memory-samples N` (samples per state in the memory pa
    code-loader version and features (`grouped_preprocess` needs ≥ 1.0.196), state sizes.
 4. **Server check (for Phase 6, non-blocking):** `scripts/perf_preflight.sh`.
    Exit 0 → the validation push is available. Exit 2 → continue locally; the report will
-   say the result was not validated on a server. Exit 3 → ask the user to `leap auth
-   login` when you reach Phase 6. Exit 6 → ask whether the server is remote (port-forward)
+   say the result was not validated on a server. Exit 3 → when you reach Phase 6, sign the
+   CLI in yourself: `leap auth login <url> --non-interactive < /dev/null` in the background,
+   show the user the sign-in link it prints, and wait for it (never ask them to type
+   `! leap auth login` into your prompt: it has no keyboard input there). Exit 6 → ask whether the server is remote (port-forward)
    or must be started, when you reach Phase 6.
 
 **GATE:** `preflight` exits 0 (or 4 with the CPU-floor caveat noted).

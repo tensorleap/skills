@@ -25,10 +25,11 @@ CFG="$HOME/.config/tensorleap/config.yaml"
 DATA_DIR="$(awk '/^data_dir:/{print $2}' "$CFG" 2>/dev/null || true)"
 DATA_DIR="${DATA_DIR:-/var/lib/tensorleap/standalone}"
 echo "  data dir: $DATA_DIR"
-if [ -f "$DATA_DIR/install-notes.md" ]; then
+# -s: the installer creates the file empty, for this skill to fill in
+if [ -s "$DATA_DIR/install-notes.md" ]; then
   ok "install-notes.md present - read it before acting (Step 0)"
 else
-  warn "no install-notes.md - fresh machine, or installed before this skill existed"
+  warn "no install-notes.md (or empty) - fresh machine, or installed before this skill existed"
 fi
 if [ -f "$DATA_DIR/manifests/params.yaml" ]; then
   ok "installer params.yaml present"

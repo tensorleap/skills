@@ -12,7 +12,7 @@ description: >
   each action's setup in the data dir's install-notes.md so later upgrades and
   reinstalls reuse that context.
 group: tensorleap
-version: 0.1.4
+version: 0.1.5
 globs: []
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
@@ -54,6 +54,9 @@ Hard rules:
   virtualenv first — active Python environments have broken the installer. (This applies to
   the installer only — the CLI installs fine inside a virtualenv, and conda is a perfectly
   good home for the user's *integration* code environment.)
+- **Relay leap's next steps.** When a `leap` command ends with a next-step paragraph (it starts
+  `Next,`, `Then,` or `When the evaluation finishes,`) or a license activation line, show that
+  text to the user word for word: it is written for them, and the CLI prints each one only once.
 - **`leap server check` does not exist.** Verified on the shipped CLI (v0.0.161): it is not a
   registered subcommand — it silently prints the `leap server` help and **exits 0**, so a
   script would read it as success. Never suggest it as a diagnostic. The registered
@@ -558,12 +561,22 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    needs a token issued for everyone. A **colored** (not yet activated) token, the one a Free
    Tier signup installs with, pre-registers the signup email as the admin and leaves the license
    blocked: every action, push and Evaluate included, answers "You have yet to activate your
-   Tensorleap license…" until the emailed key is applied (Manage License, `leap auth license -t`,
-   or automatically once the email's confirmation button is pressed). On the first visit the UI
-   opens Keycloak's registration form with that email locked; the user only sets a password.
-5. CLI auth: the "generate CLI token" line copied from the UI is only one of three login
-   paths — `leap auth login <url>` also accepts `--api-key` or `--username`/`--password`, and
-   the URL **must** include the scheme (`http://…`). On a local install edit the copied line to
+   Tensorleap license…" until the user presses **Activate my license** in the signup email;
+   Tensorleap then unlocks by itself. The installer says so ("Press Activate my license in the
+   email we sent to <email>…"); relay that line, not the key. Applying the key from that email
+   (Manage License, `leap auth license -t`) is only the fallback when the button doesn't work.
+   On the first visit the UI opens Keycloak's registration form with that email locked; the
+   user only sets a password.
+5. CLI auth: **sign the CLI in yourself** once the user has registered. Run
+   `leap auth login <url> --non-interactive < /dev/null` as a **background** command (it waits
+   up to 5 minutes for the sign-in), show the user the sign-in link it prints, ask them to open
+   it in their browser and sign in, and wait for the command to finish (`Saved credentials to`).
+   Never ask the user to type `! leap auth login …` into the assistant's prompt: that has no
+   keyboard input, so the interactive login dies with `EOF`. On a CLI that answers
+   `unknown flag: --non-interactive`, ask the user to run `leap auth login <url>` in their own
+   terminal instead. Other login paths: the "generate CLI token" line copied from the UI, or
+   `leap auth login <url>` with `--api-key` or `--username`/`--password`; the URL
+   **must** include the scheme (`http://…`). On a local install edit the copied line to
    `http://localhost:4589`. Multiple servers coexist as saved environments; `leap auth select`
    switches between them (no need to re-login when moving between a local and a remote install).
    If the CLI reports x509/certificate-verify errors talking to a self-signed or private-CA
@@ -688,7 +701,13 @@ state, or (with a purge first — catalog #39) switch online↔airgap. Moving th
 After every successful install / upgrade / reinstall (and after a failed attempt whose
 diagnosis is worth remembering), write or update `<data-dir>/install-notes.md`. It sits at the
 data-dir **root**, so it survives `uninstall` and even `--purge` (only a manual
-`rm -rf <data-dir>` removes it). Keep the "Current setup" section current and **append** to
+`rm -rf <data-dir>` removes it). `leap server install`, `reinstall` and `upgrade` create the
+file owned by the user who ran them, so write it directly, from this shell, even right after
+an install that added the user to the `tensorleap` group. Write the file in place (overwrite
+or append to it); don't replace it with a renamed temp file, because the data-dir root itself
+may not be writable from this shell. Only if writing still fails with `Permission denied` (a
+CLI from before this), create it once with
+`sudo install -m 664 -o "$(id -u)" /dev/null <data-dir>/install-notes.md` and write again. Keep the "Current setup" section current and **append** to
 History — never rewrite it. Copy the template below **in full**, including the version,
 data-dir and docker data-root lines: those are exactly what a later upgrade needs, and they
 are the first thing people drop when abbreviating.
@@ -724,7 +743,7 @@ Last updated: <YYYY-MM-DD> · Last action: install|upgrade|reinstall · Ran as: 
 ```
 
 **Never store secrets**: no passwords, license tokens, API keys; strip `user:pass@` from proxy
-URLs. The data dir is world-writable — this file is machine-local context, not a vault.
+URLs. Other local users can read the data dir — this file is machine-local context, not a vault.
 
 ## Uninstall / cleanup reference
 

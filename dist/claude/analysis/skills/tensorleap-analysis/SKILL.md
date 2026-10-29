@@ -79,8 +79,12 @@ Then call `tl_status`. If the Tensorleap tools are not available at all:
 If `tl_status` works but `tl_export_analysis` is not among the tools, the
 leap CLI predates this skill: ask the user to run `leap cli upgrade -s | bash`
 and restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
-to run `leap auth login`, fix `--env`, or check the tunnel) and stop. Do not
-improvise other auth mechanisms.
+to run `leap auth login`, fix `--env`, or check the tunnel) and stop. To sign in,
+run `leap auth login <url> --non-interactive < /dev/null` yourself in the
+background, show the user the sign-in link it prints, wait for it to finish, and
+ask the user to restart the assistant so the Tensorleap tools see the sign-in;
+never ask them to type `! leap auth login` into your prompt (it has no keyboard
+input there). Do not improvise other auth mechanisms.
 
 **License.** `tl_status` returns `license` and, on a Free Tier server, a `note`
 with the limits; relay the note to the user once, in your words. On such a

@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.3, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.4, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -60,6 +60,11 @@ No training happens here. That shapes the whole integration:
   detail (local vs remote server, copy vs lazy-cache) is in **Data delivery** below.
 
 ## Operating principle: run autonomously; ask only when blocked
+
+**Relay leap's next steps.** When a `leap` command you run ends with a next-step
+paragraph (it starts `Next,`, `Then,` or `When the evaluation finishes,`), show
+that text to the user word for word, also when you redirected the output to a
+file: it is written for them.
 
 Drive the work forward on your own as far as you can. **Infer configuration from
 the repo and the environment before asking** (the data store and load code,
@@ -253,8 +258,14 @@ server, or configures anything. React to its exit status:
   checks never fire for a remote server (that path exits 4 first). **Relay the
   printed guidance to the user and STOP.** Do **not** install the CLI, start the
   server, or configure the volume yourself.
-- **Setup: not authenticated (exit 3)** — guide the user through
-  `leap auth login`, then re-run preflight.
+- **Setup: not authenticated (exit 3)** — sign the CLI in yourself: run
+  `leap auth login <url> --non-interactive < /dev/null` as a **background**
+  command (`<url>` is the server, `http://localhost:4589` for a local install; it
+  waits up to 5 minutes), show the user the sign-in link it prints, ask them to
+  open it and sign in, wait for it to finish, then re-run preflight. Never ask the
+  user to type `! leap auth login …` into your prompt: it has no keyboard input
+  there and dies with `EOF`. On `unknown flag: --non-interactive` (an older CLI),
+  ask the user to run `leap auth login <url>` in their own terminal instead.
 - **Remote server (exit 4)** — *not* an error. The CLI is pointed at a remote
   server. **Ask the user whether they want to work remotely** (they may have both
   a local and a remote server; the CLI is currently pointed at the remote one).
@@ -847,7 +858,8 @@ yes/no question.
    The command returns once the push has started on the server and prints its
    run id; the server starts the Evaluate itself when the push finishes, so
    nothing local has to survive. A non-zero exit is a push failure: read
-   `push.log` and fix it. If the CLI warns before pushing and stops for
+   `push.log` and fix it. If `push.log` ends with a next-step paragraph (it
+   starts `When the evaluation finishes,`), show it to the user word for word. If the CLI warns before pushing and stops for
    confirmation, read the warning, tell the user, and add `--yes` only once the
    warning is understood — never by default.
 6. **Watch the push and its Evaluate without spending turns.** A clean push does

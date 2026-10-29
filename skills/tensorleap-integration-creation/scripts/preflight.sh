@@ -110,7 +110,7 @@ WHO="$("$TL_CLI" auth whoami 2>&1)"
 URL="$(printf '%s\n' "$WHO" | sed -n 's/^API Url:[[:space:]]*//p' | head -1)"
 if [[ -z "$URL" ]]; then
   fail "Server endpoint" "could not read the API URL from '$TL_CLI auth whoami'"
-  note "Authenticate first: $TL_CLI auth login"
+  note "Authenticate first: $TL_CLI auth login <url> --non-interactive (the skill runs it and shows you the sign-in link)"
   echo; echo "SETUP PENDING — authenticate, then re-run preflight."; exit 3
 fi
 AUTHED=0
@@ -136,7 +136,7 @@ if [[ "$FORCED" == "remote" || ( -z "$FORCED" && "$IS_LOCALHOST" -eq 0 ) ]]; the
   pass "Server topology" "remote server ($URL)"
   if [[ "$AUTHED" -ne 1 ]]; then
     fail "Authenticated" "not logged in to $URL"
-    note "Authenticate first: $TL_CLI auth login, then re-run preflight."
+    note "Authenticate first: $TL_CLI auth login $URL --non-interactive (the skill runs it and shows you the sign-in link), then re-run preflight."
     echo; echo "SETUP PENDING — authenticate, then re-run preflight."; exit 3
   fi
   pass "Authenticated" "$(printf '%s\n' "$WHO" | sed -n 's/^User email:[[:space:]]*//p' | head -1)"
@@ -258,7 +258,7 @@ if printf '%s\n' "$WHO" | grep -q "^User email:"; then
 fi
 
 fail "Authenticated" "not logged in to $URL"
-note "The skill will guide login:  $TL_CLI auth login"
+note "The skill signs you in:  $TL_CLI auth login $URL --non-interactive (open the link it prints)"
 echo
 echo "SETUP PENDING — authenticate, then re-run preflight."
 exit 3
