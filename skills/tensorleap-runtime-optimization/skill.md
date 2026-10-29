@@ -178,7 +178,8 @@ Memory options: `profile --memory-samples N` (samples per state in the memory pa
 4. **Server check (for Phase 6, non-blocking):** `{{scripts_dir}}/perf_preflight.sh`.
    Exit 0 → the validation push is available. Exit 2 → continue locally; the report will
    say the result was not validated on a server. Exit 3 → when you reach Phase 6, sign the
-   CLI in yourself: `leap auth login <url> --non-interactive < /dev/null` in the background,
+   CLI in yourself: `leap auth login <url> --non-interactive < /dev/null` in the background
+   (`<url>`: the one the check printed, `http://localhost:4589` locally, else ask the user),
    show the user the sign-in link it prints, and wait for it (never ask them to type
    `! leap auth login` into your prompt: it has no keyboard input there). On
    `unknown flag: --non-interactive` (an older CLI), ask the user to run

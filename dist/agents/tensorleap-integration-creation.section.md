@@ -260,8 +260,9 @@ server, or configures anything. React to its exit status:
   server, or configure the volume yourself.
 - **Setup: not authenticated (exit 3)** — sign the CLI in yourself: run
   `leap auth login <url> --non-interactive < /dev/null` as a **background**
-  command (`<url>` is the server, `http://localhost:4589` for a local install; it
-  waits up to 5 minutes), show the user the sign-in link it prints, ask them to
+  command (`<url>` is the server: the URL preflight printed if it knows one,
+  `http://localhost:4589` for a local install, otherwise ask the user for their
+  remote server's URL; it waits up to 5 minutes), show the user the sign-in link it prints, ask them to
   open it and sign in, wait for it to finish, then re-run preflight. If it ends
   with `failed to get API key: timeout` (no sign-in within 5 minutes; nothing is
   saved), run it again and show the new link. Never ask the
