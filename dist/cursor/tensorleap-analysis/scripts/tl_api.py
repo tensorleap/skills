@@ -10,6 +10,7 @@ turns that directory into the report:
   tl_api.py render-charts DIR       # chart.png / boxes.jpg for non-image payloads, thumbnails
   tl_api.py build-report DIR        # assemble report.html + report.txt from DIR/report.json
   tl_api.py inline-html FILE.html   # embed <img src> files as data URIs, in place
+  tl_api.py open-report FILE.html   # open the report in the user's browser, or say how to reach it
 
 Exit codes:
   0  ok
@@ -22,12 +23,16 @@ Exit codes:
 import argparse
 import base64
 import csv
+import getpass
 import html
 import io
 import json
 import os
 import re
+import shutil
+import socket
 import struct
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -1521,6 +1526,62 @@ def cmd_inline_html(args):
         raise SystemExit(7)
 
 
+def _desktop_opener(env, platform):
+    """The command that opens a file in this machine's browser, or (None, why not).
+    An SSH session, or Linux without a display, means the user's browser is on
+    another machine."""
+    if env.get("SSH_CONNECTION") or env.get("SSH_TTY"):
+        return None, "SSH session"
+    if platform == "darwin":
+        return "open", ""
+    if platform.startswith("linux"):
+        if env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"):
+            return "xdg-open", ""
+        return None, "no display"
+    return None, f"no known way to open a browser on {platform}"
+
+
+def cmd_open_report(args):
+    path = os.path.abspath(args.file)
+    if not os.path.isfile(path):
+        print(f"no such file: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    digest = {}
+    try:
+        digest = json.load(open(os.path.join(os.path.dirname(path), "insights.json")))
+    except (OSError, ValueError):
+        pass
+    opener, why = _desktop_opener(os.environ, sys.platform)
+    lines = []
+    if opener:
+        exe = shutil.which(opener)
+        if not exe:
+            opener, why = None, f"{opener} not found"
+        else:
+            try:
+                r = subprocess.run([exe, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+                if r.returncode:
+                    opener, why = None, f"{opener} exited {r.returncode}"
+            except subprocess.TimeoutExpired:
+                pass  # still running: the browser got the file
+    if opener:
+        lines.append(f"opened: {path}")
+    else:
+        lines += [f"not opened: {why}", f"report: {path}"]
+        if why in ("SSH session", "no display"):
+            ssh = (os.environ.get("SSH_CONNECTION") or "").split()
+            host = f"{getpass.getuser()}@{ssh[2] if len(ssh) > 2 else socket.gethostname()}"
+            lines.append(f"copy: scp {host}:{path} .")
+            api = urllib.parse.urlsplit(digest.get("api_base") or "")
+            if api.hostname in ("localhost", "127.0.0.1"):
+                port = api.port or (443 if api.scheme == "https" else 80)
+                lines.append(f"tunnel: ssh -N -L {port}:localhost:{port} {host}")
+    link = (digest.get("links") or {}).get("insights_panel")
+    if link:
+        lines.append(f"insights panel: {link}")
+    print("\n".join(lines))
+
+
 def main():
     parser = argparse.ArgumentParser(prog="tl_api.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -1534,12 +1595,14 @@ def main():
     br.add_argument("dir")
     ih = sub.add_parser("inline-html")
     ih.add_argument("file")
+    orp = sub.add_parser("open-report")
+    orp.add_argument("file")
     args = parser.parse_args()
     stage, code = {"digest": "started", "build-report": "finished"}.get(args.cmd), 1
     try:
         {"digest": cmd_digest, "render-charts": cmd_render_charts,
          "summarize": cmd_summarize, "build-report": cmd_build_report,
-         "inline-html": cmd_inline_html}[args.cmd](args)
+         "inline-html": cmd_inline_html, "open-report": cmd_open_report}[args.cmd](args)
         code = 0
     except SystemExit as e:
         code = e.code or 0

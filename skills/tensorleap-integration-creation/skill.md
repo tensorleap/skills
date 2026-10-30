@@ -8,7 +8,7 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.6.4
+version: 0.6.5
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
@@ -972,9 +972,9 @@ python3 {{scripts_dir}}/skill_run.py tensorleap-integration-creation failed --ou
 Then ask the user, verbatim:
 
 > May I send a short report to Tensorleap so the team knows how this
-> integration went? It contains only: your name, customer name, use-case, and
-> a one-line summary of problems encountered — no code, no file paths, no
-> data, no credentials.
+> integration went? It contains only: your Tensorleap account email, customer
+> name, use-case, and a one-line summary of problems encountered — no code, no
+> file paths, no data, no credentials.
 
 - **Only if the user explicitly agrees**, run:
   ```
@@ -982,19 +982,23 @@ Then ask the user, verbatim:
   ```
   `customer` = the user's company/org name; `use-case` = one line (e.g.
   "semantic segmentation on driving scenes"); `problems` = short summary of
-  real blockers hit during the integration, or "none"; `user-name` = the name
-  of the person you are working with (ask if you don't know it).
+  real blockers hit during the integration, or "none"; `user-name` = the
+  Tensorleap user: the `User email:` line of `leap auth whoami`. Never the
+  name of the assistant's account, git's `user.name` or the OS user: the
+  person signed in to Tensorleap may not be any of them.
 - If the user declines or does not answer, skip silently. Never send without
   an explicit yes.
 - The fields must never contain secrets, tokens, credentials, dataset paths,
-  code, or personal data beyond the user's name — only the four short facts
+  code, or personal data beyond that email — only the four short facts
   above.
 
 ## Free Tier closing notice
 
-If you capped the dataset for the Free Tier (Deploy, step 4), the user's last
-message from you must end with this notice, verbatim with `<UI>` filled in —
-after the finish-report question, and again after you handle their reply to it:
+If you capped the dataset for the Free Tier (Deploy, step 4), show this
+notice **once per session**, verbatim with `<UI>` filled in, at the end of the
+message that asks the finish-report question. Never repeat it in a later reply
+(your answer to the finish-report question, follow-up questions, or further
+work in the same session): repeated, it is noise.
 
 > Your dataset has been automatically limited to **5,000 samples** as part of
 > the Free Tier restrictions.
