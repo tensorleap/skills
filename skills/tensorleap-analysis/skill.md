@@ -516,7 +516,8 @@ report's server is on this machine, a `tunnel:` command for its port. It
 always prints `insights panel:` when the export had that link.
 
 **Your closing message hands the report over and stops.** At most four short
-sentences, no bullet lists:
+sentences, plus one code block only when you give the `copy:`/`tunnel:`
+commands; no bullet lists:
 1. Where the report is: `<path>/report.html` (say you opened it when the
    script printed `opened:`), with the ticket companion at `<path>/report.md`.
    After `not opened:` in an SSH session or without a display, give the `copy:`
@@ -538,6 +539,7 @@ Then answer follow-up questions from the analysis you already did, the
 conversational depth is for when the user asks, never volunteered up front.
 
 **Last rule, binding: the closing message is at most four short sentences:
-where `report.html` and `report.md` are (and how to reach the report from an
-SSH session), the ask to approve the insights the user agrees with, and the
-Insights panel link. No bullet lists, findings or extra sections.**
+where `report.html` and `report.md` are, the ask to approve the insights the
+user agrees with, and the Insights panel link; plus one code block with the
+`copy:`/`tunnel:` commands when the script printed them. No bullet lists,
+findings or extra sections.**

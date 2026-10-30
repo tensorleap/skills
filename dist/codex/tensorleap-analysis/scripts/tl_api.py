@@ -1559,13 +1559,16 @@ def cmd_open_report(args):
             opener, why = None, f"{opener} not found"
         else:
             try:
-                r = subprocess.run([exe, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-                if r.returncode:
-                    opener, why = None, f"{opener} exited {r.returncode}"
+                proc = subprocess.Popen([exe, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if proc.wait(timeout=10):
+                    opener, why = None, f"{opener} exited {proc.returncode}"
+            except OSError as e:
+                opener, why = None, f"{opener} failed: {e}"
             except subprocess.TimeoutExpired:
-                pass  # still running: the browser got the file
+                # some xdg-open setups wait for the browser to close; it is left running
+                why = f"{opener} still running after 10 s"
     if opener:
-        lines.append(f"opened: {path}")
+        lines.append(f"opened: {path}" + (f" ({why})" if why else ""))
     else:
         lines += [f"not opened: {why}", f"report: {path}"]
         if why in ("SSH session", "no display"):

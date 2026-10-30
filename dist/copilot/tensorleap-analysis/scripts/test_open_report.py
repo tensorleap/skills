@@ -45,6 +45,7 @@ def check_desktop_opener():
     assert _desktop_opener({}, "linux") == (None, "no display")
     assert _desktop_opener({"SSH_CONNECTION": "1.2.3.4 5 10.0.0.5 22"}, "darwin") == (None, "SSH session")
     assert _desktop_opener({"SSH_TTY": "/dev/pts/0", "DISPLAY": ":0"}, "linux") == (None, "SSH session")
+    assert _desktop_opener({}, "win32")[0] is None
 
 
 def check_local_desktop_opens_the_report():
@@ -79,6 +80,21 @@ def check_remote_server_needs_no_tunnel():
     assert r.returncode == 0, r.stderr
     assert "copy: scp " in r.stdout
     assert "tunnel" not in r.stdout
+
+
+def check_failing_opener_gives_the_path():
+    root = make_report_dir()
+    bindir = tempfile.mkdtemp()
+    for name in ("open", "xdg-open"):
+        path = os.path.join(bindir, name)
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\nexit 3\n")
+        os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+    r = run(root, DISPLAY=":0", PATH=bindir + os.pathsep + os.environ["PATH"])
+    assert r.returncode == 0, r.stderr
+    assert "not opened: " in r.stdout and "exited 3" in r.stdout
+    assert f"report: {os.path.join(root, 'report.html')}" in r.stdout
+    assert "scp" not in r.stdout
 
 
 def check_missing_report_is_bad_args():
