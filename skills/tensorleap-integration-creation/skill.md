@@ -955,6 +955,10 @@ yes/no question.
    seeded random draw, write the ids to `tensorleap/subsample_ids.json`, and
    re-push. Offer to do it; don't do it unasked. If the MCP tools aren't
    available, say the check was skipped and that `leap mcp config` connects them.
+   If they answer that the CLI is not signed in (the assistant started before
+   the sign-in), call `tl_status` once (it re-reads the sign-in) and retry; if
+   it still fails, say the check was skipped and that restarting the assistant
+   picks up the sign-in (older leap CLIs read it only at start).
 
 ## Finish report (consent required)
 
