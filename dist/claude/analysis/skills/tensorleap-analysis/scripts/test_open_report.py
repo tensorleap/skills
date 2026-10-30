@@ -97,6 +97,13 @@ def check_failing_opener_gives_the_path():
     assert "scp" not in r.stdout
 
 
+def check_unknown_user_gets_a_placeholder():
+    import tl_api
+    assert tl_api._or_placeholder(lambda: "tom", "<user>") == "tom"
+    assert tl_api._or_placeholder(lambda: (_ for _ in ()).throw(KeyError("no uid")), "<user>") == "<user>"
+    assert tl_api._or_placeholder(lambda: "", "<host>") == "<host>"
+
+
 def check_missing_report_is_bad_args():
     r = run(tempfile.mkdtemp())
     assert r.returncode == 2

@@ -1541,6 +1541,14 @@ def _desktop_opener(env, platform):
     return None, f"no known way to open a browser on {platform}"
 
 
+def _or_placeholder(lookup, placeholder):
+    """lookup() or, when it fails (no login name in a container, say), the placeholder."""
+    try:
+        return lookup() or placeholder
+    except Exception:
+        return placeholder
+
+
 def cmd_open_report(args):
     path = os.path.abspath(args.file)
     if not os.path.isfile(path):
@@ -1573,7 +1581,8 @@ def cmd_open_report(args):
         lines += [f"not opened: {why}", f"report: {path}"]
         if why in ("SSH session", "no display"):
             ssh = (os.environ.get("SSH_CONNECTION") or "").split()
-            host = f"{getpass.getuser()}@{ssh[2] if len(ssh) > 2 else socket.gethostname()}"
+            host = f"{_or_placeholder(getpass.getuser, '<user>')}@" + (
+                ssh[2] if len(ssh) > 2 else _or_placeholder(socket.gethostname, "<host>"))
             lines.append(f"copy: scp {host}:{path} .")
             api = urllib.parse.urlsplit(digest.get("api_base") or "")
             if api.hostname in ("localhost", "127.0.0.1"):
