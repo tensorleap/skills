@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.4.2, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.4.3, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
 You produce a self-contained HTML report (plus a short markdown companion
@@ -23,6 +23,7 @@ python3 .tensorleap/scripts/tl_api.py render-charts DIR  # chart.png / boxes.jpg
 python3 .tensorleap/scripts/tl_api.py summarize DIR      # per-insight composition stats from samples.csv
 python3 .tensorleap/scripts/tl_api.py build-report DIR   # assemble report.html + report.txt from DIR/report.json
 python3 .tensorleap/scripts/tl_api.py inline-html FILE   # embed <img src> files as data URIs, in place
+python3 .tensorleap/scripts/tl_api.py open-report FILE   # open report.html in the user's browser, or say how to reach it
 ```
 
 > `.tensorleap/scripts/tl_api.py` lives in this skill's own directory, NOT in
@@ -69,12 +70,14 @@ and restart, then stop. If `tl_status` fails, relay its message verbatim (it say
 to run `leap auth login`, fix `--env`, or check the tunnel) and stop. To sign in,
 run `leap auth login <url> --non-interactive < /dev/null` yourself in the
 background, show the user the sign-in link it prints, wait for it to finish (on
-`failed to get API key: timeout` after 5 minutes nothing is saved: run it again), and
-ask the user to restart the assistant so the Tensorleap tools see the sign-in;
-never ask them to type `! leap auth login` into your prompt (it has no keyboard
+`failed to get API key: timeout` after 5 minutes nothing is saved: run it again),
+then call `tl_status` again: the Tensorleap tools re-read the sign-in when it is
+called. Only if it still says not signed in, ask the user to restart the
+assistant (older leap CLIs read the sign-in only when the assistant starts).
+Never ask them to type `! leap auth login` into your prompt (it has no keyboard
 input there). On `unknown flag: --non-interactive` (an older CLI), ask the user
-to run `leap auth login <url>` in their own terminal instead. Do not improvise
-other auth mechanisms.
+to run `leap auth login <url>` in their own terminal instead, then call
+`tl_status` again. Do not improvise other auth mechanisms.
 
 **License.** `tl_status` returns `license` and, on a Free Tier server, a `note`
 with the limits; relay the note to the user once, in your words. On such a
@@ -486,9 +489,30 @@ re-render samples yourself from the dataset, local files or the integration
 code (an admin's AI-access settings cannot see local renders, and the
 result would differ from what the platform shows).
 
-**Your closing message names the deliverables and stops.** Two sentences at
-most, no bullet lists: the report is ready at `<path>/report.html`, with the ticket companion
-at `<path>/report.md`. No findings, no summaries, no severity counts, no
+**Hand the report over.** First run
+`python3 .tensorleap/scripts/tl_api.py open-report <out-dir>/report.html`. On a
+local machine with a desktop (macOS, or Linux with a display) it opens the
+report in the user's browser and prints `opened: <path>`. In an SSH session,
+or on Linux without a display, it opens nothing and prints `not opened:`,
+`report:`, a `copy:` command (scp, run on the user's own machine) and, when the
+report's server is on this machine, a `tunnel:` command for its port. It
+always prints `insights panel:` when the export had that link.
+
+**Your closing message hands the report over and stops.** At most four short
+sentences, plus one code block only when you give the `copy:`/`tunnel:`
+commands; no bullet lists:
+1. Where the report is: `<path>/report.html` (say you opened it when the
+   script printed `opened:`), with the ticket companion at `<path>/report.md`.
+   After `not opened:` in an SSH session or without a display, give the `copy:`
+   command and, when printed, the `tunnel:` command in one code block, and say
+   to keep the tunnel open while reviewing: the report's **Approve** buttons
+   and links reach the server through it (`localhost:4589` on the user's own
+   machine). On any other `not opened:`, ask the user to open the path.
+2. The ask, verbatim: "Review the insights and press **Approve** on each one
+   you agree with; approvals are saved in Tensorleap."
+3. The Insights panel link from `insights panel:`, to review them there too.
+
+No findings, no summaries, no severity counts, no
 recommended first action, no observations, everything you have to say lives
 IN the report; the session message just hands it over. Anything discovered
 along the way that isn't part of the analysis (e.g. a suspected data or
@@ -497,6 +521,9 @@ message.
 Then answer follow-up questions from the analysis you already did, the
 conversational depth is for when the user asks, never volunteered up front.
 
-**Last rule, binding: the closing message is at most two sentences naming
-`report.html` and `report.md`, with no bullet lists, findings or extra sections.**
+**Last rule, binding: the closing message is at most four short sentences:
+where `report.html` and `report.md` are, the ask to approve the insights the
+user agrees with, and the Insights panel link; plus one code block with the
+`copy:`/`tunnel:` commands when the script printed them. No bullet lists,
+findings or extra sections.**
 <!-- END TENSORLEAP SKILL: tensorleap-analysis -->
