@@ -11,7 +11,7 @@ description: >
   with equivalence checks, validates on the Tensorleap server, and writes a
   report naming the remaining bottleneck with evidence.
 group: tensorleap
-version: 0.1.3
+version: 0.1.4
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
@@ -177,9 +177,16 @@ Memory options: `profile --memory-samples N` (samples per state in the memory pa
    code-loader version and features (`grouped_preprocess` needs ≥ 1.0.196), state sizes.
 4. **Server check (for Phase 6, non-blocking):** `{{scripts_dir}}/perf_preflight.sh`.
    Exit 0 → the validation push is available. Exit 2 → continue locally; the report will
-   say the result was not validated on a server. Exit 3 → ask the user to `leap auth
-   login` when you reach Phase 6. Exit 6 → ask whether the server is remote (port-forward)
-   or must be started, when you reach Phase 6.
+   say the result was not validated on a server. Exit 3 → when you reach Phase 6, sign the
+   CLI in yourself: `leap auth login <url> --non-interactive < /dev/null` in the background
+   (`<url>`: the one the check printed, `http://localhost:4589` locally, else ask the user),
+   show the user the sign-in link it prints, and wait for it (never ask them to type
+   `! leap auth login` into your prompt: it has no keyboard input there). On
+   `unknown flag: --non-interactive` (an older CLI), ask the user to run
+   `leap auth login <url>` in their own terminal instead. If the login ends with
+   `failed to get API key: timeout` (5 minutes, nothing saved), run it again for a new link.
+   Exit 6 → ask whether the server is remote (port-forward) or must be started, when you
+   reach Phase 6.
 
 **GATE:** `preflight` exits 0 (or 4 with the CPU-floor caveat noted).
 
@@ -494,7 +501,8 @@ at least as well, so don't go below it.
    `--yes` acknowledges pre-push warnings instead of waiting at a prompt. If `push.log`
    contains `View errors in interactive mode`, the push **failed** (older CLIs hang there):
    kill it and read `leap run logs <push-run-id>`. The first push to a server can take long
-   (it may pull a large base image).
+   (it may pull a large base image). If `push.log` ends with a next-step paragraph (it
+   starts `When the evaluation finishes,`), show it to the user word for word.
 6. **Back to the optimized code:** once the push job shows in `leap run list -t Push` (the
    code is uploaded by then), run `tl_perf restore`: it removes the cap and leaves
    `leap.yaml` as the push left it. To re-push later, re-apply the cap the same way.
