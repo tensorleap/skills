@@ -8,7 +8,7 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.6.5
+version: 0.6.6
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
@@ -81,6 +81,19 @@ No training happens here. That shapes the whole integration:
 paragraph (it starts `Next,`, `Then,` or `When the evaluation finishes,`), show
 that text to the user word for word, also when you redirected the output to a
 file: it is written for them.
+
+**Never wait for license activation before the push.** A new Free Tier server
+stays locked until the user presses **Activate my license** in the email
+Tensorleap sent them (it can take up to 30 minutes after online signup to
+arrive). While it is locked, sign-in, `leap auth whoami` and `leap server info`
+work, and the server refuses everything else with "You have yet to activate your
+Tensorleap license…". Writing the integration and running it locally need none
+of that, so start right away. If `leap auth whoami`'s `License:` line says
+`not activated`, tell the user once to press the button while you work, and keep
+going. A server call you would make before the push that is refused this way
+(e.g. `leap secrets create`) moves to Deploy: keep working locally (export
+`AUTH_SECRET` yourself) and make the call at Deploy, step 3. Only the push waits
+for activation (Deploy, **License not activated**).
 
 Drive the work forward on your own as far as you can. **Infer configuration from
 the repo and the environment before asking** (the data store and load code,
@@ -808,6 +821,15 @@ review first). If a project name is genuinely required and can't be inferred,
 create a sensible one or ask for just that — don't turn the whole push into a
 yes/no question.
 
+**License not activated.** If a step below (`leap projects`, `leap secrets`,
+`leap push`) fails with "You have yet to activate your Tensorleap license…", the
+integration is fine: change nothing. Ask the user to press **Activate my
+license** in the email Tensorleap sent them (Tensorleap unlocks by itself; if the
+button doesn't work, `leap auth license -t <key>` applies the key from that
+email), end your turn, and when they reply, rerun the same command. Still
+refused → wait a minute and rerun it. If they have no such email and more than
+30 minutes have passed since signup, relay the message: it names who to contact.
+
 1. **Auth (re-check)** — auth was verified in the Preflight gate; quickly
    re-confirm with `leap auth whoami` in case the token expired mid-session. If
    it no longer returns your user/team, re-run `leap auth login`. Its
@@ -821,7 +843,7 @@ yes/no question.
    `leap projects create <name>` and set its id in `leap.yaml`. If create fails
    with a license project-limit message, the license's projects are used up:
    reuse an existing one (`leap projects list`) or relay the message (it names
-   `support@tensorleap.ai`) — never delete a project to make room.
+   who to contact) — never delete a project to make room.
 3. **Remote-server prep (rows 4 & 5 only)** — before pushing, **switch the
    `data_root` in `project_config.yaml` from the local test path to the remote
    data-volume path** (leave the local path as a commented line with a note — see
@@ -877,7 +899,8 @@ yes/no question.
    The command returns once the push has started on the server and prints its
    run id; the server starts the Evaluate itself when the push finishes, so
    nothing local has to survive. A non-zero exit is a push failure: read
-   `push.log` and fix it. If `push.log` ends with a next-step paragraph (it
+   `push.log` and fix it (a not-activated license is not a bug: see **License
+   not activated** above). If `push.log` ends with a next-step paragraph (it
    starts `When the evaluation finishes,`), show it to the user word for word.
    If the CLI warns before pushing and stops for confirmation, read the warning,
    tell the user, and add `--yes` only once the warning is understood — never by
