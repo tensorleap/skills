@@ -372,7 +372,8 @@ If docker sees the GPU but `kubectl describe node` lists no `nvidia.com/gpu`, up
 Fresh GPU EC2s ship with ~tens of GB on `/` and the real ~TB storage as separate NVMe/EBS
 mounts; Docker and `/var/lib/tensorleap` land on root and choke.
 **Fix:** move Docker data-root (item 2) AND install with `-d /data1/tensorleap` before
-anything else. Access: see item 51 — SSM port-forward, SSH `-L`, or a security-group
+anything else, on an EBS volume: an `Amazon EC2 NVMe Instance Storage` disk in
+`lsblk -o NAME,MODEL,MOUNTPOINT` (e.g. `/opt/dlami/nvme`) is wiped on stop (item 27). Access: see item 51 — SSM port-forward, SSH `-L`, or a security-group
 allowlist that already permits `:4589`.
 
 ### 26b. EC2: after stop/start, ingress-nginx can't find files under the mounted volume
