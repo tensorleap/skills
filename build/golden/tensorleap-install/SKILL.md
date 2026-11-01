@@ -188,11 +188,23 @@ d=/var/lib/tensorleap/standalone; while [ ! -d "$d" ]; do d=$(dirname "$d"); don
 (On Linux `DockerRootDir` is a host path you can `df` directly; on macOS it lives inside the
 Docker Desktop VM — only the alpine probe measures it.)
 
+**Data dir: keep the default.** Install to `/var/lib/tensorleap/standalone` unless the user
+asks for another location (WSL2 needs one, below). Before you propose any other data dir, Docker data-root or mount,
+see what disk it is on (Linux):
+
+```bash
+lsblk -o NAME,MODEL,MOUNTPOINT
+```
+
+A disk whose model is `Amazon EC2 NVMe Instance Storage` (instance store, for example
+`/opt/dlami/nvme` on AWS Deep Learning AMIs), a `tmpfs` mount (`df -h <path>`), or anything
+under `/tmp` is wiped when the machine stops: say so, and don't propose it.
+
 **The two-disk model — the most common field problem.** Docker's data-root holds all pulled
 images and the k3d node; the Tensorleap data dir holds MongoDB, Elasticsearch (60Gi),
 Keycloak, MinIO, the registry blobs, and (Linux) the containerd cache. Cloud VMs and many
 servers have a tiny OS root with the real storage on a separate mount — then **both** must be
-moved before installing:
+moved before installing, to a persistent disk the user agrees to (checked as above):
 
 1. Docker: **merge** (never clobber — the file often holds the nvidia runtime config) a
    `data-root` key into `/etc/docker/daemon.json`, restart, verify:
@@ -266,7 +278,8 @@ before compacting to 50–150 GB.
   (Windows→WSL→docker→k3d stacking) — that's normal.
 - **Cloud VMs** — see the platform notes in
   [install-troubleshooting.md](reference/install-troubleshooting.md#cloud-vms-ec2--sagemaker--azure): EC2 (tiny root
-  volume, put data-root + data-dir on the NVMe/EBS data disk, SSM/SSH port-forward), SageMaker
+  volume, put data-root + data-dir on the EBS data disk, never on NVMe instance storage, which
+  a stop wipes; SSM/SSH port-forward), SageMaker
   (bootstrap re-run after every stop/start, UI via `/proxy/4589`), Azure ML (`/mnt` wiped on
   stop/start — prefer a plain Azure VM), ECS/Fargate (impossible — needs privileged
   docker-in-docker).
