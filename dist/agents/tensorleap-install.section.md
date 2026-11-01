@@ -40,7 +40,9 @@ Hard rules:
 - **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`, `&& …` or
   `$(leap …)` around it. Codex runs `leap` outside its sandbox only when a rule allows `leap`
   and the whole command is that `leap` command. To keep or filter the output, redirect it to
-  a file (`> leap.log 2>&1`) and read the file in a separate step.
+  a file (`> leap.log 2>&1`) and read the file in a separate step. The one exception is
+  `leap cli upgrade -s | bash`, which pipes the CLI's install script into `bash`; under Codex
+  it asks for approval.
 - **Codex only:** tell the user once that `leap mcp config codex` can let Codex run `leap`
   commands without asking each time (it asks; `--codex-allow-leap` answers yes).
 - **`leap server check` does not exist.** Verified on the shipped CLI (v0.0.161): it is not a
@@ -74,8 +76,7 @@ leap server --info 2>/dev/null   # "Installer Version:" — the embedded helm-ch
 A stale-looking fix or a flag that shouldn't exist yet can mean `leap --version` is current
 but the embedded installer pin (`leap server --info`'s "Installer Version" line) is older —
 the CLI vendors a specific helm-charts release, and the two version numbers are independent.
-Upgrading the CLI refreshes both together: `leap cli upgrade -s > /tmp/leap-upgrade.sh`, then
-`bash /tmp/leap-upgrade.sh`.
+`leap cli upgrade -s | bash` refreshes both together.
 
 (Don't `cat` the whole `config.yaml` — it contains API keys; the `sed` line extracts only
 `data_dir`. Keep this line `sed`-based and free of awk positional fields: a dollar-sign
@@ -218,10 +219,9 @@ moved before installing, to a persistent disk the user agrees to (checked as abo
 
 **Fixed on current CLIs** (the storage probe reads the live daemon's actual data-root, not a
 cached path) — a low-storage report right after a data-root move is real on today's CLI, not
-a stale reading. If you still suspect a false negative, upgrade the CLI first
-(`leap cli upgrade -s > /tmp/leap-upgrade.sh`, then `bash /tmp/leap-upgrade.sh`); only fall
-back to `DISABLE_DOCKER_CHECKS=true` (skips the check only, no side effects) once you've
-confirmed the CLI is current and the number is still wrong.
+a stale reading. If you still suspect a false negative, run `leap cli upgrade -s | bash`
+first; only fall back to `DISABLE_DOCKER_CHECKS=true` (skips the check only, no side
+effects) once you've confirmed the CLI is current and the number is still wrong.
 
 **Eviction floor — bigger than one number.** The installer sets
 `eviction-hard=nodefs.available<30G,imagefs.available<30G`, but eviction also fires on
@@ -630,9 +630,8 @@ means [reinstall](#reinstalling-leap-server-reinstall) instead. A specific versi
    instead); and on older installs the first push afterwards rebuilds the dependency image
    (12–20 min).
 4. Run **on the server itself** (not from a client machine):
-   upgrade the CLI (`leap cli upgrade -s > /tmp/leap-upgrade.sh`, then
-   `bash /tmp/leap-upgrade.sh`), then run `leap server upgrade` as its own command — the
-   team's rule is always both together.
+   `leap cli upgrade`, then `leap server upgrade`, each as its own command — the team's rule
+   is always both together.
    **Needs a real terminal.** The reinstall confirmation is written to the TTY, so a
    TTY-less invocation (`ssh host "leap server upgrade"`, CI, a script, any piped
    invocation) does not fail cleanly — verified live: with stdin a pipe it dies
