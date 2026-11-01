@@ -20,7 +20,7 @@
       "name": "installer",
       "source": "./dist/claude/installer",
       "description": "Tensorleap's AI-assistant skill for installing, upgrading, and troubleshooting a Tensorleap server on your own machine.",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "author": {
         "name": "Tensorleap"
       },
@@ -42,7 +42,7 @@
       "name": "optimization",
       "source": "./dist/claude/optimization",
       "description": "Tensorleap's AI-assistant skills for measuring and optimizing integration runtime: model inference floor, component-level profiling, lossless fixes with equivalence checks, and a bottleneck report.",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "author": {
         "name": "Tensorleap"
       },
