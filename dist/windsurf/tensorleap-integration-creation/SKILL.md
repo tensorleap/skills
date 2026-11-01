@@ -764,6 +764,26 @@ Add these one at a time, running after each:
        positive on an empty image is a real error (precision `0`, recall
        `None`). Same policy as missing metadata
        (`reference/metadata.md`).
+- **Predicted class (classification models: always)** — add a per-sample
+  predicted-class field, so the analysis skill can show which classes the model
+  confuses (label x prediction). It reads two things, so match them exactly:
+  the class names as the classification output's `PredictionTypeHandler`
+  `labels` (class index `i` is `labels[i]`; the analysis sees them as
+  `prediction_labels`), and a field whose name ends in `_prd_idx` holding the
+  argmax index of the prediction. Insights stay off for it: it describes the
+  prediction, it does not measure quality, so it is the one exception to the
+  "doesn't track quality" rule above and needs no `direction`.
+  ```python
+  @tensorleap_custom_metric("prediction", compute_insights=False)
+  def predicted_class(pred: np.ndarray):   # pred: (batch, num_classes)
+      return {"prd_idx": np.argmax(pred, axis=-1).astype(np.float32)}   # -> prediction_prd_idx
+  ```
+  Take the argmax over the class axis the `PredictionTypeHandler`'s
+  `channel_dim` names. If the integration already has an equivalent field (the
+  argmax index of the same output), reuse it instead of adding a second one,
+  renaming its key to `prd_idx` if its name doesn't already end in `_prd_idx`.
+  No `ConfusionMatrixElement` metric. When you tell the user what the
+  integration contains, name this field and say it is there for the analysis.
 
 ## Acceptance (staged definition of done)
 
@@ -904,7 +924,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    Then, in this order:
    - **Tell the user** that the evaluation is running and can take hours, and how
      to check it themselves: `leap run info <id>` with the id from
-     `.tensorleap/runs.json`.
+     `.tensorleap/runs.json`. For a classification model, also name the
+     predicted-class field you added (`<name>_prd_idx`, see **Optional
+     surfaces**) and say it is there for the analysis.
    - **End your turn.** Ending the turn here is correct — the task is not
      finished, it is waiting. Don't poll: no repeated `leap run info` calls, no
      `sleep` loops in your own turns, and **don't read the watcher's output while
