@@ -32,7 +32,8 @@ minio/rabbitmq/orchestrator/node-server add ~2Gi, so **under ~12GB of Docker mem
 Pending forever**. Very common on macOS (Docker Desktop defaults to 8GB).
 **Fix:** confirm before blaming disk —
 `leap server tools kubectl -n tensorleap describe pod tl-elasticsearch-es-master-0` (run on its
-own) whose `Events` section shows `Insufficient memory`. Raise Docker memory to ≥12GB (16GB comfortable) and re-run.
+own) whose `Events` section shows `Insufficient memory`. Raise Docker memory to ≥12GB (16GB
+comfortable) and re-run.
 
 ### 1c. Fatal errors *before* the storage gate
 Two paths in the docker preflight abort with messages that don't read like network problems:
@@ -79,10 +80,9 @@ daemon's actual configured root (`dockerInfo.DockerRootDir`) instead of a stale 
 match, so on a current CLI this number is real, not a cached artifact of the old path.
 **Fix:** if you see it, don't reflexively bypass it — verify with `docker info` that the move
 actually landed and docker actually restarted; if the daemon is confirmed pointed at the new
-disk and the number is still wrong, upgrade the CLI (`leap cli upgrade -s > /tmp/leap-upgrade.sh`,
-then `bash /tmp/leap-upgrade.sh`) before reaching for `DISABLE_DOCKER_CHECKS=true` (skips the
-check only, no side effects) — that flag is a last resort, not the default response to this
-message.
+disk and the number is still wrong, upgrade the CLI (`leap cli upgrade -s | bash`) before
+reaching for `DISABLE_DOCKER_CHECKS=true` (skips the check only, no side effects) — that flag
+is a last resort, not the default response to this message.
 
 ### 4. WSL2: "read-only file system"
 `mkdir /var/lib/tensorleap: read-only file system` when creating the registry or server node.
@@ -373,8 +373,9 @@ Fresh GPU EC2s ship with ~tens of GB on `/` and the real ~TB storage as separate
 mounts; Docker and `/var/lib/tensorleap` land on root and choke.
 **Fix:** move Docker data-root (item 2) AND install with `-d /data1/tensorleap` before
 anything else, on an EBS volume: an `Amazon EC2 NVMe Instance Storage` disk in
-`lsblk -o NAME,MODEL,MOUNTPOINT` (e.g. `/opt/dlami/nvme`) is wiped on stop (item 27). Access: see item 51 — SSM port-forward, SSH `-L`, or a security-group
-allowlist that already permits `:4589`.
+`lsblk -o NAME,MODEL,MOUNTPOINT` (e.g. `/opt/dlami/nvme`) is wiped on stop (item 27).
+Access: see item 51 — SSM port-forward, SSH `-L`, or a security-group allowlist that already
+permits `:4589`.
 
 ### 26b. EC2: after stop/start, ingress-nginx can't find files under the mounted volume
 Looks like an SSM/permission problem but usually isn't — a boot-ordering race where the EBS
