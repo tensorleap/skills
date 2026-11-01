@@ -41,7 +41,13 @@ def evaluate(status="STARTED", minutes=1, step=None, extra=None):
     return run
 
 
-def watch(runs, *args, cwd=None):
+FAKE_CODEX = """#!/bin/sh
+printf '%s\\n' "$@" >> "$FAKE_CODEX_LOG"
+exit "${FAKE_CODEX_EXIT:-0}"
+"""
+
+
+def watch(runs, *args, cwd=None, env_extra=None):
     with tempfile.TemporaryDirectory() as tmp:
         cli = os.path.join(tmp, "leap")
         with open(cli, "w") as f:
@@ -49,7 +55,8 @@ def watch(runs, *args, cwd=None):
         os.chmod(cli, os.stat(cli).st_mode | stat.S_IEXEC)
         with open(os.path.join(tmp, "runs.json"), "w") as f:
             json.dump(runs, f)
-        env = dict(os.environ, TL_CLI=cli, FAKE_RUNS=os.path.join(tmp, "runs.json"))
+        env = {k: v for k, v in os.environ.items() if k != "CODEX_THREAD_ID"}
+        env.update(TL_CLI=cli, FAKE_RUNS=os.path.join(tmp, "runs.json"), **(env_extra or {}))
         proc = subprocess.run([sys.executable, WATCH, *args, "--interval", "0"], cwd=cwd or tmp, env=env,
                               capture_output=True, text=True, timeout=60)
         result = [line for line in proc.stdout.splitlines() if line.startswith("RESULT ")][-1]
@@ -110,6 +117,33 @@ def test():
 
     code, line = watch({}, "missing", "--once")
     assert code == 6, line
+
+    # Codex: a long-running watcher queues a wake-up message into the thread when it exits
+    with tempfile.TemporaryDirectory() as bindir:
+        codex = os.path.join(bindir, "codex")
+        with open(codex, "w") as f:
+            f.write(FAKE_CODEX)
+        os.chmod(codex, os.stat(codex).st_mode | stat.S_IEXEC)
+        log = os.path.join(bindir, "queued.txt")
+        codex_env = {"PATH": bindir + os.pathsep + os.environ["PATH"], "FAKE_CODEX_LOG": log,
+                     "CODEX_THREAD_ID": "thread-1"}
+        done = {"p": push(chained), "e": evaluate("FINISHED")}
+
+        code, line = watch(done, "p", env_extra=codex_env)
+        assert code == 0, line
+        queued = open(log).read().splitlines()
+        assert queued[:4] == ["queue", "--thread", "thread-1", "--message"], queued
+        assert "status=FINISHED" in queued[4] and "watch_run.py --resume --once" in queued[4], queued
+        os.remove(log)
+
+        code, line = watch(done, "e", "--once", env_extra=codex_env)
+        assert code == 0 and not os.path.exists(log), "a --once check must not queue a message"
+
+        code, line = watch(done, "p", env_extra=dict(codex_env, CODEX_THREAD_ID=""))
+        assert code == 0 and not os.path.exists(log), "no thread id: not Codex, nothing queued"
+
+        code, line = watch(done, "p", env_extra=dict(codex_env, FAKE_CODEX_EXIT="1"))
+        assert code == 0 and "status=FINISHED" in line, "a failing `codex queue` changes nothing"
 
     print("ok")
 
