@@ -9,7 +9,7 @@
       "name": "integration",
       "source": "./dist/claude/integration",
       "description": "Tensorleap's AI-assistant skills for authoring and debugging Tensorleap integrations.",
-      "version": "0.5.6",
+      "version": "0.5.7",
       "author": {
         "name": "Tensorleap"
       },
@@ -20,7 +20,7 @@
       "name": "installer",
       "source": "./dist/claude/installer",
       "description": "Tensorleap's AI-assistant skill for installing, upgrading, and troubleshooting a Tensorleap server on your own machine.",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "author": {
         "name": "Tensorleap"
       },
@@ -31,7 +31,7 @@
       "name": "analysis",
       "source": "./dist/claude/analysis",
       "description": "Tensorleap's AI-assistant skills for analyzing platform results: insights reports with evidence, sample visualizations, and action items.",
-      "version": "0.4.3",
+      "version": "0.4.4",
       "author": {
         "name": "Tensorleap"
       },
@@ -42,7 +42,7 @@
       "name": "optimization",
       "source": "./dist/claude/optimization",
       "description": "Tensorleap's AI-assistant skills for measuring and optimizing integration runtime: model inference floor, component-level profiling, lossless fixes with equivalence checks, and a bottleneck report.",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "author": {
         "name": "Tensorleap"
       },

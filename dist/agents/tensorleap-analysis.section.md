@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.4.3, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.4.4, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
 You produce a self-contained HTML report (plus a short markdown companion
@@ -38,8 +38,11 @@ own login; `leap mcp` talks to whichever server `leap auth select` points at
 (or the `--env` its MCP registration pins), exactly like the UI does.
 
 `digest` and `build-report` also record the run's start and end: one
-anonymous `skill_run` analytics event each (skill name, stage, outcome,
-duration; `TL_DISABLE_ANALYTICS=1` turns it off).
+`skill_run` analytics event each (skill name, stage, outcome, exit code,
+duration, the skill version where the install records it, the assistant when
+it is Claude Code or Cursor, and the leap CLI's device id and, once signed in,
+the Tensorleap user id; no code, paths or data; `TL_DISABLE_ANALYTICS=1` turns
+it off).
 
 ## Step 1: Preflight
 
@@ -507,7 +510,10 @@ commands; no bullet lists:
    command and, when printed, the `tunnel:` command in one code block, and say
    to keep the tunnel open while reviewing: the report's **Approve** buttons
    and links reach the server through it (`localhost:4589` on the user's own
-   machine). On any other `not opened:`, ask the user to open the path.
+   machine). If those commands contain `<server>` (the session came through a
+   local forward such as AWS SSM, so the script can't know the machine's
+   address), tell the user to replace it with the address they use to reach
+   this machine. On any other `not opened:`, ask the user to open the path.
 2. The ask, verbatim: "Review the insights and press **Approve** on each one
    you agree with; approvals are saved in Tensorleap."
 3. The Insights panel link from `insights panel:`, to review them there too.

@@ -8,7 +8,7 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.6.6
+version: 0.6.7
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
@@ -602,6 +602,11 @@ isn't obvious. The highest-frequency ones:
   restructure the project's stack.
 - **Never** run `git commit` / `push` / `rebase` / `reset`. Leave change control
   to the human / orchestrator.
+- **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`,
+  `&& …` or `$(leap …)` around it. Codex runs `leap` outside its sandbox only when
+  a rule allows `leap` and the whole command is that `leap` command. To keep or
+  filter the output, redirect it to a file (`> leap.log 2>&1`, as the push does)
+  and read the file in a separate step.
 - **Never alter the user's source data** — original data files are immutable:
   never edit, overwrite, or delete them where they live. Copying data
   elsewhere (e.g. into the Tensorleap mounted data volume) and writing derived
@@ -777,6 +782,26 @@ Add these one at a time, running after each:
        positive on an empty image is a real error (precision `0`, recall
        `None`). Same policy as missing metadata
        (`{{reference_dir}}/metadata.md`).
+- **Predicted class (classification models: always)** — add a per-sample
+  predicted-class field, so the analysis skill can show which classes the model
+  confuses (label x prediction). It reads two things, so match them exactly:
+  the class names as the classification output's `PredictionTypeHandler`
+  `labels` (class index `i` is `labels[i]`; the analysis sees them as
+  `prediction_labels`), and a field whose name ends in `_prd_idx` holding the
+  argmax index of the prediction. Insights stay off for it: it describes the
+  prediction, it does not measure quality, so it is the one exception to the
+  "doesn't track quality" rule above and needs no `direction`.
+  ```python
+  @tensorleap_custom_metric("prediction", compute_insights=False)
+  def predicted_class(pred: np.ndarray):   # pred: (batch, num_classes)
+      return {"prd_idx": np.argmax(pred, axis=-1).astype(np.float32)}   # -> prediction_prd_idx
+  ```
+  Take the argmax over the class axis the `PredictionTypeHandler`'s
+  `channel_dim` names. If the integration already has an equivalent field (the
+  argmax index of the same output), reuse it instead of adding a second one,
+  renaming its key to `prd_idx` if its name doesn't already end in `_prd_idx`.
+  No `ConfusionMatrixElement` metric. When you tell the user what the
+  integration contains, name this field and say it is there for the analysis.
 
 ## Acceptance (staged definition of done)
 
@@ -917,7 +942,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    Then, in this order:
    - **Tell the user** that the evaluation is running and can take hours, and how
      to check it themselves: `leap run info <id>` with the id from
-     `.tensorleap/runs.json`.
+     `.tensorleap/runs.json`. For a classification model, also name the
+     predicted-class field you added (`<name>_prd_idx`, see **Optional
+     surfaces**) and say it is there for the analysis.
    - **End your turn.** Ending the turn here is correct — the task is not
      finished, it is waiting. Don't poll: no repeated `leap run info` calls, no
      `sleep` loops in your own turns, and **don't read the watcher's output while
@@ -928,6 +955,23 @@ refused → wait a minute and rerun it. If they have no such email and more than
    - **If the user messages you first** — or your assistant never wakes you when a
      background shell exits — run `<env-python> {{scripts_dir}}/watch_run.py --resume --once`
      and act on its result; `RUNNING` means say so and end your turn again.
+   - **Codex only** (other assistants skip this). Codex does not wake you when a
+     background command exits, so the watcher wakes you itself: when it exits it
+     runs `codex queue` (it finds the thread through `CODEX_THREAD_ID`), and a new
+     turn starts asking you to run `--resume --once`. That only works outside
+     the sandbox (inside it `~/.codex` is read-only and `codex queue` fails), so
+     start the watcher **escalated, outside the sandbox**, as a plain
+     long-running command (a background terminal), never with `nohup … &`
+     (Codex kills it). Then tell the user and end your turn as above; when the
+     queued message arrives, run `--resume --once` outside the sandbox too (it
+     calls `leap`, which needs the Tensorleap server). The watcher tries
+     `codex queue` by itself and ignores a failure, so fall back yourself when
+     it can't work: if `CODEX_THREAD_ID` is unset, `codex queue` doesn't exist
+     (Codex older than 0.149), or the watcher can't run escalated, don't end
+     your turn: after telling the user, wait in the foreground, checking the
+     watcher process about once a minute until it exits, then act on its last
+     line (step 7). If Codex was not woken and the user asks, use the resume
+     path above.
    If the watcher shell dies (the harness may kill background jobs), the push and
    Evaluate are unaffected — relaunch it with `--resume`; **never re-push**
    because a watcher died.
@@ -987,8 +1031,10 @@ refused → wait a minute and rerun it. If they have no such email and more than
 
 When the integration reaches its terminal outcome — the eval `FINISHED`, or
 you are stopping for good on a failure — first record how it went. No consent
-is needed: this is one anonymous `skill_run` analytics event carrying only the
-skill name, the outcome, the duration and the number of run-loop passes
+is needed: this is one `skill_run` analytics event carrying only the skill name,
+the outcome, the duration, the number of run-loop passes, the skill version
+where the install records it, the assistant when it is Claude Code or Cursor,
+and the leap CLI's device id and, once signed in, the Tensorleap user id
 (`TL_DISABLE_ANALYTICS=1` turns it off):
 
 ```

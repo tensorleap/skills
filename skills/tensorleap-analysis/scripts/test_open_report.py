@@ -74,6 +74,18 @@ def check_ssh_session_says_how_to_copy_and_tunnel():
     assert "insights panel: http://localhost:4589/p" in r.stdout
 
 
+def check_loopback_ssh_address_becomes_a_placeholder():
+    # AWS SSM and other local port forwards give SSH_CONNECTION a loopback server address
+    root = make_report_dir()
+    for addr in ("127.0.0.1", "127.0.1.1", "::1"):
+        r = run(root, SSH_CONNECTION=f"127.0.0.1 51000 {addr} 22")
+        assert r.returncode == 0, r.stderr
+        report = os.path.join(root, "report.html")
+        assert f"@<server>:{report} ." in r.stdout, r.stdout
+        assert "tunnel: ssh -N -L 4589:localhost:4589 " in r.stdout and r.stdout.count("@<server>") == 2
+        assert f"@{addr}" not in r.stdout
+
+
 def check_remote_server_needs_no_tunnel():
     root = make_report_dir(api_base="https://acme.tensorleap.ai/api/v2")
     r = run(root, SSH_TTY="/dev/pts/0")

@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-install -->
-<!-- Tensorleap skill 'tensorleap-install' v0.1.5, generated from skills/tensorleap-install/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-install' v0.1.6, generated from skills/tensorleap-install/skill.md; do not edit here. -->
 # Install Tensorleap
 
 `leap server install` creates a single-node k3d Kubernetes cluster inside Docker, then installs
@@ -37,6 +37,14 @@ Hard rules:
 - **Relay leap's next steps.** When a `leap` command ends with a next-step paragraph (it starts
   `Next,`, `Then,` or `When the evaluation finishes,`) or a license activation line, show that
   text to the user word for word: it is written for them, and the CLI prints each one only once.
+- **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`, `&& …` or
+  `$(leap …)` around it. Codex runs `leap` outside its sandbox only when a rule allows `leap`
+  and the whole command is that `leap` command. To keep or filter the output, redirect it to
+  a file (`> leap.log 2>&1`) and read the file in a separate step. The one exception is
+  `leap cli upgrade -s | bash`, which pipes the CLI's install script into `bash`; under Codex
+  it asks for approval.
+- **Codex only:** tell the user once that `leap mcp config codex` can let Codex run `leap`
+  commands without asking each time (it asks; `--codex-allow-leap` answers yes).
 - **`leap server check` does not exist.** Verified on the shipped CLI (v0.0.161): it is not a
   registered subcommand — it silently prints the `leap server` help and **exits 0**, so a
   script would read it as success. Never suggest it as a diagnostic. The registered
@@ -55,6 +63,11 @@ DATA_DIR=$(sed -n 's/^data_dir:[[:space:]]*//p' ~/.config/tensorleap/config.yaml
 DATA_DIR=${DATA_DIR:-/var/lib/tensorleap/standalone}
 cat "$DATA_DIR/install-notes.md" 2>/dev/null      # this skill's record — richest context
 cat "$DATA_DIR/manifests/params.yaml" 2>/dev/null # installer's own record of the last flags
+```
+
+Then each of these as a command of its own:
+
+```bash
 leap server info 2>/dev/null
 leap server --info 2>/dev/null   # "Installer Version:" — the embedded helm-charts pin,
                                   # NOT the same number as `leap --version` (the CLI binary)
@@ -162,11 +175,23 @@ d=/var/lib/tensorleap/standalone; while [ ! -d "$d" ]; do d=$(dirname "$d"); don
 (On Linux `DockerRootDir` is a host path you can `df` directly; on macOS it lives inside the
 Docker Desktop VM — only the alpine probe measures it.)
 
+**Data dir: keep the default.** Install to `/var/lib/tensorleap/standalone` unless the user
+asks for another location (WSL2 needs one, below). Before you propose any other data dir, Docker data-root or mount,
+see what disk it is on (Linux):
+
+```bash
+lsblk -o NAME,MODEL,MOUNTPOINT
+```
+
+A disk whose model is `Amazon EC2 NVMe Instance Storage` (instance store, for example
+`/opt/dlami/nvme` on AWS Deep Learning AMIs), a `tmpfs` mount (`df -h <path>`), or anything
+under `/tmp` is wiped when the machine stops: say so, and don't propose it.
+
 **The two-disk model — the most common field problem.** Docker's data-root holds all pulled
 images and the k3d node; the Tensorleap data dir holds MongoDB, Elasticsearch (60Gi),
 Keycloak, MinIO, the registry blobs, and (Linux) the containerd cache. Cloud VMs and many
 servers have a tiny OS root with the real storage on a separate mount — then **both** must be
-moved before installing:
+moved before installing, to a persistent disk the user agrees to (checked as above):
 
 1. Docker: **merge** (never clobber — the file often holds the nvidia runtime config) a
    `data-root` key into `/etc/docker/daemon.json`, restart, verify:
@@ -239,7 +264,8 @@ before compacting to 50–150 GB.
   (Windows→WSL→docker→k3d stacking) — that's normal.
 - **Cloud VMs** — see the platform notes in
   [install-troubleshooting.md](.tensorleap/reference/install-troubleshooting.md#cloud-vms-ec2--sagemaker--azure): EC2 (tiny root
-  volume, put data-root + data-dir on the NVMe/EBS data disk, SSM/SSH port-forward), SageMaker
+  volume, put data-root + data-dir on the EBS data disk, never on NVMe instance storage, which
+  a stop wipes; SSM/SSH port-forward), SageMaker
   (bootstrap re-run after every stop/start, UI via `/proxy/4589`), Azure ML (`/mnt` wiped on
   stop/start — prefer a plain Azure VM), ECS/Fargate (impossible — needs privileged
   docker-in-docker).
@@ -604,7 +630,8 @@ means [reinstall](#reinstalling-leap-server-reinstall) instead. A specific versi
    instead); and on older installs the first push afterwards rebuilds the dependency image
    (12–20 min).
 4. Run **on the server itself** (not from a client machine):
-   `leap cli upgrade && leap server upgrade` — the team's rule is always both together.
+   `leap cli upgrade`, then `leap server upgrade`, each as its own command — the team's rule
+   is always both together.
    **Needs a real terminal.** The reinstall confirmation is written to the TTY, so a
    TTY-less invocation (`ssh host "leap server upgrade"`, CI, a script, any piped
    invocation) does not fail cleanly — verified live: with stdin a pipe it dies
@@ -695,8 +722,10 @@ the template below **in full**, including the version, data-dir and docker data-
 those are exactly what a later upgrade needs, and they are the first thing people drop when
 abbreviating.
 
-Also record the outcome for Tensorleap: one anonymous `skill_run` analytics event (skill
-name, outcome, duration since the preflight; `TL_DISABLE_ANALYTICS=1` turns it off), run with
+Also record the outcome for Tensorleap: one `skill_run` analytics event (skill name, outcome,
+duration since the preflight, the skill version where the install records it, the assistant
+when it is Claude Code or Cursor, and the leap CLI's device id and, once signed in, the
+Tensorleap user id; no code, paths or data; `TL_DISABLE_ANALYTICS=1` turns it off), run with
 the skill's absolute path like the preflight:
 
 ```bash

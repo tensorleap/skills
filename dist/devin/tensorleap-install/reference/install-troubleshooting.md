@@ -31,8 +31,9 @@ Preflight passes at 6GB, then the install hangs and eventually reports
 minio/rabbitmq/orchestrator/node-server add ~2Gi, so **under ~12GB of Docker memory ES sits
 Pending forever**. Very common on macOS (Docker Desktop defaults to 8GB).
 **Fix:** confirm before blaming disk —
-`leap server tools kubectl -n tensorleap describe pod tl-elasticsearch-es-master-0 | grep -A3 Events`
-showing `Insufficient memory`. Raise Docker memory to ≥12GB (16GB comfortable) and re-run.
+`leap server tools kubectl -n tensorleap describe pod tl-elasticsearch-es-master-0` (run on its
+own) whose `Events` section shows `Insufficient memory`. Raise Docker memory to ≥12GB (16GB
+comfortable) and re-run.
 
 ### 1c. Fatal errors *before* the storage gate
 Two paths in the docker preflight abort with messages that don't read like network problems:
@@ -371,8 +372,10 @@ If docker sees the GPU but `kubectl describe node` lists no `nvidia.com/gpu`, up
 Fresh GPU EC2s ship with ~tens of GB on `/` and the real ~TB storage as separate NVMe/EBS
 mounts; Docker and `/var/lib/tensorleap` land on root and choke.
 **Fix:** move Docker data-root (item 2) AND install with `-d /data1/tensorleap` before
-anything else. Access: see item 51 — SSM port-forward, SSH `-L`, or a security-group
-allowlist that already permits `:4589`.
+anything else, on an EBS volume: an `Amazon EC2 NVMe Instance Storage` disk in
+`lsblk -o NAME,MODEL,MOUNTPOINT` (e.g. `/opt/dlami/nvme`) is wiped on stop (item 27).
+Access: see item 51 — SSM port-forward, SSH `-L`, or a security-group allowlist that already
+permits `:4589`.
 
 ### 26b. EC2: after stop/start, ingress-nginx can't find files under the mounted volume
 Looks like an SSM/permission problem but usually isn't — a boot-ordering race where the EBS
