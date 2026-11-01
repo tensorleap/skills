@@ -167,7 +167,7 @@ def wake_codex(status):
         return
     message = (f"The Tensorleap evaluation watcher has stopped (status={status}). Run "
                f"`{sys.executable} {os.path.abspath(__file__)} --resume --once` in {os.getcwd()} "
-               f"and act on its RESULT line.")
+               f"outside the sandbox (it needs the local Tensorleap server) and act on its RESULT line.")
     try:
         subprocess.run([codex, "queue", "--thread", thread, "--message", message],
                        capture_output=True, timeout=60)
