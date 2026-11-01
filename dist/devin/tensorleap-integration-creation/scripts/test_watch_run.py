@@ -134,6 +134,7 @@ def test():
         queued = open(log).read().splitlines()
         assert queued[:4] == ["queue", "--thread", "thread-1", "--message"], queued
         assert "status=FINISHED" in queued[4] and "watch_run.py --resume --once" in queued[4], queued
+        assert "outside the sandbox" in queued[4], queued
         os.remove(log)
 
         code, line = watch(done, "e", "--once", env_extra=codex_env)
