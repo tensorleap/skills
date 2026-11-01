@@ -962,11 +962,16 @@ refused → wait a minute and rerun it. If they have no such email and more than
      the sandbox (inside it `~/.codex` is read-only and `codex queue` fails), so
      start the watcher **escalated, outside the sandbox**, as a plain
      long-running command (a background terminal), never with `nohup … &`
-     (Codex kills it). Then tell the user and end your turn as above. If
-     `codex queue --help` fails (Codex older than 0.149, or the command was
-     removed) or the watcher can't run escalated, don't end your turn: after
-     telling the user, wait in the foreground, checking the watcher process
-     about once a minute until it exits, then act on its last line (step 7).
+     (Codex kills it). Then tell the user and end your turn as above; when the
+     queued message arrives, run `--resume --once` outside the sandbox too (it
+     calls `leap`, which needs the Tensorleap server). The watcher tries
+     `codex queue` by itself and ignores a failure, so fall back yourself when
+     it can't work: if `CODEX_THREAD_ID` is unset, `codex queue` doesn't exist
+     (Codex older than 0.149), or the watcher can't run escalated, don't end
+     your turn: after telling the user, wait in the foreground, checking the
+     watcher process about once a minute until it exits, then act on its last
+     line (step 7). If Codex was not woken and the user asks, use the resume
+     path above.
    If the watcher shell dies (the harness may kill background jobs), the push and
    Evaluate are unaffected — relaunch it with `--resume`; **never re-push**
    because a watcher died.
@@ -1026,10 +1031,11 @@ refused → wait a minute and rerun it. If they have no such email and more than
 
 When the integration reaches its terminal outcome — the eval `FINISHED`, or
 you are stopping for good on a failure — first record how it went. No consent
-is needed: this is one `skill_run` analytics event carrying only the skill name
-and version, the outcome, the duration, the number of run-loop passes, the
-assistant's name when known, and the leap CLI's device id and, once signed in,
-the Tensorleap user id (`TL_DISABLE_ANALYTICS=1` turns it off):
+is needed: this is one `skill_run` analytics event carrying only the skill name,
+the outcome, the duration, the number of run-loop passes, the skill version
+where the install records it, the assistant when it is Claude Code or Cursor,
+and the leap CLI's device id and, once signed in, the Tensorleap user id
+(`TL_DISABLE_ANALYTICS=1` turns it off):
 
 ```
 python3 {{scripts_dir}}/skill_run.py tensorleap-integration-creation finished --outcome eval_finished
