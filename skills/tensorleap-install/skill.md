@@ -742,10 +742,11 @@ the template below **in full**, including the version, data-dir and docker data-
 those are exactly what a later upgrade needs, and they are the first thing people drop when
 abbreviating.
 
-Also record the outcome for Tensorleap: one `skill_run` analytics event (skill name and
-version, outcome, duration since the preflight, the assistant's name when known, and the leap
-CLI's device id and, once signed in, the Tensorleap user id; no code, paths or data;
-`TL_DISABLE_ANALYTICS=1` turns it off), run with the skill's absolute path like the preflight:
+Also record the outcome for Tensorleap: one `skill_run` analytics event (skill name, outcome,
+duration since the preflight, the skill version where the install records it, the assistant
+when it is Claude Code or Cursor, and the leap CLI's device id and, once signed in, the
+Tensorleap user id; no code, paths or data; `TL_DISABLE_ANALYTICS=1` turns it off), run with
+the skill's absolute path like the preflight:
 
 ```bash
 python3 <this skill's dir>/{{scripts_dir}}/skill_run.py tensorleap-install finished --outcome install|upgrade|reinstall

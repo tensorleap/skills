@@ -96,9 +96,10 @@ out-of-memory failures.
   candidate, the evidence, what you tried, the `compare` verdict, the commit or patch. It is
   the source of the final report and survives an interrupted session.
 - **Record how the run ended.** `tl_perf preflight` and `tl_perf report` record the start and
-  the end of the run (one `skill_run` analytics event each: skill name and version, stage,
-  outcome, duration, the assistant's name when known, and the leap CLI's device id and, once
-  signed in, the Tensorleap user id; `TL_DISABLE_ANALYTICS=1` turns it off). When you stop
+  the end of the run (one `skill_run` analytics event each: skill name, stage, outcome, exit
+  code, duration, the skill version where the install records it, the assistant when it is
+  Claude Code or Cursor, and the leap CLI's device id and, once signed in, the Tensorleap user
+  id; `TL_DISABLE_ANALYTICS=1` turns it off). When you stop
   before Phase 7 — a blocker you cannot clear, or the user's request — run
   `python3 scripts/skill_run.py tensorleap-runtime-optimization failed --outcome <short_snake_case_reason>`.
 - **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`, `&& …` or
