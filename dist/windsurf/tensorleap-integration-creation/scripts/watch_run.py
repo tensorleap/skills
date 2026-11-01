@@ -22,11 +22,16 @@ Ends with one line: RESULT status=<STATUS> push=<id> eval=<id> step=<id> progres
   5 RUNNING               --once only: still in flight
   6 CLI_ERROR             the CLI kept failing (auth, network, missing run); with --once, on the first failure
 Set TL_CLI to use another CLI binary (default `leap`).
+
+Under Codex (CODEX_THREAD_ID set), a watcher that is not --once also queues a message into the
+Codex thread when it exits (`codex queue`), since Codex is not woken when a background command
+exits. Without `codex` or `codex queue` (experimental, Codex 0.149+), nothing is sent.
 """
 import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -42,6 +47,7 @@ QUIET_WINDOW = 2 * 60 * 60  # a step without a counter, or a run waiting to star
 MAX_CLI_FAILURES = 15
 STATE_FILE = os.path.join(".tensorleap", "runs.json")
 CLI = os.environ.get("TL_CLI", "leap")
+WAKE_CODEX = False  # set in main(): a long-running watcher wakes Codex when it exits
 
 
 class ContractChanged(Exception):
@@ -153,10 +159,28 @@ def failure_details(info, run_id):
         pass
 
 
+def wake_codex(status):
+    """Queue a message into the Codex thread this watcher was started from. Best effort:
+    `codex queue` is experimental and fails inside Codex's sandbox (~/.codex is read-only)."""
+    thread, codex = os.environ.get("CODEX_THREAD_ID"), shutil.which("codex")
+    if not (thread and codex):
+        return
+    message = (f"The Tensorleap evaluation watcher has stopped (status={status}). Run "
+               f"`{sys.executable} {os.path.abspath(__file__)} --resume --once` in {os.getcwd()} "
+               f"and act on its RESULT line.")
+    try:
+        subprocess.run([codex, "queue", "--thread", thread, "--message", message],
+                       capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def finish(status, push_id, eval_id, **fields):
     parts = [f"status={status}", f"push={push_id or '-'}", f"eval={eval_id or '-'}"]
     parts += [f"{k}={v}" for k, v in fields.items() if v is not None]
     print("RESULT " + " ".join(parts), flush=True)
+    if WAKE_CODEX:
+        wake_codex(status)
     sys.exit(CODES[status])
 
 
@@ -227,6 +251,8 @@ def main():
                         help="with --resume: the user chose to wait out a reported stall; measure from now")
     parser.add_argument("--interval", type=int, default=120, help="seconds between checks (default 120)")
     args = parser.parse_args()
+    global WAKE_CODEX
+    WAKE_CODEX = not args.once
 
     push_id = eval_id = waiting_since = None
     if args.keep_waiting and not args.resume:

@@ -937,6 +937,18 @@ refused → wait a minute and rerun it. If they have no such email and more than
    - **If the user messages you first** — or your assistant never wakes you when a
      background shell exits — run `<env-python> scripts/watch_run.py --resume --once`
      and act on its result; `RUNNING` means say so and end your turn again.
+   - **Codex only** (other assistants skip this). Codex does not wake you when a
+     background command exits, so the watcher wakes you itself: when it exits it
+     runs `codex queue` (it finds the thread through `CODEX_THREAD_ID`), and a new
+     turn starts asking you to run `--resume --once`. That only works outside
+     the sandbox (inside it `~/.codex` is read-only and `codex queue` fails), so
+     start the watcher **escalated, outside the sandbox**, as a plain
+     long-running command (a background terminal), never with `nohup … &`
+     (Codex kills it). Then tell the user and end your turn as above. If
+     `codex queue --help` fails (Codex older than 0.149, or the command was
+     removed) or the watcher can't run escalated, don't end your turn: after
+     telling the user, wait in the foreground, checking the watcher process
+     about once a minute until it exits, then act on its last line (step 7).
    If the watcher shell dies (the harness may kill background jobs), the push and
    Evaluate are unaffected — relaunch it with `--resume`; **never re-push**
    because a watcher died.
