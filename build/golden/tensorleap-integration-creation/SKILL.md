@@ -596,6 +596,11 @@ isn't obvious. The highest-frequency ones:
   restructure the project's stack.
 - **Never** run `git commit` / `push` / `rebase` / `reset`. Leave change control
   to the human / orchestrator.
+- **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`,
+  `&& …` or `$(leap …)` around it. Codex runs `leap` outside its sandbox only when
+  a rule allows `leap` and the whole command is that `leap` command. To keep or
+  filter the output, redirect it to a file (`> leap.log 2>&1`, as the push does)
+  and read the file in a separate step.
 - **Never alter the user's source data** — original data files are immutable:
   never edit, overwrite, or delete them where they live. Copying data
   elsewhere (e.g. into the Tensorleap mounted data volume) and writing derived
@@ -1015,9 +1020,10 @@ refused → wait a minute and rerun it. If they have no such email and more than
 
 When the integration reaches its terminal outcome — the eval `FINISHED`, or
 you are stopping for good on a failure — first record how it went. No consent
-is needed: this is one anonymous `skill_run` analytics event carrying only the
-skill name, the outcome, the duration and the number of run-loop passes
-(`TL_DISABLE_ANALYTICS=1` turns it off):
+is needed: this is one `skill_run` analytics event carrying only the skill name
+and version, the outcome, the duration, the number of run-loop passes, the
+assistant's name when known, and the leap CLI's device id and, once signed in,
+the Tensorleap user id (`TL_DISABLE_ANALYTICS=1` turns it off):
 
 ```
 python3 scripts/skill_run.py tensorleap-integration-creation finished --outcome eval_finished

@@ -51,8 +51,10 @@ own login; `leap mcp` talks to whichever server `leap auth select` points at
 (or the `--env` its MCP registration pins), exactly like the UI does.
 
 `digest` and `build-report` also record the run's start and end: one
-anonymous `skill_run` analytics event each (skill name, stage, outcome,
-duration; `TL_DISABLE_ANALYTICS=1` turns it off).
+`skill_run` analytics event each (skill name and version, stage, outcome,
+duration, the assistant's name when known, and the leap CLI's device id and,
+once signed in, the Tensorleap user id; no code, paths or data;
+`TL_DISABLE_ANALYTICS=1` turns it off).
 
 ## Step 1: Preflight
 

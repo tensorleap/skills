@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-runtime-optimization -->
-<!-- Tensorleap skill 'tensorleap-runtime-optimization' v0.1.4, generated from skills/tensorleap-runtime-optimization/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-runtime-optimization' v0.1.5, generated from skills/tensorleap-runtime-optimization/skill.md; do not edit here. -->
 # Optimizing a Tensorleap integration's runtime
 
 You take an existing, working Tensorleap integration (`leap_integration.py` + `leap.yaml`
@@ -93,10 +93,15 @@ out-of-memory failures.
   candidate, the evidence, what you tried, the `compare` verdict, the commit or patch. It is
   the source of the final report and survives an interrupted session.
 - **Record how the run ended.** `tl_perf preflight` and `tl_perf report` record the start and
-  the end of the run (one anonymous `skill_run` analytics event each: skill name, stage,
-  outcome, duration; `TL_DISABLE_ANALYTICS=1` turns it off). When you stop before Phase 7 —
-  a blocker you cannot clear, or the user's request — run
+  the end of the run (one `skill_run` analytics event each: skill name and version, stage,
+  outcome, duration, the assistant's name when known, and the leap CLI's device id and, once
+  signed in, the Tensorleap user id; `TL_DISABLE_ANALYTICS=1` turns it off). When you stop
+  before Phase 7 — a blocker you cannot clear, or the user's request — run
   `python3 .tensorleap/scripts/skill_run.py tensorleap-runtime-optimization failed --outcome <short_snake_case_reason>`.
+- **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`, `&& …` or
+  `$(leap …)` around it. Codex runs `leap` outside its sandbox only when a rule allows `leap`
+  and the whole command is that `leap` command. To keep or filter the output, redirect it to
+  a file (`> leap.log 2>&1`) and read the file in a separate step.
 
 ## The measurement tool
 
@@ -495,10 +500,10 @@ at least as well, so don't go below it.
    **commit** the report, the log and `static.json`. A long push or evaluation, or a
    session that ends, must never leave the work without a committed report.
 
-   **Wait in the foreground.** Poll with one foreground command at a time (`sleep 120 &&
-   leap run info <push-job-id>`), not a background timer followed by ending your turn: an
-   unattended session that ends its turn is over, and whatever it was waiting for is
-   lost. Then:
+   **Wait in the foreground.** Poll with one foreground command at a time (`sleep 120`, then
+   `leap run info <push-job-id>` as its own command), not a background timer followed by
+   ending your turn: an unattended session that ends its turn is over, and whatever it was
+   waiting for is lost. Then:
 8. Find the Evaluate run (`leap run list -t Evaluate`) and watch **that** run with a
    token-free background loop until it is terminal:
    ```
@@ -506,6 +511,8 @@ at least as well, so don't go below it.
      case "$s" in *FINISHED*|*FAILED*|*STOPPED*|*TERMINATED*) echo "$s"; break;; esac
      sleep 300; done
    ```
+   This loop is the one place `leap` runs inside a larger command; under Codex, start it
+   escalated (outside the sandbox), since no `leap` rule can match it.
    If the watcher dies, the evaluation is unaffected — relaunch the watcher, never re-push.
    **Push finished but no Evaluate exists** (older CLIs: the push process was killed
    between the push and the evaluate trigger): with the cap re-applied, re-push over the
