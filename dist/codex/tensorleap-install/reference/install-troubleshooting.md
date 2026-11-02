@@ -690,10 +690,8 @@ reinstall with `--domain` (and TLS); upgrade — ingress fixes shipped.
 First registered user = admin, approves all later signups; **no password reset exists
 on-prem** — a forgotten admin password has forced a full reinstall. No spaces in usernames.
 Apply the license/extension token via Settings → Manage License (or
-`leap auth license -t <token>`). With a Free Tier token the install is Free Tier. Without
-any token, the trial license recorded when the first user registers has no days in it, so
-Evaluate answers "License expired…" until a token is applied. After any reinstall:
-re-register, re-apply token, re-run `leap auth login`.
+`leap auth license -t <token>`). With a Free Tier token the install is Free Tier. After any
+reinstall: re-register, re-apply token, re-run `leap auth login`.
 
 ### 54. `leap auth` line from the UI fails on the machine itself
 The generated token line targets the URL you browsed (https / proxy address), and a URL
