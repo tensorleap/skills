@@ -329,6 +329,15 @@ fails identically.
 
 ## Step 3 — Install the leap CLI
 
+First check whether it is already installed:
+
+```bash
+leap --version
+```
+
+It prints a version → the CLI is installed: skip the install below and go to Step 4. Only
+when `leap` is not found, install it:
+
 ```bash
 curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash
 ```
