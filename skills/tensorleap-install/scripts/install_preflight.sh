@@ -139,6 +139,12 @@ else
   echo "  (no proxy env vars - fine on open networks; required behind a corporate proxy, catalog #35)"
 fi
 
+# Codex only (assistant.sh decides): the rule that lets Codex run leap without asking
+if [ "$(bash "$(dirname "$0")/assistant.sh" 2>/dev/null)" = codex ]; then
+  echo "== Codex =="
+  echo "  Optional: leap mcp config codex lets Codex run leap commands without approving each one (it asks first; --codex-allow-leap answers yes)."
+fi
+
 echo
 if [ "$FAILS" -gt 0 ]; then
   echo "$FAILS blocking issue(s). Fix them before running leap server install."
