@@ -571,7 +571,10 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    first admin promote a second admin** — admins can reset each other, which turns a lost
    password from a reinstall into a two-minute fix. No spaces in usernames.
 4. Apply the license/trial-extension token: Settings (gear) → Manage License → insert token →
-   Apply. Fresh installs start with a 1-week trial. It can also be applied without the UI —
+   Apply. With a Free Tier token the install is Free Tier. When you describe the user's
+   license, base it on the license line the installer prints. Explain it in your own words
+   if that helps, but don't add terms it doesn't state, such as a time limit or "trial".
+   The token can also be applied without the UI —
    `leap auth license -t <token>` (or `-f <file>`), and `leap server install` itself accepts
    `--license-token`/`--license-file`, which is the better path for scripted installs. The
    license period counts from the day the token was issued, not applied. A token issued to an
