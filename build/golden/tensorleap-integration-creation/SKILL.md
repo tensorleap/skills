@@ -55,7 +55,10 @@ No training happens here. That shapes the whole integration:
   and your loader body is not run (its declared `prediction_types` still are).
   Convention: the **dataset** → data volume (read from a *config-driven* path,
   never hardcoded); the **model** → separate upload; every **other** asset the
-  integration reads from disk → `leap.yaml`.
+  integration reads from disk → `leap.yaml`. Read the dataset from the explicit
+  path in your config (in the mounted data folder), not from a library's default
+  cache or a `~` path. The job runs as a different user, so those point
+  elsewhere there.
 - **Remote data (fetched, not bundled).** If the dataset lives in a store the
   *server* can reach (e.g. S3) and fetching beats bundling it, read it directly
   from `preprocess`/encoders — but **cache each fetched file inside the data
@@ -1016,6 +1019,12 @@ refused → wait a minute and rerun it. If they have no such email and more than
      printed, and fall back to checking the run in the UI. Don't work around it.
    - **`CLI_ERROR`** → the CLI kept failing (expired auth, network, unknown run
      id). Fix the cause (`leap auth whoami`) and relaunch with `--resume`.
+   - **Reading the logs** (any result): a `cuInit` failure or a no-GPU / CUDA
+     warning from the data pod (`generic-process-<jobId>`) is expected. That pod
+     runs your data code (`preprocess`, inputs, ground truth) on the CPU by
+     design, so the warning is not the error and does not mean the evaluation
+     runs on CPU: the model runs in the main engine pod, which is the one that
+     gets the GPU.
 8. **Free Tier subsample: check for failure modes** (only when step 4 capped
    the dataset). Once the Evaluate is `FINISHED`, call `tl_get_insights` on the
    Tensorleap MCP server (`leap mcp`) for this version; only each insight's
