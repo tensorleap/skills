@@ -464,9 +464,9 @@ the user can mail or Slack.
 **Then publish it, without asking**: call `tl_publish_report` with `dir` =
 the absolute `<out-dir>`. It uploads report.html (with report.md and
 report.json) to the Tensorleap server; the team finds it in the project's
-Reports tab in the UI and the returned `link` opens it. Publishing again
-for the same evaluation replaces your previous report, so re-running after
-an edit is free. Skip it only when the user asked not to publish; if the
+Reports tab in the UI and the returned `link` opens it. Every publish adds
+a new report, so after an edit tell the user the earlier card is still
+there. Skip it only when the user asked not to publish; if the
 tool refuses (an older server, no connection), keep the local files and
 say so in the closing message. Also write `<out-dir>/report.md`, the
 executive summary, summary table, per-insight action checklists, and the
