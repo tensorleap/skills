@@ -57,8 +57,10 @@ Hard rules:
   a file (`> leap.log 2>&1`) and read the file in a separate step. The one exception is
   `leap cli upgrade -s | bash`, which pipes the CLI's install script into `bash`; under Codex
   it asks for approval.
-- **Codex only:** tell the user once that `leap mcp config codex` can let Codex run `leap`
-  commands without asking each time (it asks; `--codex-allow-leap` answers yes).
+- **The Codex hint comes from the preflight.** Under Codex, the preflight report (Step 2)
+  has a `== Codex ==` section with an `Optional: leap mcp config codex …` line: pass it on to
+  the user once. The script prints it for no other assistant, so if the report has no such
+  line, don't mention `leap mcp config codex`.
 - **`leap server check` does not exist.** Verified on the shipped CLI (v0.0.161): it is not a
   registered subcommand — it silently prints the `leap server` help and **exits 0**, so a
   script would read it as success. Never suggest it as a diagnostic. The registered
