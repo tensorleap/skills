@@ -114,7 +114,9 @@ out-of-memory failures.
   `python3 scripts/skill_run.py tensorleap-runtime-optimization failed --outcome <short_snake_case_reason>`.
 - **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`, `&& …` or
   `$(leap …)` around it. Codex runs `leap` outside its sandbox only when a rule allows `leap`
-  and the whole command is that `leap` command. To keep or filter the output, redirect it to
+  and the whole command is that `leap` command. **Under Codex** that also rules out `&` and
+  input redirection (`< /dev/null`), even where a command below shows one: write the bare
+  `leap …` command. To keep or filter the output, redirect it to
   a file (`> leap.log 2>&1`) and read the file in a separate step.
 
 ## The measurement tool
@@ -185,6 +187,12 @@ Memory options: `profile --memory-samples N` (samples per state in the memory pa
    `unknown flag: --non-interactive` (an older CLI), ask the user to run
    `leap auth login <url>` in their own terminal instead. If the login ends with
    `failed to get API key: timeout` (5 minutes, nothing saved), run it again for a new link.
+   **Under Codex**, run it in the **foreground** instead, as the bare command
+   `leap auth login <url> --non-interactive`, outside the sandbox (the `leap` rule from
+   `leap mcp config codex` allows that; without the rule, ask for escalation). In the sandbox
+   it has no network and exits right after printing the link. Show the user the link, tell
+   them they have 5 minutes to open it and sign in, and wait for that command until it prints
+   `Saved credentials`.
    Exit 6 → ask whether the server is remote (port-forward) or must be started, when you
    reach Phase 6.
 
