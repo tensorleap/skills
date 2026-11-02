@@ -71,24 +71,37 @@ over. A `NOTE:` line means a project-local install has an update available:
 ask the user before running the printed command. A Claude Code plugin update
 loads in the next session; continue with the installed version.
 
-Then call `tl_status`. If the Tensorleap tools are not available at all:
+Then call `tl_status`. **If the Tensorleap tools aren't available** (none, or
+only `tl_status`), tell the user you can't get what you need from Tensorleap
+yet, give them the reload step for their assistant, and stop. The reload step
+keeps this chat:
+
+- Claude Code: `/exit`, then `claude --continue`.
+- Codex: `/quit`, then `codex resume --last`.
+- Cursor CLI: exit, then `cursor-agent resume`.
+- VS Code (Copilot): quit VS Code completely (Reload Window is not enough),
+  reopen it and open this chat again.
+- Any other assistant: restart it.
+
+Why the tools can be missing, and what to fix before the reload step:
 
 - **Claude, installed as the `analysis` plugin**: the plugin already ships
   the MCP server and starts it as `leap mcp`, so the cause is the leap CLI:
   not on PATH, or too old to have `leap mcp` (it answers `unknown command
   "mcp"`). Tell the user to upgrade it with `leap cli upgrade -s | bash` (or
   install it: `curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash`)
-  and start a new Claude session, then stop. Do not register a second server.
+  and reload, then stop. Do not register a second server.
 - **Any other assistant** (Cursor, Copilot, Codex, Windsurf, Claude Desktop,
   or Claude without the plugin): tell the user to run `leap mcp config` in a
   terminal. It asks which assistant, writes the assistant's MCP settings,
   installs these skills where the assistant supports them and checks the
-  server. Then restart the assistant and stop. On `unknown command "mcp"`,
+  server. Then reload and stop. On `unknown command "mcp"`,
   the CLI is too old: `leap cli upgrade -s | bash` first.
 
-If `tl_status` works but `tl_export_analysis` is not among the tools, the
-leap CLI predates this skill: ask the user to run `leap cli upgrade -s | bash`
-and restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
+If `tl_status` works but `tl_export_analysis` is not among the tools: when
+the assistant started before the sign-in, the reload step brings them; when
+they are still missing after it, the leap CLI predates this skill: ask the
+user to run `leap cli upgrade -s | bash` and reload, then stop. If `tl_status` fails, relay its message verbatim (it says whether
 to run `leap auth login`, fix `--env`, or check the tunnel) and stop. To sign in,
 run `leap auth login <url> --non-interactive < /dev/null` yourself in the
 background, show the user the sign-in link it prints, wait for it to finish (on
@@ -100,8 +113,8 @@ the rule, ask for escalation). In the sandbox it has no network and exits right
 after printing the link. Show the user the link, tell them they have 5 minutes
 to open it and sign in, wait for that command until it prints
 `Saved credentials`, then call `tl_status` again. The Tensorleap tools re-read
-the sign-in when it is called. Only if it still says not signed in, ask the user to restart the
-assistant (older leap CLIs read the sign-in only when the assistant starts).
+the sign-in when it is called. Only if it still says not signed in, give the user the reload step
+(older leap CLIs read the sign-in only when the assistant starts).
 Never ask them to type `! leap auth login` into your prompt (it has no keyboard
 input there). On `unknown flag: --non-interactive` (an older CLI), ask the user
 to run `leap auth login <url>` in their own terminal instead, then call
