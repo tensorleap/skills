@@ -195,11 +195,14 @@ the end; you lose the ability to tell which change caused which failure.
              b. "Warnings (Default use. It is recommended to set values explicitly)"
                 -> make the warned value explicit (state=, channel_dim=,
                    prediction_types=, direction=)
-             c. exit status table
-                -> find the EARLIEST unexercised mandatory row
-             d. "Successful!"
-                -> the current stage's real run + mapping rerun + first-sample
-                   binder check all passed
+             c. the RESULT line (it follows the exit status of the run)
+                -> exit 3 "integration incomplete, NOT ready to push. Next: X":
+                   the run was clean, but mandatory part X is not in the
+                   integration test yet. Add X next. This is the normal state
+                   while you build the integration one interface at a time.
+                -> exit 0 "ready to push": every mandatory part ran in the
+                   integration test (the status table shows each row).
+                -> any other exit: the run failed (a. or the table above).
 
 3. FIX     address only the earliest failure. Re-running surfaces the next one.
 
@@ -207,6 +210,7 @@ the end; you lose the ability to tell which change caused which failure.
 
 GATE       Do NOT author the next interface until the current stage's row is
            exercised and no mandatory errors remain. One interface at a time.
+           Do NOT push until the RESULT line says "ready to push" (exit 0).
 ```
 
 > The bundled scripts (`scripts/run_integration.sh`, `scripts/tl_check.py`) live
@@ -516,7 +520,8 @@ order:
    and run.
 6. A minimal `@tensorleap_integration_test` as soon as preprocess + min encoders
    + load_model exist. Switch `__main__` to call `integration_test(...)`. This is
-   the first point you can see `Successful!`.
+   the first point the run ends with a verdict ("not ready to push", exit 3,
+   until the loss is in the test).
 7. Remaining input encoders if the model has more inputs.
 8. GT encoder(s) — call directly, then via `integration_test`.
 9. Expand from one sample to several in training AND validation; then add
@@ -810,7 +815,8 @@ Use the validator as a staged signal, not a binary oracle.
 - **Early:** preprocess, an input encoder, and load_model each run directly
   without error.
 - **Middle:** a minimal `integration_test(...)` runs, the mapping rerun does not
-  fail, and `Successful!` prints.
+  fail, and the run ends with a verdict (exit 3 "not ready to push" is expected
+  here; exit 0 "ready to push" comes once every mandatory part is in).
 - **Core:** the exit table shows preprocess, integration test, input encoder, GT
   encoder, and load_model all exercised, with no unresolved mandatory rows.
 - **Real:** several training AND validation samples pass through

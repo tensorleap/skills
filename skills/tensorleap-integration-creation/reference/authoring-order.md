@@ -236,7 +236,8 @@ if __name__ == "__main__":
 ```
 
 First point mapping-mode validation and `leap_binder.check()` run, and the first
-point you can see `Successful!`. Keep the body thin (see SKILL.md).
+point the run ends with a verdict. Until the loss is in the test it says "not
+ready to push" and exits 3: expected at this stage. Keep the body thin (see SKILL.md).
 
 ## Step 7 — remaining input encoders
 
