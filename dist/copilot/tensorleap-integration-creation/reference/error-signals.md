@@ -13,8 +13,8 @@ run (or in `tl_check.py` output) to its row, apply the fix, then re-run.
 | `Parameter 'prediction_types' defaults to []` | `load_model()` had no prediction types. | Add `PredictionTypeHandler` entries once outputs are known. |
 | `Parameter 'prediction_types[i].channel_dim' defaults to -1` | Prediction type omitted channel axis. | Set it explicitly. |
 | `Parameter 'direction' defaults to Downward` | Custom metric omitted optimization direction. | Add `direction=` explicitly. |
-| `Some mandatory components have not yet been added … Recommended next interface to add is: …` | Clean exit, but a mandatory interface was never exercised. | Implement/exercise the named next interface. |
-| `All mandatory parts have been successfully set …` | Core path exercised. | Stop, or continue to optional interfaces. |
+| `This integration is not ready to push: \`X\` is not used in the integration test yet. Add it next.` (exit 3) | Clean run, but mandatory part X was never exercised. Older code-loader: `Some mandatory components have not yet been added … Recommended next interface to add is: X` (exit 0). | Add X to the integration test. Do not push. |
+| `Ready to push: all mandatory parts are in the integration test.` (exit 0) | Every mandatory part ran. Older code-loader: `All mandatory parts have been successfully set …`. | Push, or continue with `Optional next: …`. |
 | `Script crashed before completing all steps. crashed at function '…'` | Exception escaped early. | Fix the named function before trusting later rows. |
 | `Tensorleap_integration_test code flow failed, check raised exception.` | Mapping-mode rerun failed. | Remove plain Python from the test body. |
 
@@ -87,7 +87,7 @@ run (or in `tl_check.py` output) to its row, apply the fix, then re-run.
 | `indexing is supported only on the model's predictions inside the integration test` | Move indexing into a decorated interface. |
 | `Integration test is only allowed to call Tensorleap decorators …` | Move all arithmetic/library/Python logic into decorated functions. |
 | `'TempMapping' object is not subscriptable` | A prediction was indexed/sliced more than once in the test body — keep only the single `model.run(None, ...)[i]`; move further slicing into a decorated function. |
-| `Successful!` | Real run + mapping rerun + first-sample binder check passed. |
+| `Successful!` (older code-loader only) | First-sample check passed. Not a verdict: read the readiness line instead. |
 
 When the mapping rerun fails, code_loader can mask the real exception (it raises
 a string, surfacing as `TypeError: exceptions must derive from BaseException`)
