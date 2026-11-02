@@ -11,7 +11,7 @@ description: >
   with equivalence checks, validates on the Tensorleap server, and writes a
   report naming the remaining bottleneck with evidence.
 group: tensorleap
-version: 0.1.5
+version: 0.1.6
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
