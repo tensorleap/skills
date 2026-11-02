@@ -585,9 +585,7 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    first admin promote a second admin** — admins can reset each other, which turns a lost
    password from a reinstall into a two-minute fix. No spaces in usernames.
 4. Apply the license/trial-extension token: Settings (gear) → Manage License → insert token →
-   Apply. With a Free Tier token the install is Free Tier. Without any token, the server
-   records a trial license with no days in it when the first user registers, so Evaluate
-   answers "License expired…" until a token is applied. When you describe the user's
+   Apply. With a Free Tier token the install is Free Tier. When you describe the user's
    license, base it on the license line the installer prints. Explain it in your own words
    if that helps, but don't add terms it doesn't state, such as a time limit or "trial".
    The token can also be applied without the UI —
