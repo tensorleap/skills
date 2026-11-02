@@ -987,7 +987,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    new run the same way.
 7. **Act on the watcher's `RESULT` line.**
    - **`FINISHED`** → the integration is done (on a Free Tier subsample, run
-     step 8 first).
+     step 8 first). Tell the user, and offer the next step: a Tensorleap
+     analysis report of this version (the `tensorleap-analysis` skill). Start
+     it only if they say yes.
    - **`FAILED`** (`stage=push` or `stage=evaluate`; `run_status` is `FAILED`,
      `STOPPED` or `TERMINATED`) → the watcher printed the run's `errorReport`,
      `hints` and the last log lines. Read the earliest real error (pull more with
