@@ -105,7 +105,12 @@ to run `leap auth login <url>` in their own terminal instead, then call
 with the limits; relay the note to the user once, in your words. On such a
 server `tl_export_analysis` lists the unlabeled (fixing-samples) list under
 `skipped`: say the license withheld it and never reconstruct it from other
-tools.
+tools. The Free Tier includes one project, Evaluate on up to 5,000 samples, and
+that evaluation's dashboard and insights (what this skill reads). It does not
+include Sample Analysis, dataset curation (Label Next, Unlabeled, Domain Gap,
+Synthetic, Pruning, Splitting, Fix Aggressor), or the insights' unlabeled-samples
+list and synthetic-data action. On a Free Tier server, never point the user to
+those.
 
 **AI access.** An admin can turn off what assistants may read (gear icon >
 AI ACCESS). `tl_status` and `tl_list_projects` show what is turned off. If a
