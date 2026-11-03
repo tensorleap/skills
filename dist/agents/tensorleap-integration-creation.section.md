@@ -112,17 +112,20 @@ files, and don't ask the user to run the login.
 for a local install, otherwise ask the user for their remote server's URL.
 
 1. Start `leap auth login <url> --non-interactive < /dev/null` as a
-   **background** command. It prints a sign-in link and waits up to 5 minutes
-   for the user to sign in.
+   **background** command. It tries to open the sign-in page in the user's
+   browser, prints the page's link, and waits up to 5 minutes for the user to
+   sign in.
    **VS Code (GitHub Copilot):** run exactly this command with your terminal
    tool in `mode: async` — no `&`, no `nohup`, no `sleep` or `jobs` after it,
    not detached. Those make the shell end at once, the login is orphaned, and
    nothing wakes you when the user signs in.
 2. Read its first lines (a few seconds after it starts) to get the link.
-3. **Your next message is the link.** Reply with the link on its own line and
-   one sentence: open it in your browser and sign in; I'll continue by myself.
-   The user can't see your tool output, so this message is the only way the
-   link reaches them. Run no other tool before sending it.
+3. **Your next message is the link**, even if the browser seemed to open: it
+   may have opened on another machine or not at all. Reply with the link on its
+   own line and one sentence: I tried to open the sign-in page in your browser;
+   if you don't see it, open this link and sign in. I'll continue by myself.
+   The user can't see your tool output, so this message is the only sure way
+   the link reaches them. Run no other tool before sending it.
 4. **End your turn right after that message.** Don't wait for the login in this
    turn, poll it, or prepare the next step. The login keeps running, and your
    assistant wakes you when it exits. If the user writes first, run
@@ -137,7 +140,8 @@ for a local install, otherwise ask the user for their remote server's URL.
 rule from `leap mcp config codex` allows that; without the rule, ask for
 escalation). In the sandbox it
 has no network and exits right after printing the link. Show the user the
-link, tell them they have 5 minutes to open it and sign in, and wait for that
+link (I tried to open the sign-in page in your browser; if you don't see it,
+open this link), tell them they have 5 minutes to sign in, and wait for that
 command until it prints `Saved credentials`. Never ask the
 user to type `! leap auth login …` into your prompt: it has no keyboard input
 there and dies with `EOF`. On `unknown flag: --non-interactive` (an older CLI),
