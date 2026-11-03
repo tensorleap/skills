@@ -45,6 +45,7 @@ from typing import List
 import numpy as np
 
 from code_loader.contract.datasetclasses import PreprocessResponse, PredictionTypeHandler
+from code_loader.contract.datasetclasses import FoundationInput, ImageRange   # code-loader >= 1.0.219
 from code_loader.contract.enums import DataStateType
 from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_preprocess,
@@ -189,6 +190,66 @@ if __name__ == "__main__":
 ```
 
 Return a single sample, NOT a batch. Catches wrong shape/dtype/lookup fastest.
+
+### Foundation input — `foundation=` on the model's image input
+
+The platform runs its own foundation image encoders over the dataset and stores
+the result as extra latent spaces (SigLIP 2 at image level; on an instance
+project also OWLv2 at instance level). No encoder code, weights or preprocessing
+in the integration — only a declaration of what the image tensor's values mean,
+so the platform can turn them back into RGB bytes (`code-loader` ≥ 1.0.219; on
+an older one skip this):
+
+```python
+@tensorleap_input_encoder(name="image", channel_dim=1,
+                          foundation=FoundationInput(range=ImageRange.IMAGENET, rgb_channels=(0, 1, 2)))
+def image_input(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
+    ...
+```
+
+- `range` (required) — the **convention's theoretical** `[min, max]` of the
+  tensor the encoder returns, never the observed min/max of samples:
+  `ImageRange.BYTE` `[0, 255]`, `UNIT` `[0, 1]`, `SIGNED` `[-1, 1]`, `IMAGENET`
+  `[-2.118, 2.640]` (mean/std normalised), `CLIP` `[-1.792, 2.146]`, or a
+  `(min, max)` tuple (caffe-style: `(-123.68, 151.06)`). Read it off the
+  preprocessing code: `/255` → `UNIT`; a `Normalize(mean, std)` after it →
+  `IMAGENET`.
+- `rgb_channels` — the three indices on the `channel_dim` axis that are R, G, B.
+  Default `(0, 1, 2)`; `(2, 1, 0)` for BGR (OpenCV-fed), `(0, 0, 0)` for
+  grayscale, `(3, 2, 1)` for multispectral true colour.
+- **Exactly one `foundation=` per project** — two is a `check_dataset` error
+  naming both. None → the version has no foundation latent space, and the
+  Evaluate's status table says so.
+- Deliver the image at **≤ 960 px on the longest side** (the largest encoder
+  input); 256 px on the short side is enough when only the image-level space
+  matters. The platform keeps the geometry as the model saw it (resize,
+  letterbox, crop) and inverts only the photometry, so native instance masks
+  line up.
+
+`check_dataset` (`tl_check.py`, payload `foundation_input`) probes the declared
+range on a few samples: the inverted values must fall within `[-2, 257]`, and
+the observed inverted range is printed. A byte or signed tensor declared `UNIT`
+fails with that range shown — fix the declaration, not the encoder.
+
+**Dedicated foundation input.** Only when the native input cannot be inverted
+(non-affine preprocessing, bands without a shared range, a non-image tensor), or
+the project wants more resolution than the native input (e.g. 2048×1024 scenes
+squashed to 640×640 for the model). Add one more input encoder that carries the
+flag and is **never passed to the model**:
+
+```python
+@tensorleap_input_encoder(name="foundation_image", channel_dim=-1,
+                          foundation=FoundationInput(range=ImageRange.BYTE))
+def foundation_image(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
+    return load_original(sample_id)       # uint8, HWC, RGB, any size ≤ 960 longest side
+```
+
+It is the one input encoder allowed to return `uint8`, at any size. Still one
+`foundation=` per project: on the model's input *or* on the dedicated one, never
+both. Native vs dedicated is decided by **wiring** — whether `integration_test`
+feeds the encoder's output to the model — not by a flag, so call it in
+`integration_test` like any encoder but never pass it to the model. Instance
+projects: see `element-instances.md`, *Foundation input on an instance project*.
 
 ## Step 5 — load_model
 

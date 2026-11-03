@@ -56,6 +56,9 @@ run (or in `tl_check.py` output) to its row, apply the fix, then re-run.
 | `Unsupported return type. Should be a numpy array` | Convert list/PIL/tensor to `np.ndarray`. |
 | `The return type should be a numpy array of type float32` | `.astype(np.float32)`. |
 | `The channel_dim (…) should be <= to the rank …` | Fix the axis or the returned shape. |
+| `check_dataset` payload `foundation_input` fails, printing the inverted range of the probe samples | The declared `range` is not the tensor's convention (a byte or signed tensor declared `UNIT`). Declare the convention's range, never the observed min/max (`authoring-order.md` Step 4, *Foundation input*). |
+| `foundation_input` names two input encoders | Exactly one `foundation=` per project — on the model's image input *or* on a dedicated foundation input, not both. |
+| `foundation_input` rejects `masks=` or a non-`float32` return on an input the model consumes | The encoder is wired to the model, so it is the native input: drop `masks=`, return `float32`. Only a dedicated foundation input (never passed to the model in `integration_test`) may return `uint8` or take `masks=`. |
 
 ## Ground-truth encoder
 

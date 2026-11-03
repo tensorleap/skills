@@ -558,7 +558,14 @@ order:
    `np.float32` array. Call each directly and run. Encoders must return
    `float32`; if the model needs integer inputs (e.g. `input_ids`), export it to
    accept `float32` and cast internally (see `{{reference_dir}}/error-signals.md`,
-   load_model).
+   load_model). On the model's **image** input add
+   `foundation=FoundationInput(range=…, rgb_channels=…)` (`code-loader`
+   ≥ 1.0.219): the platform's foundation latent spaces are computed from it, and
+   without it the version has none. `range` is the preprocessing convention's
+   range, never the observed values; exactly one `foundation=` per project. The
+   one encoder allowed to return `uint8` is a dedicated foundation input that is
+   never fed to the model — only for non-affine preprocessing or extra
+   resolution (`{{reference_dir}}/authoring-order.md`, Step 4, *Foundation input*).
 5. `@tensorleap_load_model` with explicit `prediction_types`. Call it directly
    and run.
 6. A minimal `@tensorleap_integration_test` as soon as preprocess + min encoders
