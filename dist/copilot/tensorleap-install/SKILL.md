@@ -58,7 +58,7 @@ Hard rules:
   subcommands are exactly: `info install reinstall run stop tools uninstall upgrade`.
 
 The failure catalog ships alongside this skill as `reference/install-troubleshooting.md`;
-a read-only preflight script lives at `scripts/install_preflight.sh`.
+a read-only preflight script lives at `~/.copilot/skills/tensorleap-install/scripts/install_preflight.sh`.
 
 ## Step 0 — Recall prior state
 
@@ -145,7 +145,7 @@ reason an install call is wasted is that IT hasn't prepared the machine. Hand ov
 
 ## Step 2 — Preflight
 
-Quick path: `bash <this skill's dir>/scripts/install_preflight.sh` (use the skill's
+Quick path: `bash <this skill's dir>/~/.copilot/skills/tensorleap-install/scripts/install_preflight.sh` (use the skill's
 absolute path — your shell's cwd is the user's project, not the skill) runs every read-only check in this
 step and prints a report; the sections below explain how to read it and what to fix.
 It first checks for a newer version of this skill. A `Tensorleap skill: updating …` line means
@@ -592,17 +592,28 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    (Manage License, `leap auth license -t`) is only the fallback when the button doesn't work.
    On the first visit the UI opens Keycloak's registration form with that email locked; the
    user only sets a password.
-5. CLI auth: **sign the CLI in yourself** once the user has registered. Run
-   `leap auth login <url> --non-interactive < /dev/null` as a **background** command (it waits
-   up to 5 minutes for the sign-in), show the user the sign-in link it prints, ask them to open
-   it in their browser and sign in, and wait for the command to finish (`Saved credentials to`).
-   If it ends with `failed to get API key: timeout` (no sign-in within 5 minutes; nothing is
-   saved), run it again and show the new link.
+5. CLI auth: **sign the CLI in yourself** once the user has registered. Only the user can
+   sign in, so this comes before anything else. Don't look for API keys, passwords or config
+   files, and don't ask the user to run the login.
+   1. Start `leap auth login <url> --non-interactive < /dev/null` as a **background** command.
+      It tries to open the sign-in page in the user's browser, prints the page's link, and waits
+      up to 5 minutes. **VS Code (GitHub Copilot):** run exactly this command with your terminal
+      tool in `mode: async` — no `&`, no `nohup`, not detached.
+   2. **Your next message is the link**, even if the browser seemed to open: it may have opened
+      on another machine or not at all. Reply with the link on its own line and one sentence:
+      I tried to open the sign-in page in your browser; if you don't see it, open this link and
+      sign in. I'll continue by myself. Run no other tool before sending it.
+   3. **End your turn right after that message.** The login keeps running, and your assistant
+      wakes you when it exits. If the user writes first, run `leap auth whoami`.
+   4. When you're woken: `Saved credentials` → go on. `failed to get API key: timeout` (no
+      sign-in within 5 minutes; nothing is saved) → step 1 again, and send the new link.
+
    **Under Codex**, run it in the **foreground** instead, as the bare command
    `leap auth login <url> --non-interactive`, outside the sandbox (the `leap` rule from
    `leap mcp config codex` allows that; without the rule, ask for escalation). In the sandbox
-   it has no network and exits right after printing the link. Show the user the link, tell
-   them they have 5 minutes to open it and sign in, and wait for that command until it prints
+   it has no network and exits right after printing the link. Show the user the link (I tried
+   to open the sign-in page in your browser; if you don't see it, open this link), tell them
+   they have 5 minutes to sign in, and wait for that command until it prints
    `Saved credentials`.
    Never ask the user to type `! leap auth login …` into the assistant's prompt: that has no
    keyboard input, so the interactive login dies with `EOF`. On a CLI that answers
@@ -754,8 +765,8 @@ Tensorleap user id; no code, paths or data; `TL_DISABLE_ANALYTICS=1` turns it of
 the skill's absolute path like the preflight:
 
 ```bash
-python3 <this skill's dir>/scripts/skill_run.py tensorleap-install finished --outcome install|upgrade|reinstall
-python3 <this skill's dir>/scripts/skill_run.py tensorleap-install failed --outcome catalog_<n>    # after a failed attempt
+python3 <this skill's dir>/~/.copilot/skills/tensorleap-install/scripts/skill_run.py tensorleap-install finished --outcome install|upgrade|reinstall
+python3 <this skill's dir>/~/.copilot/skills/tensorleap-install/scripts/skill_run.py tensorleap-install failed --outcome catalog_<n>    # after a failed attempt
 ```
 
 ```markdown

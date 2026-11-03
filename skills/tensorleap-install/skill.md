@@ -12,7 +12,7 @@ description: >
   each action's setup in the data dir's install-notes.md so later upgrades and
   reinstalls reuse that context.
 group: tensorleap
-version: 0.1.7
+version: 0.1.8
 globs: []
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]

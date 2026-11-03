@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.8, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.9, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -45,10 +45,12 @@ No training happens here. That shapes the whole integration:
   and your loader body is not run (its declared `prediction_types` still are).
   Convention: the **dataset** → data volume (read from a *config-driven* path,
   never hardcoded); the **model** → separate upload; every **other** asset the
-  integration reads from disk → `leap.yaml`. Read the dataset from the explicit
-  path in your config (in the mounted data folder), not from a library's default
-  cache or a `~` path. The job runs as a different user, so those point
-  elsewhere there.
+  integration reads from disk → `leap.yaml`. The job runs on the server as a
+  different user, so a path that works locally only because it's on your
+  machine (your home folder, a cache) is empty or missing there. **If your
+  dataset is local, before you push, check that the folder your config points
+  to is in the data volume and contains the dataset files** (`ls` it). For
+  remote data, see the next bullet.
 - **Remote data (fetched, not bundled).** If the dataset lives in a store the
   *server* can reach (e.g. S3) and fetching beats bundling it, read it directly
   from `preprocess`/encoders — but **cache each fetched file inside the data
@@ -946,7 +948,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    `.tensorleap/runs.json` (the run is reported `TERMINATED`; a run that already
    ended is skipped, so the call is safe to repeat). Never stop a run you did not
    start — the server is shared. On a CLI without `run stop` (unknown command),
-   wait instead. Re-push only with `-o/--overwrite`.
+   wait instead. Re-push only with `-o/--overwrite`. **After any re-push, start
+   the watcher again for the new push** (step 6, with the new `push.log`): a
+   watcher started for the stopped run doesn't follow the new one.
    Push from the repo root. `-m` uploads the model separately (it is not
    bundled); the code bundle comes from `leap.yaml`'s `include` (`leap push -h`
    for `--branch` and the other flags). The push needs a CLI with `leap run
@@ -973,6 +977,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    # background shell
    <env-python> .tensorleap/scripts/watch_run.py --push-log push.log
    ```
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, not detached. Those make the
+   shell end at once, the watcher is orphaned, and nothing wakes you.
    Then, in this order:
    - **Tell the user** that the evaluation is running and can take hours, and how
      to check it themselves: `leap run info <id>` with the id from
@@ -986,9 +993,17 @@ refused → wait a minute and rerun it. If they have no such email and more than
      reading a running shell consumes the completion notification that would
      wake you.
    - **When you are woken** by the watcher exiting, act on its last line (step 7).
+     If the shell ended without printing a `RESULT` line, the watcher is not
+     watching: start it again with `--resume` the same way, then end your turn.
    - **If the user messages you first** — or your assistant never wakes you when a
      background shell exits — run `<env-python> .tensorleap/scripts/watch_run.py --resume --once`
      and act on its result; `RUNNING` means say so and end your turn again.
+   - **VS Code (GitHub Copilot) only** (other assistants skip this). Start the
+     watcher with your terminal tool in **async mode** (`mode: async`), never with
+     `&`, `nohup` or your own monitor script: VS Code notifies you only when an
+     async shell exits, and `watch_run.py` exits exactly when there is something
+     to act on. Use the full path above. Then end your turn; don't say you will
+     notify the user unless this watcher is running.
    - **Codex only** (other assistants skip this). Codex does not wake you when a
      background command exits, so the watcher wakes you itself: when it exits it
      runs `codex queue` (it finds the thread through `CODEX_THREAD_ID`), and a new
@@ -1063,11 +1078,20 @@ refused → wait a minute and rerun it. If they have no such email and more than
    fill most of the subset with the worst-scoring samples and the rest from the
    seeded random draw, write the ids to `tensorleap/subsample_ids.json`, and
    re-push. Offer to do it; don't do it unasked. If the MCP tools aren't
-   available, say the check was skipped and that `leap mcp config` connects them.
-   If they answer that the CLI is not signed in (the assistant started before
-   the sign-in), call `tl_status` once (it re-reads the sign-in) and retry; if
-   it still fails, say the check was skipped and that restarting the assistant
-   picks up the sign-in (older leap CLIs read it only at start).
+   available (none, or only `tl_status`), say the check was skipped and give the
+   user the reload step for their assistant, which keeps this chat:
+   - Claude Code: `/exit`, then `claude --continue`.
+   - Codex: `/quit`, then `codex resume --last`.
+   - Cursor CLI: exit, then `cursor-agent resume`.
+   - VS Code (Copilot): quit VS Code completely (Reload Window is not enough),
+     reopen it and open this chat again.
+   - Any other assistant: restart it.
+
+   If the tools are still missing after the reload, `leap mcp config` connects
+   them. If they answer that the CLI is not signed in (the assistant started
+   before the sign-in), call `tl_status` once (it re-reads the sign-in) and
+   retry; if it still fails, say the check was skipped and give the reload step
+   above (older leap CLIs read the sign-in only at start).
 
 ## Finish report (consent required)
 

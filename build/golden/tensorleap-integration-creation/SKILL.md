@@ -5,8 +5,10 @@ description: >
   leap_integration.py / leap.yaml, @tensorleap_preprocess, input/GT encoders,
   @tensorleap_load_model, @tensorleap_integration_test — or when debugging
   code-loader validation errors, exit-table rows, batch-dimension warnings, or
-  check_dataset() failures. Drives a progressive author -> run -> read -> fix
-  loop and keeps the integration runnable at every step.
+  check_dataset() failures. Also use when pushing a new version to Tensorleap
+  (`leap push`), re-running an evaluation, or waiting for a push or evaluation
+  to finish. Drives a progressive author -> run -> read -> fix loop and keeps
+  the integration runnable at every step.
 group: tensorleap
 ---
 
@@ -55,10 +57,12 @@ No training happens here. That shapes the whole integration:
   and your loader body is not run (its declared `prediction_types` still are).
   Convention: the **dataset** → data volume (read from a *config-driven* path,
   never hardcoded); the **model** → separate upload; every **other** asset the
-  integration reads from disk → `leap.yaml`. Read the dataset from the explicit
-  path in your config (in the mounted data folder), not from a library's default
-  cache or a `~` path. The job runs as a different user, so those point
-  elsewhere there.
+  integration reads from disk → `leap.yaml`. The job runs on the server as a
+  different user, so a path that works locally only because it's on your
+  machine (your home folder, a cache) is empty or missing there. **If your
+  dataset is local, before you push, check that the folder your config points
+  to is in the data volume and contains the dataset files** (`ls` it). For
+  remote data, see the next bullet.
 - **Remote data (fetched, not bundled).** If the dataset lives in a store the
   *server* can reach (e.g. S3) and fetching beats bundling it, read it directly
   from `preprocess`/encoders — but **cache each fetched file inside the data
@@ -92,7 +96,8 @@ going. A server call you would make before the push that is refused this way
 `AUTH_SECRET` yourself) and make the call at Deploy, step 3. Only the push waits
 for activation (Deploy, **License not activated**).
 
-Drive the work forward on your own as far as you can. **Infer configuration from
+Drive the work forward on your own as far as you can (the exception is signing
+the CLI in, which only the user can do: see **Signing the CLI in**). **Infer configuration from
 the repo and the environment before asking** (the data store and load code,
 dependencies, label semantics, a *local* data volume via `leap server info`,
 etc.), and **use anything the user already supplied proactively** — in the
@@ -109,6 +114,52 @@ volume at the data-root switch before push; store credentials when a fetch first
 needs them). When you must ask, ask for the specific missing piece, then continue
 autonomously. This keeps the run hands-off unless a genuine blocker requires the
 user.
+
+## Signing the CLI in
+
+Signing in is the one step only the user can do, so it comes before everything
+else: before what they asked for, and before "drive the work forward on your
+own" above. Do this whenever a command says `Not signed in`, or stops at
+`Enter the API URL` with `EOF`. Don't look for API keys, passwords or config
+files, and don't ask the user to run the login.
+`<url>` is the server: the URL in that message or preflight's, `http://localhost:4589`
+for a local install, otherwise ask the user for their remote server's URL.
+
+1. Start `leap auth login <url> --non-interactive < /dev/null` as a
+   **background** command. It tries to open the sign-in page in the user's
+   browser, prints the page's link, and waits up to 5 minutes for the user to
+   sign in.
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, no `sleep` or `jobs` after it,
+   not detached. Those make the shell end at once, the login is orphaned, and
+   nothing wakes you when the user signs in.
+2. Read its first lines (a few seconds after it starts) to get the link.
+3. **Your next message is the link**, even if the browser seemed to open: it
+   may have opened on another machine or not at all. Reply with the link on its
+   own line and one sentence: I tried to open the sign-in page in your browser;
+   if you don't see it, open this link and sign in. I'll continue by myself.
+   The user can't see your tool output, so this message is the only sure way
+   the link reaches them. Run no other tool before sending it.
+4. **End your turn right after that message.** Don't wait for the login in this
+   turn, poll it, or prepare the next step. The login keeps running, and your
+   assistant wakes you when it exits. If the user writes first, run
+   `leap auth whoami`: signed in → go on; not yet → give them the link again.
+5. When you're woken: `Saved credentials` → go on with what the user asked.
+   `failed to get API key: timeout` (no sign-in within 5 minutes) → step 1
+   again, and send the new link.
+
+**Under Codex**, run the login in the
+**foreground** instead, as the bare command
+`leap auth login <url> --non-interactive`, outside the sandbox (the `leap`
+rule from `leap mcp config codex` allows that; without the rule, ask for
+escalation). In the sandbox it
+has no network and exits right after printing the link. Show the user the
+link (I tried to open the sign-in page in your browser; if you don't see it,
+open this link), tell them they have 5 minutes to sign in, and wait for that
+command until it prints `Saved credentials`. Never ask the
+user to type `! leap auth login …` into your prompt: it has no keyboard input
+there and dies with `EOF`. On `unknown flag: --non-interactive` (an older CLI),
+ask the user to run `leap auth login <url>` in their own terminal instead.
 
 ## Starting point: usually an existing repo
 
@@ -288,24 +339,8 @@ server, or configures anything. React to its exit status:
   checks never fire for a remote server (that path exits 4 first). **Relay the
   printed guidance to the user and STOP.** Do **not** install the CLI, start the
   server, or configure the volume yourself.
-- **Setup: not authenticated (exit 3)** — sign the CLI in yourself: run
-  `leap auth login <url> --non-interactive < /dev/null` as a **background**
-  command (`<url>` is the server: the URL preflight printed if it knows one,
-  `http://localhost:4589` for a local install, otherwise ask the user for their
-  remote server's URL; it waits up to 5 minutes), show the user the sign-in link it prints, ask them to
-  open it and sign in, wait for it to finish, then re-run preflight. If it ends
-  with `failed to get API key: timeout` (no sign-in within 5 minutes; nothing is
-  saved), run it again and show the new link. **Under Codex**, run it in the
-  **foreground** instead, as the bare command
-  `leap auth login <url> --non-interactive`, outside the sandbox (the `leap`
-  rule from `leap mcp config codex` allows that; without the rule, ask for
-  escalation). In the sandbox it
-  has no network and exits right after printing the link. Show the user the
-  link, tell them they have 5 minutes to open it and sign in, and wait for that
-  command until it prints `Saved credentials`. Never ask the
-  user to type `! leap auth login …` into your prompt: it has no keyboard input
-  there and dies with `EOF`. On `unknown flag: --non-interactive` (an older CLI),
-  ask the user to run `leap auth login <url>` in their own terminal instead.
+- **Setup: not authenticated (exit 3)** — sign the CLI in yourself: follow
+  **Signing the CLI in** above, then re-run preflight.
 - **Remote server (exit 4)** — *not* an error. The CLI is pointed at a remote
   server. **Ask the user whether they want to work remotely** (they may have both
   a local and a remote server; the CLI is currently pointed at the remote one).
@@ -925,7 +960,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    `.tensorleap/runs.json` (the run is reported `TERMINATED`; a run that already
    ended is skipped, so the call is safe to repeat). Never stop a run you did not
    start — the server is shared. On a CLI without `run stop` (unknown command),
-   wait instead. Re-push only with `-o/--overwrite`.
+   wait instead. Re-push only with `-o/--overwrite`. **After any re-push, start
+   the watcher again for the new push** (step 6, with the new `push.log`): a
+   watcher started for the stopped run doesn't follow the new one.
    Push from the repo root. `-m` uploads the model separately (it is not
    bundled); the code bundle comes from `leap.yaml`'s `include` (`leap push -h`
    for `--branch` and the other flags). The push needs a CLI with `leap run
@@ -952,6 +989,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    # background shell
    <env-python> scripts/watch_run.py --push-log push.log
    ```
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, not detached. Those make the
+   shell end at once, the watcher is orphaned, and nothing wakes you.
    Then, in this order:
    - **Tell the user** that the evaluation is running and can take hours, and how
      to check it themselves: `leap run info <id>` with the id from
@@ -965,9 +1005,17 @@ refused → wait a minute and rerun it. If they have no such email and more than
      reading a running shell consumes the completion notification that would
      wake you.
    - **When you are woken** by the watcher exiting, act on its last line (step 7).
+     If the shell ended without printing a `RESULT` line, the watcher is not
+     watching: start it again with `--resume` the same way, then end your turn.
    - **If the user messages you first** — or your assistant never wakes you when a
      background shell exits — run `<env-python> scripts/watch_run.py --resume --once`
      and act on its result; `RUNNING` means say so and end your turn again.
+   - **VS Code (GitHub Copilot) only** (other assistants skip this). Start the
+     watcher with your terminal tool in **async mode** (`mode: async`), never with
+     `&`, `nohup` or your own monitor script: VS Code notifies you only when an
+     async shell exits, and `watch_run.py` exits exactly when there is something
+     to act on. Use the full path above. Then end your turn; don't say you will
+     notify the user unless this watcher is running.
    - **Codex only** (other assistants skip this). Codex does not wake you when a
      background command exits, so the watcher wakes you itself: when it exits it
      runs `codex queue` (it finds the thread through `CODEX_THREAD_ID`), and a new
@@ -1042,11 +1090,20 @@ refused → wait a minute and rerun it. If they have no such email and more than
    fill most of the subset with the worst-scoring samples and the rest from the
    seeded random draw, write the ids to `tensorleap/subsample_ids.json`, and
    re-push. Offer to do it; don't do it unasked. If the MCP tools aren't
-   available, say the check was skipped and that `leap mcp config` connects them.
-   If they answer that the CLI is not signed in (the assistant started before
-   the sign-in), call `tl_status` once (it re-reads the sign-in) and retry; if
-   it still fails, say the check was skipped and that restarting the assistant
-   picks up the sign-in (older leap CLIs read it only at start).
+   available (none, or only `tl_status`), say the check was skipped and give the
+   user the reload step for their assistant, which keeps this chat:
+   - Claude Code: `/exit`, then `claude --continue`.
+   - Codex: `/quit`, then `codex resume --last`.
+   - Cursor CLI: exit, then `cursor-agent resume`.
+   - VS Code (Copilot): quit VS Code completely (Reload Window is not enough),
+     reopen it and open this chat again.
+   - Any other assistant: restart it.
+
+   If the tools are still missing after the reload, `leap mcp config` connects
+   them. If they answer that the CLI is not signed in (the assistant started
+   before the sign-in), call `tl_status` once (it re-reads the sign-in) and
+   retry; if it still fails, say the check was skipped and give the reload step
+   above (older leap CLIs read the sign-in only at start).
 
 ## Finish report (consent required)
 

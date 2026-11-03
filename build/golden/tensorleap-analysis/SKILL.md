@@ -96,17 +96,36 @@ If `tl_status` works but `tl_export_analysis` is not among the tools: when
 the assistant started before the sign-in, the reload step brings them; when
 they are still missing after it, the leap CLI predates this skill: ask the
 user to run `leap cli upgrade -s | bash` and reload, then stop. If `tl_status` fails, relay its message verbatim (it says whether
-to run `leap auth login`, fix `--env`, or check the tunnel) and stop. To sign in,
-run `leap auth login <url> --non-interactive < /dev/null` yourself in the
-background, show the user the sign-in link it prints, wait for it to finish (on
-`failed to get API key: timeout` after 5 minutes nothing is saved: run it again),
-then call `tl_status` again. **Under Codex**, run it in the **foreground**
-instead, as the bare command `leap auth login <url> --non-interactive`, outside
-the sandbox (the `leap` rule from `leap mcp config codex` allows that; without
-the rule, ask for escalation). In the sandbox it has no network and exits right
-after printing the link. Show the user the link, tell them they have 5 minutes
-to open it and sign in, wait for that command until it prints
-`Saved credentials`, then call `tl_status` again. The Tensorleap tools re-read
+to run `leap auth login`, fix `--env`, or check the tunnel) and stop.
+
+**Signing the CLI in.** Only the user can sign in, so this comes before
+everything else. Don't look for API keys, passwords or config files, and don't
+ask the user to run the login.
+1. Start `leap auth login <url> --non-interactive < /dev/null` as a
+   **background** command. It tries to open the sign-in page in the user's
+   browser, prints the page's link, and waits up to 5 minutes.
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, not detached.
+2. **Your next message is the link**, even if the browser seemed to open: it
+   may have opened on another machine or not at all. Reply with the link on its
+   own line and one sentence: I tried to open the sign-in page in your browser;
+   if you don't see it, open this link and sign in. I'll continue by myself.
+   Run no other tool before sending it.
+3. **End your turn right after that message.** The login keeps running, and
+   your assistant wakes you when it exits. If the user writes first, run
+   `leap auth whoami`.
+4. When you're woken: `Saved credentials` → call `tl_status` again.
+   `failed to get API key: timeout` (5 minutes, nothing saved) → step 1 again,
+   and send the new link.
+
+**Under Codex**, run it in the **foreground** instead, as the bare command
+`leap auth login <url> --non-interactive`, outside the sandbox (the `leap` rule
+from `leap mcp config codex` allows that; without the rule, ask for
+escalation). In the sandbox it has no network and exits right after printing
+the link. Show the user the link (I tried to open the sign-in page in your
+browser; if you don't see it, open this link), tell them they have 5 minutes
+to sign in, wait for that command until it prints `Saved credentials`, then
+call `tl_status` again. The Tensorleap tools re-read
 the sign-in when it is called. Only if it still says not signed in, give the user the reload step
 (older leap CLIs read the sign-in only when the assistant starts).
 Never ask them to type `! leap auth login` into your prompt (it has no keyboard
@@ -438,7 +457,10 @@ per card:
 ## Step 6: Write the report
 
 Follow **`reference/report-template.md`** (report.json schema,
-per-insight anatomy, language rules). You never write HTML: author
+per-insight anatomy, language rules). **Read that file to its end before you write
+report.json** (read it in parts if your viewer cuts it off): the exact
+report.json schema is its section `## report.json schema`, near the end, and
+build-report accepts nothing else. Don't guess field names. You never write HTML: author
 `<out-dir>/report.json`, content only, image paths relative to `<out-dir>`,
 and the script renders the page. **The body is grouped by insight TYPE in the
 Insights panel's order** (Failure Mode → Out of Distribution → Duplication →
@@ -478,7 +500,11 @@ python3 scripts/tl_api.py inline-html <out-dir>/report.html
 
 build-report exit 8 means report.json is invalid or an image path didn't
 resolve; inline-html exit 7 means a `src` didn't resolve, fix (stderr lists
-which) and re-run; never ship a report with broken images. The result is ONE file
+which) and re-run; never ship a report with broken images. **The deliverable is report.html: don't hand
+over until build-report and inline-html have both succeeded.** On exit 8,
+compare report.json with the template's schema section, fix every field that
+differs, and re-run; never hand over report.md or any Markdown file in its
+place. The result is ONE file
 the user can mail or Slack. Also write `<out-dir>/report.md`, the
 executive summary, summary table, per-insight action checklists, and the
 **Notes** section (template: one line per insight without a card, ending in
