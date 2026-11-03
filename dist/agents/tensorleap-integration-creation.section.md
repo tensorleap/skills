@@ -895,7 +895,7 @@ refused → wait a minute and rerun it. If they have no such email and more than
 
 1. **Auth (re-check)** — auth was verified in the Preflight gate; quickly
    re-confirm with `leap auth whoami` in case the token expired mid-session. If
-   it no longer returns your user/team, re-run `leap auth login`. Its
+   it no longer returns your user/team, sign in again: **Signing the CLI in**. Its
    `License:` line names the server's license: **`Free Tier`** means Evaluate
    runs on at most **5,000 samples** (training + validation + test + unlabeled
    together), a limited number of projects, and no dataset curation or sample
