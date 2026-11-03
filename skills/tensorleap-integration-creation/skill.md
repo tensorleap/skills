@@ -5,8 +5,10 @@ description: >
   leap_integration.py / leap.yaml, @tensorleap_preprocess, input/GT encoders,
   @tensorleap_load_model, @tensorleap_integration_test — or when debugging
   code-loader validation errors, exit-table rows, batch-dimension warnings, or
-  check_dataset() failures. Drives a progressive author -> run -> read -> fix
-  loop and keeps the integration runnable at every step.
+  check_dataset() failures. Also use when pushing a new version to Tensorleap
+  (`leap push`), re-running an evaluation, or waiting for a push or evaluation
+  to finish. Drives a progressive author -> run -> read -> fix loop and keeps
+  the integration runnable at every step.
 group: tensorleap
 version: 0.6.8
 globs: ["leap_integration.py", "leap.yaml"]
@@ -991,6 +993,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    # background shell
    <env-python> {{scripts_dir}}/watch_run.py --push-log push.log
    ```
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, not detached. Those make the
+   shell end at once, the watcher is orphaned, and nothing wakes you.
    Then, in this order:
    - **Tell the user** that the evaluation is running and can take hours, and how
      to check it themselves: `leap run info <id>` with the id from
@@ -1004,9 +1009,17 @@ refused → wait a minute and rerun it. If they have no such email and more than
      reading a running shell consumes the completion notification that would
      wake you.
    - **When you are woken** by the watcher exiting, act on its last line (step 7).
+     If the shell ended without printing a `RESULT` line, the watcher is not
+     watching: start it again with `--resume` the same way, then end your turn.
    - **If the user messages you first** — or your assistant never wakes you when a
      background shell exits — run `<env-python> {{scripts_dir}}/watch_run.py --resume --once`
      and act on its result; `RUNNING` means say so and end your turn again.
+   - **VS Code (GitHub Copilot) only** (other assistants skip this). Start the
+     watcher with your terminal tool in **async mode** (`mode: async`), never with
+     `&`, `nohup` or your own monitor script: VS Code notifies you only when an
+     async shell exits, and `watch_run.py` exits exactly when there is something
+     to act on. Use the full path above. Then end your turn; don't say you will
+     notify the user unless this watcher is running.
    - **Codex only** (other assistants skip this). Codex does not wake you when a
      background command exits, so the watcher wakes you itself: when it exits it
      runs `codex queue` (it finds the thread through `CODEX_THREAD_ID`), and a new
