@@ -221,6 +221,12 @@ if want copilot; then
     install_skill_folders copilot "$HOME/.copilot/skills"   # read by BOTH VS Code and Copilot CLI
   else
     install_skill_folders copilot "$TARGET/.github/skills"
+    # the Copilot SKILL.md names its scripts by their global-install path; point it
+    # at this repo's copy instead (Copilot runs commands from the repo root)
+    for f in "$TARGET"/.github/skills/*/SKILL.md; do
+      [ -f "$f" ] || continue
+      sed 's#~/\.copilot/skills/#.github/skills/#g' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+    done
   fi
 fi
 
