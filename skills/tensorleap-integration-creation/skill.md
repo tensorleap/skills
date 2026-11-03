@@ -803,6 +803,10 @@ Add these one at a time, running after each:
   See `{{reference_dir}}/element-instances.md` for the row model, the whole
   instance interface (preprocess, length + masks encoders, instance metrics,
   instance custom LS), instance metadata, and the `check_dataset` companion rules.
+  With `foundation=` on the native input the native masks serve the instance
+  foundation space as they are; only a dedicated foundation input needs a
+  second masks encoder passed as `masks=` (*Foundation input on an instance
+  project* there).
   Non-negotiable:
     1. **All-or-nothing wiring:** the element-instance preprocess and the masks
        encoder come together. Registering the instance custom latent space
