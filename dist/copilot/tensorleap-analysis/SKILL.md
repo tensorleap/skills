@@ -22,15 +22,15 @@ for the finished report. Read its
 (python3, stdlib only):
 
 ```
-python3 scripts/tl_api.py digest DIR         # manifest.json -> insights.json (the digest you read)
-python3 scripts/tl_api.py render-charts DIR  # chart.png / boxes.jpg for non-image payloads
-python3 scripts/tl_api.py summarize DIR      # per-insight composition stats from samples.csv
-python3 scripts/tl_api.py build-report DIR   # assemble report.html + report.txt from DIR/report.json
-python3 scripts/tl_api.py inline-html FILE   # embed <img src> files as data URIs, in place
-python3 scripts/tl_api.py open-report FILE   # open report.html in the user's browser, or say how to reach it
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py digest DIR         # manifest.json -> insights.json (the digest you read)
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py render-charts DIR  # chart.png / boxes.jpg for non-image payloads
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py summarize DIR      # per-insight composition stats from samples.csv
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py build-report DIR   # assemble report.html + report.txt from DIR/report.json
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py inline-html FILE   # embed <img src> files as data URIs, in place
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py open-report FILE   # open report.html in the user's browser, or say how to reach it
 ```
 
-> `scripts/tl_api.py` lives in this skill's own directory, NOT in
+> `~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py` lives in this skill's own directory, NOT in
 > the user's project, you work in the project cwd (Step 2 reads its
 > `leap.yaml`), so resolve the script's path relative to this skill file
 > (an absolute path is safest) and never copy it into the project.
@@ -50,7 +50,7 @@ it off).
 
 ## Step 1: Preflight
 
-Run `bash scripts/self_update.sh` first. Exit 0: nothing to do.
+Run `bash ~/.copilot/skills/tensorleap-analysis/scripts/self_update.sh` first. Exit 0: nothing to do.
 Exit 10: the skill's files were just refreshed, re-read this file and start
 over. A `NOTE:` line means a project-local install has an update available:
 ask the user before running the printed command. A Claude Code plugin update
@@ -175,7 +175,7 @@ insights in the UI (Population Exploration -> Insights) or pick another
 version, and stop. Then run:
 
 ```
-python3 scripts/tl_api.py digest tensorleap-analysis/<version>
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py digest tensorleap-analysis/<version>
 ```
 
 It turns the export's `manifest.json` into `insights.json`. All paths inside
@@ -242,7 +242,7 @@ case (a different metric, a condition the user named), use
 Then render charts for non-image modalities:
 
 ```
-python3 scripts/tl_api.py render-charts tensorleap-analysis/<version>
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py render-charts tensorleap-analysis/<version>
 ```
 
 Exit 6 means no matplotlib in this environment, fall back to compact
@@ -449,7 +449,10 @@ per card:
 ## Step 6: Write the report
 
 Follow **`reference/report-template.md`** (report.json schema,
-per-insight anatomy, language rules). You never write HTML: author
+per-insight anatomy, language rules). **Read that file to its end before you write
+report.json** (read it in parts if your viewer cuts it off): the exact
+report.json schema is its section `## report.json schema`, near the end, and
+build-report accepts nothing else. Don't guess field names. You never write HTML: author
 `<out-dir>/report.json`, content only, image paths relative to `<out-dir>`,
 and the script renders the page. **The body is grouped by insight TYPE in the
 Insights panel's order** (Failure Mode → Out of Distribution → Duplication →
@@ -483,13 +486,17 @@ read-only copy; they need nothing from you.
 Then render and make it self-contained:
 
 ```
-python3 scripts/tl_api.py build-report <out-dir>
-python3 scripts/tl_api.py inline-html <out-dir>/report.html
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py build-report <out-dir>
+python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py inline-html <out-dir>/report.html
 ```
 
 build-report exit 8 means report.json is invalid or an image path didn't
 resolve; inline-html exit 7 means a `src` didn't resolve, fix (stderr lists
-which) and re-run; never ship a report with broken images. The result is ONE file
+which) and re-run; never ship a report with broken images. **The deliverable is report.html: don't hand
+over until build-report and inline-html have both succeeded.** On exit 8,
+compare report.json with the template's schema section, fix every field that
+differs, and re-run; never hand over report.md or any Markdown file in its
+place. The result is ONE file
 the user can mail or Slack.
 
 **Then publish it, without asking**: call `tl_publish_report` with `dir` =
@@ -550,7 +557,7 @@ code (an admin's AI-access settings cannot see local renders, and the
 result would differ from what the platform shows).
 
 **Hand the report over.** First run
-`python3 scripts/tl_api.py open-report <out-dir>/report.html`. On a
+`python3 ~/.copilot/skills/tensorleap-analysis/scripts/tl_api.py open-report <out-dir>/report.html`. On a
 local machine with a desktop (macOS, or Linux with a display) it opens the
 report in the user's browser and prints `opened: <path>`. In an SSH session,
 or on Linux without a display, it opens nothing and prints `not opened:`,

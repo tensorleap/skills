@@ -1,6 +1,6 @@
 ---
 name: tensorleap-integration-creation
-description: Use when writing or fixing a Tensorleap integration in the decorator style — leap_integration.py / leap.yaml, @tensorleap_preprocess, input/GT encoders, @tensorleap_load_model, @tensorleap_integration_test — or when debugging code-loader validation errors, exit-table rows, batch-dimension warnings, or check_dataset() failures. Drives a progressive author -> run -> read -> fix loop and keeps the integration runnable at every step.
+description: Use when writing or fixing a Tensorleap integration in the decorator style — leap_integration.py / leap.yaml, @tensorleap_preprocess, input/GT encoders, @tensorleap_load_model, @tensorleap_integration_test — or when debugging code-loader validation errors, exit-table rows, batch-dimension warnings, or check_dataset() failures. Also use when pushing a new version to Tensorleap (`leap push`), re-running an evaluation, or waiting for a push or evaluation to finish. Drives a progressive author -> run -> read -> fix loop and keeps the integration runnable at every step.
 ---
 
 # Writing a Tensorleap integration
@@ -230,7 +230,7 @@ the end; you lose the ability to tell which change caused which failure.
 ## The run loop (do this after every meaningful edit)
 
 ```
-1. RUN     scripts/run_integration.sh
+1. RUN     ~/.copilot/skills/tensorleap-integration-creation/scripts/run_integration.sh
            (runs `leap_integration.py` at the repo root through the project env —
             `poetry run` by default, or set `TL_PY` — from the repo root;
             the exit-status table only prints when the entry file is named
@@ -260,7 +260,7 @@ GATE       Do NOT author the next interface until the current stage's row is
            Do NOT push until the RESULT line says "ready to push" (exit 0).
 ```
 
-> The bundled scripts (`scripts/run_integration.sh`, `scripts/tl_check.py`) live
+> The bundled scripts (`~/.copilot/skills/tensorleap-integration-creation/scripts/run_integration.sh`, `~/.copilot/skills/tensorleap-integration-creation/scripts/tl_check.py`) live
 > in this skill's own directory and take the **integration repo root** (where
 > `leap_integration.py` / `leap.yaml` live) as their first argument (default:
 > current directory). Run them from the repo root, or pass its path explicitly.
@@ -290,7 +290,7 @@ Before writing anything, run the bundled check-only gate from the integration
 repo root:
 
 ```
-scripts/preflight.sh        # CLI defaults to `leap`; set TL_CLI=leapdev to override
+~/.copilot/skills/tensorleap-integration-creation/scripts/preflight.sh        # CLI defaults to `leap`; set TL_CLI=leapdev to override
 ```
 
 It verifies the platform prerequisites that need **no Python environment** (so it
@@ -350,9 +350,9 @@ server, or configures anything. React to its exit status:
   non-`4589` port, which could be a local server on a custom port *or* a live
   remote server reached via port-forwarding. **Ask the user which it is**, then
   re-run the gate with the answer:
-    - **Local** → `TL_TOPOLOGY=local scripts/preflight.sh` (runs the
+    - **Local** → `TL_TOPOLOGY=local ~/.copilot/skills/tensorleap-integration-creation/scripts/preflight.sh` (runs the
       local server/volume checks).
-    - **Remote** → `TL_TOPOLOGY=remote scripts/preflight.sh`, then follow
+    - **Remote** → `TL_TOPOLOGY=remote ~/.copilot/skills/tensorleap-integration-creation/scripts/preflight.sh`, then follow
       the **remote flow** above.
 - **No local server (exit 6)** — the URL is local (`localhost`, **any port**),
   topology was **derived** (the user did *not* explicitly say local/remote), but
@@ -363,7 +363,7 @@ server, or configures anything. React to its exit status:
     - **Yes (remote)** → ensure the CLI points at a **reachable** remote endpoint
       (the remote URL, or a live port-forward on whatever port — re-point/re-auth
       if the current URL is dead), then re-run
-      `TL_TOPOLOGY=remote scripts/preflight.sh` and follow the **remote
+      `TL_TOPOLOGY=remote ~/.copilot/skills/tensorleap-integration-creation/scripts/preflight.sh` and follow the **remote
       flow** above.
     - **No** → the local server must be installed/started (`leap server run`).
       **Relay that guidance and STOP** — do not install or start it yourself.
@@ -859,7 +859,7 @@ For the Core/Real decision, account for **both** signals — they cover differen
 scopes (see above):
 
 ```
-poetry run python scripts/tl_check.py "$(pwd)"   # project env (poetry by default); pass the ABSOLUTE repo-root path
+poetry run python ~/.copilot/skills/tensorleap-integration-creation/scripts/tl_check.py "$(pwd)"   # project env (poetry by default); pass the ABSOLUTE repo-root path
 ```
 
 It prints JSON from `LeapLoader.check_dataset()`, which validates the **dataset
@@ -943,7 +943,7 @@ refused → wait a minute and rerun it. If they have no such email and more than
 5. **Run the push.** **The server, not your shell, is the source of truth**, and
    the ids of this push and its Evaluate are kept in `.tensorleap/runs.json`.
    Before any push or re-push, check for an earlier one: if that file exists, run
-   `<env-python> scripts/watch_run.py --resume --once` and, unless it
+   `<env-python> ~/.copilot/skills/tensorleap-integration-creation/scripts/watch_run.py --resume --once` and, unless it
    reports a finished or failed run, continue from step 6 with it — re-pushing
    blind creates duplicate versions. The exception is a run you **already know is
    broken** (you found and fixed the bug locally, or `leap run logs <id>` already
@@ -951,7 +951,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    `.tensorleap/runs.json` (the run is reported `TERMINATED`; a run that already
    ended is skipped, so the call is safe to repeat). Never stop a run you did not
    start — the server is shared. On a CLI without `run stop` (unknown command),
-   wait instead. Re-push only with `-o/--overwrite`.
+   wait instead. Re-push only with `-o/--overwrite`. **After any re-push, start
+   the watcher again for the new push** (step 6, with the new `push.log`): a
+   watcher started for the stopped run doesn't follow the new one.
    Push from the repo root. `-m` uploads the model separately (it is not
    bundled); the code bundle comes from `leap.yaml`'s `include` (`leap push -h`
    for `--branch` and the other flags). The push needs a CLI with `leap run
@@ -976,8 +978,11 @@ refused → wait a minute and rerun it. If they have no such email and more than
    to act on:
    ```
    # background shell
-   <env-python> scripts/watch_run.py --push-log push.log
+   <env-python> ~/.copilot/skills/tensorleap-integration-creation/scripts/watch_run.py --push-log push.log
    ```
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, not detached. Those make the
+   shell end at once, the watcher is orphaned, and nothing wakes you.
    Then, in this order:
    - **Tell the user** that the evaluation is running and can take hours, and how
      to check it themselves: `leap run info <id>` with the id from
@@ -991,9 +996,17 @@ refused → wait a minute and rerun it. If they have no such email and more than
      reading a running shell consumes the completion notification that would
      wake you.
    - **When you are woken** by the watcher exiting, act on its last line (step 7).
+     If the shell ended without printing a `RESULT` line, the watcher is not
+     watching: start it again with `--resume` the same way, then end your turn.
    - **If the user messages you first** — or your assistant never wakes you when a
-     background shell exits — run `<env-python> scripts/watch_run.py --resume --once`
+     background shell exits — run `<env-python> ~/.copilot/skills/tensorleap-integration-creation/scripts/watch_run.py --resume --once`
      and act on its result; `RUNNING` means say so and end your turn again.
+   - **VS Code (GitHub Copilot) only** (other assistants skip this). Start the
+     watcher with your terminal tool in **async mode** (`mode: async`), never with
+     `&`, `nohup` or your own monitor script: VS Code notifies you only when an
+     async shell exits, and `watch_run.py` exits exactly when there is something
+     to act on. Use the full path above. Then end your turn; don't say you will
+     notify the user unless this watcher is running.
    - **Codex only** (other assistants skip this). Codex does not wake you when a
      background command exits, so the watcher wakes you itself: when it exits it
      runs `codex queue` (it finds the thread through `CODEX_THREAD_ID`), and a new
@@ -1068,11 +1081,20 @@ refused → wait a minute and rerun it. If they have no such email and more than
    fill most of the subset with the worst-scoring samples and the rest from the
    seeded random draw, write the ids to `tensorleap/subsample_ids.json`, and
    re-push. Offer to do it; don't do it unasked. If the MCP tools aren't
-   available, say the check was skipped and that `leap mcp config` connects them.
-   If they answer that the CLI is not signed in (the assistant started before
-   the sign-in), call `tl_status` once (it re-reads the sign-in) and retry; if
-   it still fails, say the check was skipped and that restarting the assistant
-   picks up the sign-in (older leap CLIs read it only at start).
+   available (none, or only `tl_status`), say the check was skipped and give the
+   user the reload step for their assistant, which keeps this chat:
+   - Claude Code: `/exit`, then `claude --continue`.
+   - Codex: `/quit`, then `codex resume --last`.
+   - Cursor CLI: exit, then `cursor-agent resume`.
+   - VS Code (Copilot): quit VS Code completely (Reload Window is not enough),
+     reopen it and open this chat again.
+   - Any other assistant: restart it.
+
+   If the tools are still missing after the reload, `leap mcp config` connects
+   them. If they answer that the CLI is not signed in (the assistant started
+   before the sign-in), call `tl_status` once (it re-reads the sign-in) and
+   retry; if it still fails, say the check was skipped and give the reload step
+   above (older leap CLIs read the sign-in only at start).
 
 ## Finish report (consent required)
 
@@ -1085,8 +1107,8 @@ and the leap CLI's device id and, once signed in, the Tensorleap user id
 (`TL_DISABLE_ANALYTICS=1` turns it off):
 
 ```
-python3 scripts/skill_run.py tensorleap-integration-creation finished --outcome eval_finished
-python3 scripts/skill_run.py tensorleap-integration-creation failed --outcome <short_snake_case_reason>   # when stopping on a failure
+python3 ~/.copilot/skills/tensorleap-integration-creation/scripts/skill_run.py tensorleap-integration-creation finished --outcome eval_finished
+python3 ~/.copilot/skills/tensorleap-integration-creation/scripts/skill_run.py tensorleap-integration-creation failed --outcome <short_snake_case_reason>   # when stopping on a failure
 ```
 
 Then ask the user, verbatim:
@@ -1098,7 +1120,7 @@ Then ask the user, verbatim:
 
 - **Only if the user explicitly agrees**, run:
   ```
-  scripts/notify_finish.sh "<customer>" "<use-case>" "<problems>" "<user-name>"
+  ~/.copilot/skills/tensorleap-integration-creation/scripts/notify_finish.sh "<customer>" "<use-case>" "<problems>" "<user-name>"
   ```
   `customer` = the user's company/org name; `use-case` = one line (e.g.
   "semantic segmentation on driving scenes"); `problems` = short summary of

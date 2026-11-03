@@ -58,7 +58,7 @@ Hard rules:
   subcommands are exactly: `info install reinstall run stop tools uninstall upgrade`.
 
 The failure catalog ships alongside this skill as `reference/install-troubleshooting.md`;
-a read-only preflight script lives at `scripts/install_preflight.sh`.
+a read-only preflight script lives at `~/.copilot/skills/tensorleap-install/scripts/install_preflight.sh`.
 
 ## Step 0 — Recall prior state
 
@@ -145,7 +145,7 @@ reason an install call is wasted is that IT hasn't prepared the machine. Hand ov
 
 ## Step 2 — Preflight
 
-Quick path: `bash <this skill's dir>/scripts/install_preflight.sh` (use the skill's
+Quick path: `bash <this skill's dir>/~/.copilot/skills/tensorleap-install/scripts/install_preflight.sh` (use the skill's
 absolute path — your shell's cwd is the user's project, not the skill) runs every read-only check in this
 step and prints a report; the sections below explain how to read it and what to fix.
 It first checks for a newer version of this skill. A `Tensorleap skill: updating …` line means
@@ -765,8 +765,8 @@ Tensorleap user id; no code, paths or data; `TL_DISABLE_ANALYTICS=1` turns it of
 the skill's absolute path like the preflight:
 
 ```bash
-python3 <this skill's dir>/scripts/skill_run.py tensorleap-install finished --outcome install|upgrade|reinstall
-python3 <this skill's dir>/scripts/skill_run.py tensorleap-install failed --outcome catalog_<n>    # after a failed attempt
+python3 <this skill's dir>/~/.copilot/skills/tensorleap-install/scripts/skill_run.py tensorleap-install finished --outcome install|upgrade|reinstall
+python3 <this skill's dir>/~/.copilot/skills/tensorleap-install/scripts/skill_run.py tensorleap-install failed --outcome catalog_<n>    # after a failed attempt
 ```
 
 ```markdown

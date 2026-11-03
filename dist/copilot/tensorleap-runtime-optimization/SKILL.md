@@ -15,7 +15,7 @@ also makes the run faster.
 
 Work from the **integration repo root**, inside the **integration's own Python
 environment** (the one that runs `leap_integration.py` — `poetry run` by default, or the
-interpreter in `$TL_PY`). All measurements come from `scripts/tl_perf.py`; you read
+interpreter in `$TL_PY`). All measurements come from `~/.copilot/skills/tensorleap-runtime-optimization/scripts/tl_perf.py`; you read
 code, reason, and make changes. Artifacts go to `tensorleap/runtime-optimization/`.
 `tl_perf` keeps the code history with any version control or none: an accepted `compare`
 saves the fix as `fixes/NN.patch` (changes made before the baseline: `00`), and `tl_perf
@@ -101,7 +101,7 @@ out-of-memory failures.
   Claude Code or Cursor, and the leap CLI's device id and, once signed in, the Tensorleap user
   id; `TL_DISABLE_ANALYTICS=1` turns it off). When you stop
   before Phase 7 — a blocker you cannot clear, or the user's request — run
-  `python3 scripts/skill_run.py tensorleap-runtime-optimization failed --outcome <short_snake_case_reason>`.
+  `python3 ~/.copilot/skills/tensorleap-runtime-optimization/scripts/skill_run.py tensorleap-runtime-optimization failed --outcome <short_snake_case_reason>`.
 - **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`, `&& …` or
   `$(leap …)` around it. Codex runs `leap` outside its sandbox only when a rule allows `leap`
   and the whole command is that `leap` command. **Under Codex** that also rules out `&` and
@@ -114,10 +114,10 @@ out-of-memory failures.
 Run every subcommand from the repo root through the integration's environment:
 
 ```
-poetry run python scripts/tl_perf.py <subcommand> [options]
+poetry run python ~/.copilot/skills/tensorleap-runtime-optimization/scripts/tl_perf.py <subcommand> [options]
 ```
 
-(Or `$TL_PY scripts/tl_perf.py …`. `--root` defaults to `.`; outputs go to
+(Or `$TL_PY ~/.copilot/skills/tensorleap-runtime-optimization/scripts/tl_perf.py …`. `--root` defaults to `.`; outputs go to
 `tensorleap/runtime-optimization/`.)
 
 | Subcommand | Does | Writes |
@@ -167,7 +167,7 @@ Memory options: `profile --memory-samples N` (samples per state in the memory pa
    ever committed.)
 3. **`tl_perf preflight`.** Act on the exit code (table above). Note in the log: device,
    code-loader version and features (`grouped_preprocess` needs ≥ 1.0.196), state sizes.
-4. **Server check (for Phase 6, non-blocking):** `scripts/perf_preflight.sh`.
+4. **Server check (for Phase 6, non-blocking):** `~/.copilot/skills/tensorleap-runtime-optimization/scripts/perf_preflight.sh`.
    Exit 0 → the validation push is available. Exit 2 → continue locally; the report will
    say the result was not validated on a server. Exit 3 → when you reach Phase 6, sign the
    CLI in yourself (only the user can sign in; don't look for API keys, passwords or config
@@ -474,7 +474,7 @@ memory, or a fixed model batch. A batch of 1 needs one of those reasons; it is n
 default. The local floor is a CPU floor when `preflight` says so, and a GPU server batches
 at least as well, so don't go below it.
 
-1. `scripts/perf_preflight.sh` → exit 0 required (see Phase 0 for the others).
+1. `~/.copilot/skills/tensorleap-runtime-optimization/scripts/perf_preflight.sh` → exit 0 required (see Phase 0 for the others).
 2. Model file: the one `@tensorleap_load_model` loads locally (ask only if it can't be
    inferred). Version name: `<integration>-perf-smoke-<yyyymmdd>`.
 3. **Cap the subset in place**, on the last accepted code (step 6 removes it with
