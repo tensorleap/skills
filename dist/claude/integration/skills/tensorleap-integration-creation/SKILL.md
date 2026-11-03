@@ -92,7 +92,8 @@ going. A server call you would make before the push that is refused this way
 `AUTH_SECRET` yourself) and make the call at Deploy, step 3. Only the push waits
 for activation (Deploy, **License not activated**).
 
-Drive the work forward on your own as far as you can. **Infer configuration from
+Drive the work forward on your own as far as you can (the exception is signing
+the CLI in, which only the user can do: see **Signing the CLI in**). **Infer configuration from
 the repo and the environment before asking** (the data store and load code,
 dependencies, label semantics, a *local* data volume via `leap server info`,
 etc.), and **use anything the user already supplied proactively** — in the
@@ -109,6 +110,48 @@ volume at the data-root switch before push; store credentials when a fetch first
 needs them). When you must ask, ask for the specific missing piece, then continue
 autonomously. This keeps the run hands-off unless a genuine blocker requires the
 user.
+
+## Signing the CLI in
+
+Signing in is the one step only the user can do, so it comes before everything
+else: before what they asked for, and before "drive the work forward on your
+own" above. Do this whenever a command says `Not signed in`, or stops at
+`Enter the API URL` with `EOF`. Don't look for API keys, passwords or config
+files, and don't ask the user to run the login.
+`<url>` is the server: the URL in that message or preflight's, `http://localhost:4589`
+for a local install, otherwise ask the user for their remote server's URL.
+
+1. Start `leap auth login <url> --non-interactive < /dev/null` as a
+   **background** command. It prints a sign-in link and waits up to 5 minutes
+   for the user to sign in.
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, no `sleep` or `jobs` after it,
+   not detached. Those make the shell end at once, the login is orphaned, and
+   nothing wakes you when the user signs in.
+2. Read its first lines (a few seconds after it starts) to get the link.
+3. **Your next message is the link.** Reply with the link on its own line and
+   one sentence: open it in your browser and sign in; I'll continue by myself.
+   The user can't see your tool output, so this message is the only way the
+   link reaches them. Run no other tool before sending it.
+4. **End your turn right after that message.** Don't wait for the login in this
+   turn, poll it, or prepare the next step. The login keeps running, and your
+   assistant wakes you when it exits. If the user writes first, run
+   `leap auth whoami`: signed in → go on; not yet → give them the link again.
+5. When you're woken: `Saved credentials` → go on with what the user asked.
+   `failed to get API key: timeout` (no sign-in within 5 minutes) → step 1
+   again, and send the new link.
+
+**Under Codex**, run the login in the
+**foreground** instead, as the bare command
+`leap auth login <url> --non-interactive`, outside the sandbox (the `leap`
+rule from `leap mcp config codex` allows that; without the rule, ask for
+escalation). In the sandbox it
+has no network and exits right after printing the link. Show the user the
+link, tell them they have 5 minutes to open it and sign in, and wait for that
+command until it prints `Saved credentials`. Never ask the
+user to type `! leap auth login …` into your prompt: it has no keyboard input
+there and dies with `EOF`. On `unknown flag: --non-interactive` (an older CLI),
+ask the user to run `leap auth login <url>` in their own terminal instead.
 
 ## Starting point: usually an existing repo
 
@@ -288,24 +331,8 @@ server, or configures anything. React to its exit status:
   checks never fire for a remote server (that path exits 4 first). **Relay the
   printed guidance to the user and STOP.** Do **not** install the CLI, start the
   server, or configure the volume yourself.
-- **Setup: not authenticated (exit 3)** — sign the CLI in yourself: run
-  `leap auth login <url> --non-interactive < /dev/null` as a **background**
-  command (`<url>` is the server: the URL preflight printed if it knows one,
-  `http://localhost:4589` for a local install, otherwise ask the user for their
-  remote server's URL; it waits up to 5 minutes), show the user the sign-in link it prints, ask them to
-  open it and sign in, wait for it to finish, then re-run preflight. If it ends
-  with `failed to get API key: timeout` (no sign-in within 5 minutes; nothing is
-  saved), run it again and show the new link. **Under Codex**, run it in the
-  **foreground** instead, as the bare command
-  `leap auth login <url> --non-interactive`, outside the sandbox (the `leap`
-  rule from `leap mcp config codex` allows that; without the rule, ask for
-  escalation). In the sandbox it
-  has no network and exits right after printing the link. Show the user the
-  link, tell them they have 5 minutes to open it and sign in, and wait for that
-  command until it prints `Saved credentials`. Never ask the
-  user to type `! leap auth login …` into your prompt: it has no keyboard input
-  there and dies with `EOF`. On `unknown flag: --non-interactive` (an older CLI),
-  ask the user to run `leap auth login <url>` in their own terminal instead.
+- **Setup: not authenticated (exit 3)** — sign the CLI in yourself: follow
+  **Signing the CLI in** above, then re-run preflight.
 - **Remote server (exit 4)** — *not* an error. The CLI is pointed at a remote
   server. **Ask the user whether they want to work remotely** (they may have both
   a local and a remote server; the CLI is currently pointed at the remote one).
