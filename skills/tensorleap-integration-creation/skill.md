@@ -964,7 +964,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    `.tensorleap/runs.json` (the run is reported `TERMINATED`; a run that already
    ended is skipped, so the call is safe to repeat). Never stop a run you did not
    start — the server is shared. On a CLI without `run stop` (unknown command),
-   wait instead. Re-push only with `-o/--overwrite`.
+   wait instead. Re-push only with `-o/--overwrite`. **After any re-push, start
+   the watcher again for the new push** (step 6, with the new `push.log`): a
+   watcher started for the stopped run doesn't follow the new one.
    Push from the repo root. `-m` uploads the model separately (it is not
    bundled); the code bundle comes from `leap.yaml`'s `include` (`leap push -h`
    for `--branch` and the other flags). The push needs a CLI with `leap run
