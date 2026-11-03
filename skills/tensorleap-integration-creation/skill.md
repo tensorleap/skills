@@ -1119,6 +1119,24 @@ refused → wait a minute and rerun it. If they have no such email and more than
    retry; if it still fails, say the check was skipped and give the reload step
    above (older leap CLIs read the sign-in only at start).
 
+**Adding the foundation column to an evaluated version.** A version evaluated
+before `foundation=` was declared (Authoring order, step 4), or whose
+foundation column is partial because the encoder stopped mid-run (the job
+ended with a warning naming it), gets the column without re-running the model:
+```
+leap push -o <version> -u foundation --eval --no-wait < /dev/null > push.log 2>&1
+```
+(On an overwrite the CLI asks what changed; `-u foundation` answers it.) The
+update runs the input encoder — and the masks encoder on an instance project —
+and the platform's foundation encoders on the samples the column is missing,
+writes the column, and leaves metrics and the native latent spaces untouched;
+an instance project gets both the image-level and the instance-level column.
+Watch it like any push (step 6). The column is computed only on a **GPU**
+Evaluate — a CPU job skips it and says so in the status table — so on a
+CPU-only server there is nothing to add. `-u samples` includes it (new samples
+get the column too); `-u metric` is a full re-evaluate and rebuilds it with
+everything else, so never use it just to get the column.
+
 ## Finish report (consent required)
 
 When the integration reaches its terminal outcome — the eval `FINISHED`, or
