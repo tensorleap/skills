@@ -42,8 +42,11 @@ INVARIANT
 
 The two per-tool-variable paths in the body are the shared scripts/ and
 reference/ dirs, written canonically as {{scripts_dir}} / {{reference_dir}}.
-Claude, Copilot and Cursor resolve them skill-relative (`scripts` /
-`reference`, self-contained); only the AGENTS output resolves them to the
+Claude and Cursor resolve them skill-relative (`scripts` / `reference`,
+self-contained). Copilot gets its scripts by absolute path in the global
+install (~/.copilot/skills/<skill>/scripts): it runs commands from the user's
+repo, so a relative `scripts/` path is not found there (install.sh rewrites the
+prefix for a repo install). Only the AGENTS output resolves them to the
 installed shared paths from frontmatter.
 
 Usage:
@@ -154,15 +157,26 @@ def render_claude_skill_md(canon):
     return frontmatter + resolve_body(canon, "scripts", "reference")
 
 
-def render_native_skill_md(canon):
+# Copilot runs the skill's commands from the user's repo, where a relative
+# scripts/ path doesn't resolve; install.sh rewrites this prefix for --repo installs
+COPILOT_GLOBAL_SKILLS = "~/.copilot/skills"
+
+
+def native_scripts_dir(tool, name):
+    if tool == "copilot":
+        return "%s/%s/scripts" % (COPILOT_GLOBAL_SKILLS, name)
+    return "scripts"
+
+
+def render_native_skill_md(canon, scripts_dir="scripts"):
     """Copilot / Cursor Agent Skill: only the documented keys (name,
-    description) — extra-key tolerance is undocumented — plus the same
-    self-contained body as Claude (skill-relative scripts/ and reference/)."""
+    description) — extra-key tolerance is undocumented — plus the same body as
+    Claude (skill-relative reference/; scripts/ per native_scripts_dir)."""
     frontmatter = ("---\n"
                    "name: %s\n" % canon.inline("name")
                    + "description: %s\n" % canon.description_flat()
                    + "---\n")
-    return frontmatter + resolve_body(canon, "scripts", "reference")
+    return frontmatter + resolve_body(canon, scripts_dir, "reference")
 
 
 # --------------------------------------------------------------------------- #
@@ -288,7 +302,8 @@ def emit_skill_folders(skills, root, tool):
         if tool not in canon.tools():
             continue
         skill_out = os.path.join(root, DIST_REL, tool, name)
-        _write(os.path.join(skill_out, "SKILL.md"), render_native_skill_md(canon))
+        _write(os.path.join(skill_out, "SKILL.md"),
+               render_native_skill_md(canon, native_scripts_dir(tool, name)))
         _write(os.path.join(skill_out, "VERSION"), canon.version() + "\n")
         _copy_assets(name, skill_out)
 
