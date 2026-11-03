@@ -1094,11 +1094,20 @@ refused → wait a minute and rerun it. If they have no such email and more than
    fill most of the subset with the worst-scoring samples and the rest from the
    seeded random draw, write the ids to `tensorleap/subsample_ids.json`, and
    re-push. Offer to do it; don't do it unasked. If the MCP tools aren't
-   available, say the check was skipped and that `leap mcp config` connects them.
-   If they answer that the CLI is not signed in (the assistant started before
-   the sign-in), call `tl_status` once (it re-reads the sign-in) and retry; if
-   it still fails, say the check was skipped and that restarting the assistant
-   picks up the sign-in (older leap CLIs read it only at start).
+   available (none, or only `tl_status`), say the check was skipped and give the
+   user the reload step for their assistant, which keeps this chat:
+   - Claude Code: `/exit`, then `claude --continue`.
+   - Codex: `/quit`, then `codex resume --last`.
+   - Cursor CLI: exit, then `cursor-agent resume`.
+   - VS Code (Copilot): quit VS Code completely (Reload Window is not enough),
+     reopen it and open this chat again.
+   - Any other assistant: restart it.
+
+   If the tools are still missing after the reload, `leap mcp config` connects
+   them. If they answer that the CLI is not signed in (the assistant started
+   before the sign-in), call `tl_status` once (it re-reads the sign-in) and
+   retry; if it still fails, say the check was skipped and give the reload step
+   above (older leap CLIs read the sign-in only at start).
 
 ## Finish report (consent required)
 
