@@ -48,10 +48,12 @@ No training happens here. That shapes the whole integration:
   and your loader body is not run (its declared `prediction_types` still are).
   Convention: the **dataset** → data volume (read from a *config-driven* path,
   never hardcoded); the **model** → separate upload; every **other** asset the
-  integration reads from disk → `leap.yaml`. Read the dataset from the explicit
-  path in your config (in the mounted data folder), not from a library's default
-  cache or a `~` path. The job runs as a different user, so those point
-  elsewhere there.
+  integration reads from disk → `leap.yaml`. The job runs on the server as a
+  different user, so a path that works locally only because it's on your
+  machine (your home folder, a cache) is empty or missing there. **If your
+  dataset is local, before you push, check that the folder your config points
+  to is in the data volume and contains the dataset files** (`ls` it). For
+  remote data, see the next bullet.
 - **Remote data (fetched, not bundled).** If the dataset lives in a store the
   *server* can reach (e.g. S3) and fetching beats bundling it, read it directly
   from `preprocess`/encoders — but **cache each fetched file inside the data
