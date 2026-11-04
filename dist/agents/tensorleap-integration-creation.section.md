@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.9, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.10, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -45,12 +45,7 @@ No training happens here. That shapes the whole integration:
   and your loader body is not run (its declared `prediction_types` still are).
   Convention: the **dataset** → data volume (read from a *config-driven* path,
   never hardcoded); the **model** → separate upload; every **other** asset the
-  integration reads from disk → `leap.yaml`. The job runs on the server as a
-  different user, so a path that works locally only because it's on your
-  machine (your home folder, a cache) is empty or missing there. **If your
-  dataset is local, before you push, check that the folder your config points
-  to is in the data volume and contains the dataset files** (`ls` it). For
-  remote data, see the next bullet.
+  integration reads from disk → `leap.yaml`.
 - **Remote data (fetched, not bundled).** If the dataset lives in a store the
   *server* can reach (e.g. S3) and fetching beats bundling it, read it directly
   from `preprocess`/encoders — but **cache each fetched file inside the data
