@@ -10,7 +10,7 @@ description: >
   to finish. Drives a progressive author -> run -> read -> fix loop and keeps
   the integration runnable at every step.
 group: tensorleap
-version: 0.6.9
+version: 0.6.10
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
