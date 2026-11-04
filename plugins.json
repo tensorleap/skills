@@ -19,7 +19,7 @@
     {
       "name": "installer",
       "description": "Tensorleap's AI-assistant skill for installing, upgrading, and troubleshooting a Tensorleap server on your own machine.",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "skills": [
         "tensorleap-install"
       ]

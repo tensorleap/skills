@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-install -->
-<!-- Tensorleap skill 'tensorleap-install' v0.1.9, generated from skills/tensorleap-install/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-install' v0.1.10, generated from skills/tensorleap-install/skill.md; do not edit here. -->
 # Install Tensorleap
 
 `leap server install` creates a single-node k3d Kubernetes cluster inside Docker, then installs
@@ -599,10 +599,10 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    2. **Your next message is the link**, even if the browser seemed to open: it may have opened
       on another machine or not at all. Reply with the link on its own line and one sentence:
       I tried to open the sign-in page in your browser; if you don't see it, open this link and
-      sign in. I'll continue by myself. Run no other tool before sending it, and don't wait
-      for the login in this turn.
-   3. **End your turn right after that message.** The login keeps running, and your assistant
-      wakes you when it exits. If the user writes first, run `leap auth whoami`.
+      sign in. I'll continue by myself. Run no other tool before sending it.
+   3. **End your turn right after that message.** Don't wait for the login in this turn, poll
+      it, or prepare the next step. The login keeps running, and your assistant wakes you when
+      it exits. If the user writes first, run `leap auth whoami`.
    4. When you're woken: `Saved credentials` → go on. `failed to get API key: timeout` (no
       sign-in within 5 minutes; nothing is saved) → step 1 again, and send the new link.
 
