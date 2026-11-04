@@ -450,10 +450,7 @@ per card:
 ## Step 6: Write the report
 
 Follow **`reference/report-template.md`** (report.json schema,
-per-insight anatomy, language rules). **Read that file to its end before you write
-report.json** (read it in parts if your viewer cuts it off): the exact
-report.json schema is its section `## report.json schema`, near the end, and
-build-report accepts nothing else. Don't guess field names. You never write HTML: author
+per-insight anatomy, language rules). You never write HTML: author
 `<out-dir>/report.json`, content only, image paths relative to `<out-dir>`,
 and the script renders the page. **The body is grouped by insight TYPE in the
 Insights panel's order** (Failure Mode → Out of Distribution → Duplication →
@@ -493,11 +490,7 @@ python3 scripts/tl_api.py inline-html <out-dir>/report.html
 
 build-report exit 8 means report.json is invalid or an image path didn't
 resolve; inline-html exit 7 means a `src` didn't resolve, fix (stderr lists
-which) and re-run; never ship a report with broken images. **The deliverable is report.html: don't hand
-over until build-report and inline-html have both succeeded.** On exit 8,
-compare report.json with the template's schema section, fix every field that
-differs, and re-run; never hand over report.md or any Markdown file in its
-place. The result is ONE file
+which) and re-run; never ship a report with broken images. The result is ONE file
 the user can mail or Slack.
 
 **Then publish it, without asking**: call `tl_publish_report` with `dir` =
