@@ -8,7 +8,7 @@ description: >
   check_dataset() failures. Drives a progressive author -> run -> read -> fix
   loop and keeps the integration runnable at every step.
 group: tensorleap
-version: 0.6.6
+version: 0.6.7
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
@@ -807,7 +807,9 @@ over the human-readable exit table (`print_log` carries the captured stdout). Fo
 the **dataset<->model rows** — `load_model`, `custom_loss`, and any
 metric/visualizer that consumes predictions — `check_dataset()` is silent; rely on
 the exit table there (a `❌` is real even when `isValid` is `True`). "Clean" =
-`isValid: True` **and** no unresolved model-connection crosses in the table.
+`isValid: True` **and** no unresolved model-connection crosses in the table **and**
+you have read `dataAccess` (what the check fetched into an empty home folder,
+which the job will fetch again on every push).
 
 ## Deploy: push the finished integration
 

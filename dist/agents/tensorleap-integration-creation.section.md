@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.6, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.7, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -791,7 +791,9 @@ over the human-readable exit table (`print_log` carries the captured stdout). Fo
 the **dataset<->model rows** — `load_model`, `custom_loss`, and any
 metric/visualizer that consumes predictions — `check_dataset()` is silent; rely on
 the exit table there (a `❌` is real even when `isValid` is `True`). "Clean" =
-`isValid: True` **and** no unresolved model-connection crosses in the table.
+`isValid: True` **and** no unresolved model-connection crosses in the table **and**
+you have read `dataAccess` (what the check fetched into an empty home folder,
+which the job will fetch again on every push).
 
 ## Deploy: push the finished integration
 
