@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.4.7, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.4.8, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
 You produce a self-contained HTML report (plus a short markdown companion
@@ -101,7 +101,8 @@ ask the user to run the login.
 3. **End your turn right after that message.** The login keeps running, and
    your assistant wakes you when it exits. If the user writes first, run
    `leap auth whoami`.
-4. When you're woken: `Saved credentials` → call `tl_status` again.
+4. When you're woken: `Saved credentials` → call `tl_status` again; if the other
+   Tensorleap tools still aren't in this chat, give the reload step (above) and stop.
    `failed to get API key: timeout` (5 minutes, nothing saved) → step 1 again,
    and send the new link.
 
