@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.4.6, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.4.7, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
 You produce a self-contained HTML report (plus a short markdown companion
@@ -54,8 +54,8 @@ ask the user before running the printed command. A Claude Code plugin update
 loads in the next session; continue with the installed version.
 
 Then call `tl_status`. **If the Tensorleap tools aren't available** (none, or
-only `tl_status`), tell the user you can't get what you need from Tensorleap
-yet, give them the reload step for their assistant, and stop. The reload step
+only `tl_status`), now or later in this chat, tell the user first and give them
+the reload step for their assistant: the analysis needs those tools. Then stop. The reload step
 keeps this chat:
 
 - Claude Code: `/exit`, then `claude --continue`.
