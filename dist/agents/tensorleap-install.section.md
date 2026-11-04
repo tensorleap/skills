@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-install -->
-<!-- Tensorleap skill 'tensorleap-install' v0.1.8, generated from skills/tensorleap-install/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-install' v0.1.9, generated from skills/tensorleap-install/skill.md; do not edit here. -->
 # Install Tensorleap
 
 `leap server install` creates a single-node k3d Kubernetes cluster inside Docker, then installs
@@ -589,9 +589,9 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    (Manage License, `leap auth license -t`) is only the fallback when the button doesn't work.
    On the first visit the UI opens Keycloak's registration form with that email locked; the
    user only sets a password.
-5. CLI auth: **sign the CLI in yourself** once the user has registered. Only the user can
-   sign in, so this comes before anything else. Don't look for API keys, passwords or config
-   files, and don't ask the user to run the login.
+5. CLI auth: **sign the CLI in yourself**, but **don't start the sign-in here: the user
+   registers first.** Start it when they come back, or when a command says `Not signed in`.
+   Don't look for API keys, passwords or config files, and don't ask the user to run the login.
    1. Start `leap auth login <url> --non-interactive < /dev/null` as a **background** command.
       It tries to open the sign-in page in the user's browser, prints the page's link, and waits
       up to 5 minutes. **VS Code (GitHub Copilot):** run exactly this command with your terminal
@@ -599,7 +599,8 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    2. **Your next message is the link**, even if the browser seemed to open: it may have opened
       on another machine or not at all. Reply with the link on its own line and one sentence:
       I tried to open the sign-in page in your browser; if you don't see it, open this link and
-      sign in. I'll continue by myself. Run no other tool before sending it.
+      sign in. I'll continue by myself. Run no other tool before sending it, and don't wait
+      for the login in this turn.
    3. **End your turn right after that message.** The login keeps running, and your assistant
       wakes you when it exits. If the user writes first, run `leap auth whoami`.
    4. When you're woken: `Saved credentials` → go on. `failed to get API key: timeout` (no
