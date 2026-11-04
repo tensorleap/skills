@@ -244,7 +244,12 @@ def foundation_image(sample_id: str, preprocess: PreprocessResponse) -> np.ndarr
     return load_original(sample_id)       # uint8, HWC, RGB, any size ≤ 960 longest side
 ```
 
-It is the one input encoder allowed to return `uint8`, at any size. Still one
+It **should return `uint8`** — RGB pixels in `[0, 255]`, declared `range=ImageRange.BYTE`
+— at any size; it is the one input encoder allowed to. Do not scale it to `[0, 1]` or
+normalise it: the platform carries it as `uint8` end to end (a quarter of the bytes of a
+float32 copy, never cast), and the foundation encoder applies its own preprocessing. A
+visualizer connected to this input receives the same `uint8` array on the platform as in
+the local `integration_test`. Still one
 `foundation=` per project: on the model's input *or* on the dedicated one, never
 both. Native vs dedicated is decided by **wiring** — whether `integration_test`
 feeds the encoder's output to the model — not by a flag, so call it in
