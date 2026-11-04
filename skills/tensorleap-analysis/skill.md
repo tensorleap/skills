@@ -11,7 +11,7 @@ description: >
   self-contained HTML report with evidence, embedded sample visualizations,
   and concrete action items for an ML engineer.
 group: tensorleap
-version: 0.4.6
+version: 0.4.7
 globs: ["leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents]
@@ -72,8 +72,8 @@ ask the user before running the printed command. A Claude Code plugin update
 loads in the next session; continue with the installed version.
 
 Then call `tl_status`. **If the Tensorleap tools aren't available** (none, or
-only `tl_status`), tell the user you can't get what you need from Tensorleap
-yet, give them the reload step for their assistant, and stop. The reload step
+only `tl_status`), now or later in this chat, tell the user first and give them
+the reload step for their assistant: the analysis needs those tools. Then stop. The reload step
 keeps this chat:
 
 - Claude Code: `/exit`, then `claude --continue`.
