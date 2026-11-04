@@ -11,7 +11,7 @@ description: >
   self-contained HTML report with evidence, embedded sample visualizations,
   and concrete action items for an ML engineer.
 group: tensorleap
-version: 0.4.7
+version: 0.4.8
 globs: ["leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents]
@@ -122,7 +122,8 @@ ask the user to run the login.
 3. **End your turn right after that message.** The login keeps running, and
    your assistant wakes you when it exits. If the user writes first, run
    `leap auth whoami`.
-4. When you're woken: `Saved credentials` → call `tl_status` again.
+4. When you're woken: `Saved credentials` → call `tl_status` again; if the other
+   Tensorleap tools still aren't in this chat, give the reload step (above) and stop.
    `failed to get API key: timeout` (5 minutes, nothing saved) → step 1 again,
    and send the new link.
 
