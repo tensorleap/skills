@@ -112,8 +112,9 @@ user.
 
 ## Signing the CLI in
 
-Signing in is the one step only the user can do, so "drive the work forward
-on your own" above stops here. Do this whenever a command says `Not signed in`, or stops at
+Signing in is the one step only the user can do, so it comes before everything
+else: before what they asked for, and before "drive the work forward on your
+own" above. Do this whenever a command says `Not signed in`, or stops at
 `Enter the API URL` with `EOF`. Don't look for API keys, passwords or config
 files, and don't ask the user to run the login.
 `<url>` is the server: the URL in that message or preflight's, `http://localhost:4589`
