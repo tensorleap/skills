@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.10, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.11, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -100,9 +100,8 @@ user.
 
 ## Signing the CLI in
 
-Signing in is the one step only the user can do, so it comes before everything
-else: before what they asked for, and before "drive the work forward on your
-own" above. Do this whenever a command says `Not signed in`, or stops at
+Signing in is the one step only the user can do, so "drive the work forward
+on your own" above stops here. Do this whenever a command says `Not signed in`, or stops at
 `Enter the API URL` with `EOF`. Don't look for API keys, passwords or config
 files, and don't ask the user to run the login.
 `<url>` is the server: the URL in that message or preflight's, `http://localhost:4589`
