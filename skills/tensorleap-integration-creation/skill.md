@@ -1126,14 +1126,19 @@ no row of their own: the outcome is a suffix on the **Evaluate** row, e.g.
 encoder stopped on reads
 ``instance partial: 0 of 8,875 rows (<error>); fill with `leap push -o <version> -u foundation` ``,
 and a job that could not compute them (a CPU job) reads
-`foundation: skipped (<reason>)`. The Evaluate row's own status stays the
+`foundation: skipped (<reason>)`. After a `-u samples` update (new samples
+evaluated by the model only) the suffix counts the new samples that are not
+embedded, e.g.
+``foundation: 1,200 new samples not embedded; fill with `leap push -o <version> -u foundation` ``
+(`1 new sample` for one). The Evaluate row's own status stays the
 native pass's — a partial or skipped column does not fail it. Relay the suffix
 to the user as it is.
 
 **Adding the foundation column to an evaluated version.** A version evaluated
-before `foundation=` was declared (Authoring order, step 4), or whose foundation
-column is partial (the suffix above says `partial` and names the fill command),
-gets the column without re-running the model. Run it as a **background shell**
+before `foundation=` was declared (Authoring order, step 4), whose foundation
+column is partial, or whose new samples from a `-u samples` update are not
+embedded (the suffix above names the fill command in both cases), gets the
+column without re-running the model. Run it as a **background shell**
 — it waits for the push, then starts the update and returns:
 ```
 leap push -o <version> -u foundation < /dev/null > push.log 2>&1
@@ -1146,16 +1151,28 @@ the user to upgrade it (`leap cli upgrade`). When the push exits 0, `push.log`
 has the line `Update evaluate started with job ID: <id>`; watch that run like any
 Evaluate (step 6), in a background shell: `<env-python> {{scripts_dir}}/watch_run.py <id>`. The update runs the
 input encoder — and the masks encoder on an instance project — and the
-platform's foundation encoders on the samples the column is missing, writes the
-column, and leaves metrics and the native latent spaces untouched; an instance
-project gets both the image-level and the instance-level column. Its status
-table has one row, `Foundation embeddings: <outcome>` (the same clauses as the
-suffix, or `nothing missing; the store is unchanged`). The column is computed
-only on a **GPU** — a CPU Evaluate skips it (the suffix says `skipped`) and a
-`-u foundation` job without a GPU fails asking for one — so on a CPU-only server
-there is nothing to add. `-u samples` includes it (new samples get the column
-too); `-u metric` is a full re-evaluate and rebuilds it with everything else, so
-never use it just to get the column.
+platform's foundation encoders on every sample the column is missing, old and
+new, writes the column, and leaves metrics and the native latent spaces untouched; an instance
+project gets both the image-level and the instance-level column. On an
+unchanged dataset its status table has one row,
+`Foundation embeddings: <outcome>` (the same clauses as the suffix, or
+`nothing missing; the store is unchanged`). The column is computed only on a
+**GPU** — a CPU Evaluate skips it (the suffix says `skipped`), and
+`-u foundation` (alone or with `-u samples`) refuses at once, before the native
+pass, without a GPU or without `foundation=` — so on a CPU-only server there is
+nothing to add.
+
+Each update flag fills one store: `-u samples` evaluates the new samples with
+the model and does **not** embed them in the foundation spaces (the Evaluate
+row then counts them as not embedded, above). To add samples to both, pass
+both flags — `leap push -o <version> -u samples -u foundation` — one job that
+evaluates the new samples, fills every sample the column is missing, and reads
+the new samples once. Its Evaluate row carries the usual foundation suffix,
+one count covering the new samples and the filled older ones, and there is no
+separate `Foundation embeddings` row; with no new samples the Evaluate step
+shows `SKIPPED` and the job only fills. `-u foundation` alone on a grown dataset
+behaves the same way. `-u metric` is a full re-evaluate and rebuilds the column
+with everything else, so never use it just to get the column.
 
 ## Finish report (consent required)
 
