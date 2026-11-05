@@ -16,7 +16,7 @@ FAILS=0
 ok()   { printf '  [ok]   %s\n' "$*"; }
 warn() { printf '  [warn] %s\n' "$*"; }
 fail() { printf '  [FAIL] %s\n' "$*"; FAILS=$((FAILS + 1)); }
-# Record the run's start (one anonymous skill_run event; TL_DISABLE_ANALYTICS=1 turns it off).
+# Record the run's start (one skill_run event with the leap CLI's device/user id; TL_DISABLE_ANALYTICS=1 turns it off).
 record_start() { python3 "$(dirname "$0")/skill_run.py" tensorleap-install started --exit-code "$1" >/dev/null 2>&1 || true; }
 trap 'record_start $?' EXIT
 
@@ -137,6 +137,12 @@ if env | grep -qiE '^(http|https)_proxy='; then
   ok "proxy env vars set: $(env | grep -iE '^(http|https|no)_proxy=' | cut -d= -f1 | paste -sd, -)"
 else
   echo "  (no proxy env vars - fine on open networks; required behind a corporate proxy, catalog #35)"
+fi
+
+# Codex only (assistant.sh decides): the rule that lets Codex run leap without asking
+if [ "$(bash "$(dirname "$0")/assistant.sh" 2>/dev/null)" = codex ]; then
+  echo "== Codex =="
+  echo "  Optional: leap mcp config codex lets Codex run leap commands without approving each one (it asks first; --codex-allow-leap answers yes)."
 fi
 
 echo

@@ -26,6 +26,7 @@ import csv
 import getpass
 import html
 import io
+import ipaddress
 import json
 import os
 import re
@@ -1549,6 +1550,18 @@ def _or_placeholder(lookup, placeholder):
         return placeholder
 
 
+def _ssh_server_address(ssh_connection):
+    """The server address from SSH_CONNECTION, or "<server>" when it is loopback: under AWS
+    SSM or another local port forward that address means nothing on the user's machine."""
+    addr = ssh_connection[2]
+    try:
+        if ipaddress.ip_address(addr.split("%")[0]).is_loopback:
+            return "<server>"
+    except ValueError:
+        pass
+    return addr
+
+
 def cmd_open_report(args):
     path = os.path.abspath(args.file)
     if not os.path.isfile(path):
@@ -1582,7 +1595,7 @@ def cmd_open_report(args):
         if why in ("SSH session", "no display"):
             ssh = (os.environ.get("SSH_CONNECTION") or "").split()
             host = f"{_or_placeholder(getpass.getuser, '<user>')}@" + (
-                ssh[2] if len(ssh) > 2 else _or_placeholder(socket.gethostname, "<host>"))
+                _ssh_server_address(ssh) if len(ssh) > 2 else _or_placeholder(socket.gethostname, "<host>"))
             lines.append(f"copy: scp {host}:{path} .")
             api = urllib.parse.urlsplit(digest.get("api_base") or "")
             if api.hostname in ("localhost", "127.0.0.1"):

@@ -42,8 +42,11 @@ own login; `leap mcp` talks to whichever server `leap auth select` points at
 (or the `--env` its MCP registration pins), exactly like the UI does.
 
 `digest` and `build-report` also record the run's start and end: one
-anonymous `skill_run` analytics event each (skill name, stage, outcome,
-duration; `TL_DISABLE_ANALYTICS=1` turns it off).
+`skill_run` analytics event each (skill name, stage, outcome, exit code,
+duration, the skill version where the install records it, the assistant when
+it is Claude Code or Cursor, and the leap CLI's device id and, once signed in,
+the Tensorleap user id; no code, paths or data; `TL_DISABLE_ANALYTICS=1` turns
+it off).
 
 ## Step 1: Preflight
 
@@ -53,31 +56,71 @@ over. A `NOTE:` line means a project-local install has an update available:
 ask the user before running the printed command. A Claude Code plugin update
 loads in the next session; continue with the installed version.
 
-Then call `tl_status`. If the Tensorleap tools are not available at all:
+Then call `tl_status`. **If the Tensorleap tools aren't available** (none, or
+only `tl_status`), now or later in this chat, tell the user first and give them
+the reload step for their assistant: the analysis needs those tools. Then stop. The reload step
+keeps this chat:
+
+- Claude Code: `/exit`, then `claude --continue`.
+- Codex: `/quit`, then `codex resume --last`.
+- Cursor CLI: exit, then `cursor-agent resume`.
+- VS Code (Copilot): quit VS Code completely (Reload Window is not enough),
+  reopen it and open this chat again.
+- Any other assistant: restart it.
+
+Why the tools can be missing, and what to fix before the reload step:
 
 - **Claude, installed as the `analysis` plugin**: the plugin already ships
   the MCP server and starts it as `leap mcp`, so the cause is the leap CLI:
   not on PATH, or too old to have `leap mcp` (it answers `unknown command
   "mcp"`). Tell the user to upgrade it with `leap cli upgrade -s | bash` (or
   install it: `curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash`)
-  and start a new Claude session, then stop. Do not register a second server.
+  and reload, then stop. Do not register a second server.
 - **Any other assistant** (Cursor, Copilot, Codex, Windsurf, Claude Desktop,
   or Claude without the plugin): tell the user to run `leap mcp config` in a
   terminal. It asks which assistant, writes the assistant's MCP settings,
   installs these skills where the assistant supports them and checks the
-  server. Then restart the assistant and stop. On `unknown command "mcp"`,
+  server. Then reload and stop. On `unknown command "mcp"`,
   the CLI is too old: `leap cli upgrade -s | bash` first.
 
 If `tl_status` works but `tl_export_analysis` or `tl_publish_report` is not
-among the tools, the leap CLI predates this skill: ask the user to run
-`leap cli upgrade -s | bash` and restart, then stop. If `tl_status` fails, relay its message verbatim (it says whether
-to run `leap auth login`, fix `--env`, or check the tunnel) and stop. To sign in,
-run `leap auth login <url> --non-interactive < /dev/null` yourself in the
-background, show the user the sign-in link it prints, wait for it to finish (on
-`failed to get API key: timeout` after 5 minutes nothing is saved: run it again),
-then call `tl_status` again: the Tensorleap tools re-read the sign-in when it is
-called. Only if it still says not signed in, ask the user to restart the
-assistant (older leap CLIs read the sign-in only when the assistant starts).
+among the tools: when
+the assistant started before the sign-in, the reload step brings them; when
+they are still missing after it, the leap CLI predates this skill: ask the
+user to run `leap cli upgrade -s | bash` and reload, then stop. If `tl_status` fails, relay its message verbatim (it says whether
+to run `leap auth login`, fix `--env`, or check the tunnel) and stop.
+
+**Signing the CLI in.** Only the user can sign in, so this comes before
+everything else. Don't look for API keys, passwords or config files, and don't
+ask the user to run the login.
+1. Start `leap auth login <url> --non-interactive < /dev/null` as a
+   **background** command. It tries to open the sign-in page in the user's
+   browser, prints the page's link, and waits up to 5 minutes.
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, not detached.
+2. **Your next message is the link**, even if the browser seemed to open: it
+   may have opened on another machine or not at all. Reply with the link on its
+   own line and one sentence: I tried to open the sign-in page in your browser;
+   if you don't see it, open this link and sign in. I'll continue by myself.
+   Run no other tool before sending it.
+3. **End your turn right after that message.** The login keeps running, and
+   your assistant wakes you when it exits. If the user writes first, run
+   `leap auth whoami`.
+4. When you're woken: `Saved credentials` → call `tl_status` again; if the other
+   Tensorleap tools still aren't in this chat, give the reload step (above) and stop.
+   `failed to get API key: timeout` (5 minutes, nothing saved) → step 1 again,
+   and send the new link.
+
+**Under Codex**, run it in the **foreground** instead, as the bare command
+`leap auth login <url> --non-interactive`, outside the sandbox (the `leap` rule
+from `leap mcp config codex` allows that; without the rule, ask for
+escalation). In the sandbox it has no network and exits right after printing
+the link. Show the user the link (I tried to open the sign-in page in your
+browser; if you don't see it, open this link), tell them they have 5 minutes
+to sign in, wait for that command until it prints `Saved credentials`, then
+call `tl_status` again. The Tensorleap tools re-read
+the sign-in when it is called. Only if it still says not signed in, give the user the reload step
+(older leap CLIs read the sign-in only when the assistant starts).
 Never ask them to type `! leap auth login` into your prompt (it has no keyboard
 input there). On `unknown flag: --non-interactive` (an older CLI), ask the user
 to run `leap auth login <url>` in their own terminal instead, then call
@@ -87,7 +130,12 @@ to run `leap auth login <url>` in their own terminal instead, then call
 with the limits; relay the note to the user once, in your words. On such a
 server `tl_export_analysis` lists the unlabeled (fixing-samples) list under
 `skipped`: say the license withheld it and never reconstruct it from other
-tools.
+tools. The Free Tier includes one project, Evaluate on up to 5,000 samples, and
+that evaluation's dashboard and insights (what this skill reads). It does not
+include Sample Analysis, dataset curation (Label Next, Unlabeled, Domain Gap,
+Synthetic, Pruning, Splitting, Fix Aggressor), or the insights' unlabeled-samples
+list and synthetic-data action. On a Free Tier server, never point the user to
+those.
 
 **AI access.** An admin can turn off what assistants may read (gear icon >
 AI ACCESS). `tl_status` and `tl_list_projects` show what is turned off. If a
@@ -522,7 +570,10 @@ commands; no bullet lists:
    command and, when printed, the `tunnel:` command in one code block, and say
    to keep the tunnel open while reviewing: the report's **Approve** buttons
    and links reach the server through it (`localhost:4589` on the user's own
-   machine). On any other `not opened:`, ask the user to open the path.
+   machine). If those commands contain `<server>` (the session came through a
+   local forward such as AWS SSM, so the script can't know the machine's
+   address), tell the user to replace it with the address they use to reach
+   this machine. On any other `not opened:`, ask the user to open the path.
 2. The ask, verbatim: "Review the insights and press **Approve** on each one
    you agree with; approvals are saved in Tensorleap."
 3. The Insights panel link from `insights panel:`, to review them there too.

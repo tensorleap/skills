@@ -40,6 +40,18 @@ Hard rules:
 - **Relay leap's next steps.** When a `leap` command ends with a next-step paragraph (it starts
   `Next,`, `Then,` or `When the evaluation finishes,`) or a license activation line, show that
   text to the user word for word: it is written for them, and the CLI prints each one only once.
+- **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`, `&& …` or
+  `$(leap …)` around it. Codex runs `leap` outside its sandbox only when a rule allows `leap`
+  and the whole command is that `leap` command. **Under Codex** that also rules out `&` and
+  input redirection (`< /dev/null`), even where a command below shows one: write the bare
+  `leap …` command. To keep or filter the output, redirect it to
+  a file (`> leap.log 2>&1`) and read the file in a separate step. The one exception is
+  `leap cli upgrade -s | bash`, which pipes the CLI's install script into `bash`; under Codex
+  it asks for approval.
+- **The Codex hint comes from the preflight.** Under Codex, the preflight report (Step 2)
+  has a `== Codex ==` section with an `Optional: leap mcp config codex …` line: pass it on to
+  the user once. The script prints it for no other assistant, so if the report has no such
+  line, don't mention `leap mcp config codex`.
 - **`leap server check` does not exist.** Verified on the shipped CLI (v0.0.161): it is not a
   registered subcommand — it silently prints the `leap server` help and **exits 0**, so a
   script would read it as success. Never suggest it as a diagnostic. The registered
@@ -58,6 +70,11 @@ DATA_DIR=$(sed -n 's/^data_dir:[[:space:]]*//p' ~/.config/tensorleap/config.yaml
 DATA_DIR=${DATA_DIR:-/var/lib/tensorleap/standalone}
 cat "$DATA_DIR/install-notes.md" 2>/dev/null      # this skill's record — richest context
 cat "$DATA_DIR/manifests/params.yaml" 2>/dev/null # installer's own record of the last flags
+```
+
+Then each of these as a command of its own:
+
+```bash
 leap server info 2>/dev/null
 leap server --info 2>/dev/null   # "Installer Version:" — the embedded helm-charts pin,
                                   # NOT the same number as `leap --version` (the CLI binary)
@@ -165,11 +182,23 @@ d=/var/lib/tensorleap/standalone; while [ ! -d "$d" ]; do d=$(dirname "$d"); don
 (On Linux `DockerRootDir` is a host path you can `df` directly; on macOS it lives inside the
 Docker Desktop VM — only the alpine probe measures it.)
 
+**Data dir: keep the default.** Install to `/var/lib/tensorleap/standalone` unless the user
+asks for another location (WSL2 needs one, below). Before you propose any other data dir, Docker data-root or mount,
+see what disk it is on (Linux):
+
+```bash
+lsblk -o NAME,MODEL,MOUNTPOINT
+```
+
+A disk whose model is `Amazon EC2 NVMe Instance Storage` (instance store, for example
+`/opt/dlami/nvme` on AWS Deep Learning AMIs), a `tmpfs` mount (`df -h <path>`), or anything
+under `/tmp` is wiped when the machine stops: say so, and don't propose it.
+
 **The two-disk model — the most common field problem.** Docker's data-root holds all pulled
 images and the k3d node; the Tensorleap data dir holds MongoDB, Elasticsearch (60Gi),
 Keycloak, MinIO, the registry blobs, and (Linux) the containerd cache. Cloud VMs and many
 servers have a tiny OS root with the real storage on a separate mount — then **both** must be
-moved before installing:
+moved before installing, to a persistent disk the user agrees to (checked as above):
 
 1. Docker: **merge** (never clobber — the file often holds the nvidia runtime config) a
    `data-root` key into `/etc/docker/daemon.json`, restart, verify:
@@ -242,7 +271,8 @@ before compacting to 50–150 GB.
   (Windows→WSL→docker→k3d stacking) — that's normal.
 - **Cloud VMs** — see the platform notes in
   [install-troubleshooting.md](reference/install-troubleshooting.md#cloud-vms-ec2--sagemaker--azure): EC2 (tiny root
-  volume, put data-root + data-dir on the NVMe/EBS data disk, SSM/SSH port-forward), SageMaker
+  volume, put data-root + data-dir on the EBS data disk, never on NVMe instance storage, which
+  a stop wipes; SSM/SSH port-forward), SageMaker
   (bootstrap re-run after every stop/start, UI via `/proxy/4589`), Azure ML (`/mnt` wiped on
   stop/start — prefer a plain Azure VM), ECS/Fargate (impossible — needs privileged
   docker-in-docker).
@@ -298,6 +328,15 @@ them in the shell rc (and the root environment if any step needs sudo), or the n
 fails identically.
 
 ## Step 3 — Install the leap CLI
+
+First check whether it is already installed:
+
+```bash
+leap --version
+```
+
+It prints a version → the CLI is installed: skip the install below and go to Step 4. Only
+when `leap` is not found, install it:
 
 ```bash
 curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash
@@ -535,7 +574,10 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    first admin promote a second admin** — admins can reset each other, which turns a lost
    password from a reinstall into a two-minute fix. No spaces in usernames.
 4. Apply the license/trial-extension token: Settings (gear) → Manage License → insert token →
-   Apply. Fresh installs start with a 1-week trial. It can also be applied without the UI —
+   Apply. With a Free Tier token the install is Free Tier. When you describe the user's
+   license, base it on the license line the installer prints. Explain it in your own words
+   if that helps, but don't add terms it doesn't state, such as a time limit or "trial".
+   The token can also be applied without the UI —
    `leap auth license -t <token>` (or `-f <file>`), and `leap server install` itself accepts
    `--license-token`/`--license-file`, which is the better path for scripted installs. The
    license period counts from the day the token was issued, not applied. A token issued to an
@@ -550,12 +592,30 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    (Manage License, `leap auth license -t`) is only the fallback when the button doesn't work.
    On the first visit the UI opens Keycloak's registration form with that email locked; the
    user only sets a password.
-5. CLI auth: **sign the CLI in yourself** once the user has registered. Run
-   `leap auth login <url> --non-interactive < /dev/null` as a **background** command (it waits
-   up to 5 minutes for the sign-in), show the user the sign-in link it prints, ask them to open
-   it in their browser and sign in, and wait for the command to finish (`Saved credentials to`).
-   If it ends with `failed to get API key: timeout` (no sign-in within 5 minutes; nothing is
-   saved), run it again and show the new link.
+5. CLI auth: **sign the CLI in yourself**, but **don't start the sign-in here: the user
+   registers first.** Start it when they come back, or when a command says `Not signed in`.
+   Don't look for API keys, passwords or config files, and don't ask the user to run the login.
+   1. Start `leap auth login <url> --non-interactive < /dev/null` as a **background** command.
+      It tries to open the sign-in page in the user's browser, prints the page's link, and waits
+      up to 5 minutes. **VS Code (GitHub Copilot):** run exactly this command with your terminal
+      tool in `mode: async` — no `&`, no `nohup`, not detached.
+   2. **Your next message is the link**, even if the browser seemed to open: it may have opened
+      on another machine or not at all. Reply with the link on its own line and one sentence:
+      I tried to open the sign-in page in your browser; if you don't see it, open this link and
+      sign in. I'll continue by myself. Run no other tool before sending it.
+   3. **End your turn right after that message.** Don't wait for the login in this turn, poll
+      it, or prepare the next step. The login keeps running, and your assistant wakes you when
+      it exits. If the user writes first, run `leap auth whoami`.
+   4. When you're woken: `Saved credentials` → go on. `failed to get API key: timeout` (no
+      sign-in within 5 minutes; nothing is saved) → step 1 again, and send the new link.
+
+   **Under Codex**, run it in the **foreground** instead, as the bare command
+   `leap auth login <url> --non-interactive`, outside the sandbox (the `leap` rule from
+   `leap mcp config codex` allows that; without the rule, ask for escalation). In the sandbox
+   it has no network and exits right after printing the link. Show the user the link (I tried
+   to open the sign-in page in your browser; if you don't see it, open this link), tell them
+   they have 5 minutes to sign in, and wait for that command until it prints
+   `Saved credentials`.
    Never ask the user to type `! leap auth login …` into the assistant's prompt: that has no
    keyboard input, so the interactive login dies with `EOF`. On a CLI that answers
    `unknown flag: --non-interactive`, ask the user to run `leap auth login <url>` in their own
@@ -607,7 +667,8 @@ means [reinstall](#reinstalling-leap-server-reinstall) instead. A specific versi
    instead); and on older installs the first push afterwards rebuilds the dependency image
    (12–20 min).
 4. Run **on the server itself** (not from a client machine):
-   `leap cli upgrade && leap server upgrade` — the team's rule is always both together.
+   `leap cli upgrade`, then `leap server upgrade`, each as its own command — the team's rule
+   is always both together.
    **Needs a real terminal.** The reinstall confirmation is written to the TTY, so a
    TTY-less invocation (`ssh host "leap server upgrade"`, CI, a script, any piped
    invocation) does not fail cleanly — verified live: with stdin a pipe it dies
@@ -698,8 +759,10 @@ the template below **in full**, including the version, data-dir and docker data-
 those are exactly what a later upgrade needs, and they are the first thing people drop when
 abbreviating.
 
-Also record the outcome for Tensorleap: one anonymous `skill_run` analytics event (skill
-name, outcome, duration since the preflight; `TL_DISABLE_ANALYTICS=1` turns it off), run with
+Also record the outcome for Tensorleap: one `skill_run` analytics event (skill name, outcome,
+duration since the preflight, the skill version where the install records it, the assistant
+when it is Claude Code or Cursor, and the leap CLI's device id and, once signed in, the
+Tensorleap user id; no code, paths or data; `TL_DISABLE_ANALYTICS=1` turns it off), run with
 the skill's absolute path like the preflight:
 
 ```bash

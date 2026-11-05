@@ -5,10 +5,12 @@ description: >
   leap_integration.py / leap.yaml, @tensorleap_preprocess, input/GT encoders,
   @tensorleap_load_model, @tensorleap_integration_test — or when debugging
   code-loader validation errors, exit-table rows, batch-dimension warnings, or
-  check_dataset() failures. Drives a progressive author -> run -> read -> fix
-  loop and keeps the integration runnable at every step.
+  check_dataset() failures. Also use when pushing a new version to Tensorleap
+  (`leap push`), re-running an evaluation, or waiting for a push or evaluation
+  to finish. Drives a progressive author -> run -> read -> fix loop and keeps
+  the integration runnable at every step.
 group: tensorleap
-version: 0.6.7
+version: 0.6.10
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
@@ -95,7 +97,8 @@ going. A server call you would make before the push that is refused this way
 `AUTH_SECRET` yourself) and make the call at Deploy, step 3. Only the push waits
 for activation (Deploy, **License not activated**).
 
-Drive the work forward on your own as far as you can. **Infer configuration from
+Drive the work forward on your own as far as you can (the exception is signing
+the CLI in, which only the user can do: see **Signing the CLI in**). **Infer configuration from
 the repo and the environment before asking** (the data store and load code,
 dependencies, label semantics, a *local* data volume via `leap server info`,
 etc.), and **use anything the user already supplied proactively** — in the
@@ -112,6 +115,52 @@ volume at the data-root switch before push; store credentials when a fetch first
 needs them). When you must ask, ask for the specific missing piece, then continue
 autonomously. This keeps the run hands-off unless a genuine blocker requires the
 user.
+
+## Signing the CLI in
+
+Signing in is the one step only the user can do, so it comes before everything
+else: before what they asked for, and before "drive the work forward on your
+own" above. Do this whenever a command says `Not signed in`, or stops at
+`Enter the API URL` with `EOF`. Don't look for API keys, passwords or config
+files, and don't ask the user to run the login.
+`<url>` is the server: the URL in that message or preflight's, `http://localhost:4589`
+for a local install, otherwise ask the user for their remote server's URL.
+
+1. Start `leap auth login <url> --non-interactive < /dev/null` as a
+   **background** command. It tries to open the sign-in page in the user's
+   browser, prints the page's link, and waits up to 5 minutes for the user to
+   sign in.
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, no `sleep` or `jobs` after it,
+   not detached. Those make the shell end at once, the login is orphaned, and
+   nothing wakes you when the user signs in.
+2. Read its first lines (a few seconds after it starts) to get the link.
+3. **Your next message is the link**, even if the browser seemed to open: it
+   may have opened on another machine or not at all. Reply with the link on its
+   own line and one sentence: I tried to open the sign-in page in your browser;
+   if you don't see it, open this link and sign in. I'll continue by myself.
+   The user can't see your tool output, so this message is the only sure way
+   the link reaches them. Run no other tool before sending it.
+4. **End your turn right after that message.** Don't wait for the login in this
+   turn, poll it, or prepare the next step. The login keeps running, and your
+   assistant wakes you when it exits. If the user writes first, run
+   `leap auth whoami`: signed in → go on; not yet → give them the link again.
+5. When you're woken: `Saved credentials` → go on with what the user asked.
+   `failed to get API key: timeout` (no sign-in within 5 minutes) → step 1
+   again, and send the new link.
+
+**Under Codex**, run the login in the
+**foreground** instead, as the bare command
+`leap auth login <url> --non-interactive`, outside the sandbox (the `leap`
+rule from `leap mcp config codex` allows that; without the rule, ask for
+escalation). In the sandbox it
+has no network and exits right after printing the link. Show the user the
+link (I tried to open the sign-in page in your browser; if you don't see it,
+open this link), tell them they have 5 minutes to sign in, and wait for that
+command until it prints `Saved credentials`. Never ask the
+user to type `! leap auth login …` into your prompt: it has no keyboard input
+there and dies with `EOF`. On `unknown flag: --non-interactive` (an older CLI),
+ask the user to run `leap auth login <url>` in their own terminal instead.
 
 ## Starting point: usually an existing repo
 
@@ -205,11 +254,14 @@ the end; you lose the ability to tell which change caused which failure.
              b. "Warnings (Default use. It is recommended to set values explicitly)"
                 -> make the warned value explicit (state=, channel_dim=,
                    prediction_types=, direction=)
-             c. exit status table
-                -> find the EARLIEST unexercised mandatory row
-             d. "Successful!"
-                -> the current stage's real run + mapping rerun + first-sample
-                   binder check all passed
+             c. the RESULT line (it follows the exit status of the run)
+                -> exit 3 "integration incomplete, NOT ready to push. Next: X":
+                   the run was clean, but mandatory part X is not in the
+                   integration test yet. Add X next. This is the normal state
+                   while you build the integration one interface at a time.
+                -> exit 0 "ready to push": every mandatory part ran in the
+                   integration test (the status table shows each row).
+                -> any other exit: the run failed (a. or the table above).
 
 3. FIX     address only the earliest failure. Re-running surfaces the next one.
 
@@ -217,6 +269,7 @@ the end; you lose the ability to tell which change caused which failure.
 
 GATE       Do NOT author the next interface until the current stage's row is
            exercised and no mandatory errors remain. One interface at a time.
+           Do NOT push until the RESULT line says "ready to push" (exit 0).
 ```
 
 > The bundled scripts (`{{scripts_dir}}/run_integration.sh`, `{{scripts_dir}}/tl_check.py`) live
@@ -287,17 +340,8 @@ server, or configures anything. React to its exit status:
   checks never fire for a remote server (that path exits 4 first). **Relay the
   printed guidance to the user and STOP.** Do **not** install the CLI, start the
   server, or configure the volume yourself.
-- **Setup: not authenticated (exit 3)** — sign the CLI in yourself: run
-  `leap auth login <url> --non-interactive < /dev/null` as a **background**
-  command (`<url>` is the server: the URL preflight printed if it knows one,
-  `http://localhost:4589` for a local install, otherwise ask the user for their
-  remote server's URL; it waits up to 5 minutes), show the user the sign-in link it prints, ask them to
-  open it and sign in, wait for it to finish, then re-run preflight. If it ends
-  with `failed to get API key: timeout` (no sign-in within 5 minutes; nothing is
-  saved), run it again and show the new link. Never ask the
-  user to type `! leap auth login …` into your prompt: it has no keyboard input
-  there and dies with `EOF`. On `unknown flag: --non-interactive` (an older CLI),
-  ask the user to run `leap auth login <url>` in their own terminal instead.
+- **Setup: not authenticated (exit 3)** — sign the CLI in yourself: follow
+  **Signing the CLI in** above, then re-run preflight.
 - **Remote server (exit 4)** — *not* an error. The CLI is pointed at a remote
   server. **Ask the user whether they want to work remotely** (they may have both
   a local and a remote server; the CLI is currently pointed at the remote one).
@@ -519,7 +563,8 @@ order:
    and run.
 6. A minimal `@tensorleap_integration_test` as soon as preprocess + min encoders
    + load_model exist. Switch `__main__` to call `integration_test(...)`. This is
-   the first point you can see `Successful!`.
+   the first point the run ends with a verdict ("not ready to push", exit 3,
+   until the loss is in the test).
 7. Remaining input encoders if the model has more inputs.
 8. GT encoder(s) — call directly, then via `integration_test`.
 9. Expand from one sample to several in training AND validation; then add
@@ -602,6 +647,14 @@ isn't obvious. The highest-frequency ones:
   restructure the project's stack.
 - **Never** run `git commit` / `push` / `rebase` / `reset`. Leave change control
   to the human / orchestrator.
+- **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`,
+  `&& …` or `$(leap …)` around it. Codex runs `leap` outside its sandbox only when
+  a rule allows `leap` and the whole command is that `leap` command. **Under
+  Codex** that also rules out `&` and input redirection (`< /dev/null`), even
+  where a command below shows one (the push in Deploy, step 5): write the bare
+  `leap …` command. To keep or
+  filter the output, redirect it to a file (`> leap.log 2>&1`, as the push does)
+  and read the file in a separate step.
 - **Never alter the user's source data** — original data files are immutable:
   never edit, overwrite, or delete them where they live. Copying data
   elsewhere (e.g. into the Tensorleap mounted data volume) and writing derived
@@ -777,6 +830,26 @@ Add these one at a time, running after each:
        positive on an empty image is a real error (precision `0`, recall
        `None`). Same policy as missing metadata
        (`{{reference_dir}}/metadata.md`).
+- **Predicted class (classification models: always)** — add a per-sample
+  predicted-class field, so the analysis skill can show which classes the model
+  confuses (label x prediction). It reads two things, so match them exactly:
+  the class names as the classification output's `PredictionTypeHandler`
+  `labels` (class index `i` is `labels[i]`; the analysis sees them as
+  `prediction_labels`), and a field whose name ends in `_prd_idx` holding the
+  argmax index of the prediction. Insights stay off for it: it describes the
+  prediction, it does not measure quality, so it is the one exception to the
+  "doesn't track quality" rule above and needs no `direction`.
+  ```python
+  @tensorleap_custom_metric("prediction", compute_insights=False)
+  def predicted_class(pred: np.ndarray):   # pred: (batch, num_classes)
+      return {"prd_idx": np.argmax(pred, axis=-1).astype(np.float32)}   # -> prediction_prd_idx
+  ```
+  Take the argmax over the class axis the `PredictionTypeHandler`'s
+  `channel_dim` names. If the integration already has an equivalent field (the
+  argmax index of the same output), reuse it instead of adding a second one,
+  renaming its key to `prd_idx` if its name doesn't already end in `_prd_idx`.
+  No `ConfusionMatrixElement` metric. When you tell the user what the
+  integration contains, name this field and say it is there for the analysis.
 
 ## Acceptance (staged definition of done)
 
@@ -785,7 +858,8 @@ Use the validator as a staged signal, not a binary oracle.
 - **Early:** preprocess, an input encoder, and load_model each run directly
   without error.
 - **Middle:** a minimal `integration_test(...)` runs, the mapping rerun does not
-  fail, and `Successful!` prints.
+  fail, and the run ends with a verdict (exit 3 "not ready to push" is expected
+  here; exit 0 "ready to push" comes once every mandatory part is in).
 - **Core:** the exit table shows preprocess, integration test, input encoder, GT
   encoder, and load_model all exercised, with no unresolved mandatory rows.
 - **Real:** several training AND validation samples pass through
@@ -834,7 +908,7 @@ refused → wait a minute and rerun it. If they have no such email and more than
 
 1. **Auth (re-check)** — auth was verified in the Preflight gate; quickly
    re-confirm with `leap auth whoami` in case the token expired mid-session. If
-   it no longer returns your user/team, re-run `leap auth login`. Its
+   it no longer returns your user/team, sign in again: **Signing the CLI in**. Its
    `License:` line names the server's license: **`Free Tier`** means Evaluate
    runs on at most **5,000 samples** (training + validation + test + unlabeled
    together), a limited number of projects, and no dataset curation or sample
@@ -889,7 +963,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    `.tensorleap/runs.json` (the run is reported `TERMINATED`; a run that already
    ended is skipped, so the call is safe to repeat). Never stop a run you did not
    start — the server is shared. On a CLI without `run stop` (unknown command),
-   wait instead. Re-push only with `-o/--overwrite`.
+   wait instead. Re-push only with `-o/--overwrite`. **After any re-push, start
+   the watcher again for the new push** (step 6, with the new `push.log`): a
+   watcher started for the stopped run doesn't follow the new one.
    Push from the repo root. `-m` uploads the model separately (it is not
    bundled); the code bundle comes from `leap.yaml`'s `include` (`leap push -h`
    for `--branch` and the other flags). The push needs a CLI with `leap run
@@ -916,10 +992,15 @@ refused → wait a minute and rerun it. If they have no such email and more than
    # background shell
    <env-python> {{scripts_dir}}/watch_run.py --push-log push.log
    ```
+   **VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, not detached. Those make the
+   shell end at once, the watcher is orphaned, and nothing wakes you.
    Then, in this order:
    - **Tell the user** that the evaluation is running and can take hours, and how
      to check it themselves: `leap run info <id>` with the id from
-     `.tensorleap/runs.json`.
+     `.tensorleap/runs.json`. For a classification model, also name the
+     predicted-class field you added (`<name>_prd_idx`, see **Optional
+     surfaces**) and say it is there for the analysis.
    - **End your turn.** Ending the turn here is correct — the task is not
      finished, it is waiting. Don't poll: no repeated `leap run info` calls, no
      `sleep` loops in your own turns, and **don't read the watcher's output while
@@ -927,9 +1008,34 @@ refused → wait a minute and rerun it. If they have no such email and more than
      reading a running shell consumes the completion notification that would
      wake you.
    - **When you are woken** by the watcher exiting, act on its last line (step 7).
+     If the shell ended without printing a `RESULT` line, the watcher is not
+     watching: start it again with `--resume` the same way, then end your turn.
    - **If the user messages you first** — or your assistant never wakes you when a
      background shell exits — run `<env-python> {{scripts_dir}}/watch_run.py --resume --once`
      and act on its result; `RUNNING` means say so and end your turn again.
+   - **VS Code (GitHub Copilot) only** (other assistants skip this). Start the
+     watcher with your terminal tool in **async mode** (`mode: async`), never with
+     `&`, `nohup` or your own monitor script: VS Code notifies you only when an
+     async shell exits, and `watch_run.py` exits exactly when there is something
+     to act on. Use the full path above. Then end your turn; don't say you will
+     notify the user unless this watcher is running.
+   - **Codex only** (other assistants skip this). Codex does not wake you when a
+     background command exits, so the watcher wakes you itself: when it exits it
+     runs `codex queue` (it finds the thread through `CODEX_THREAD_ID`), and a new
+     turn starts asking you to run `--resume --once`. That only works outside
+     the sandbox (inside it `~/.codex` is read-only and `codex queue` fails), so
+     start the watcher **escalated, outside the sandbox**, as a plain
+     long-running command (a background terminal), never with `nohup … &`
+     (Codex kills it). Then tell the user and end your turn as above; when the
+     queued message arrives, run `--resume --once` outside the sandbox too (it
+     calls `leap`, which needs the Tensorleap server). The watcher tries
+     `codex queue` by itself and ignores a failure, so fall back yourself when
+     it can't work: if `CODEX_THREAD_ID` is unset, `codex queue` doesn't exist
+     (Codex older than 0.149), or the watcher can't run escalated, don't end
+     your turn: after telling the user, wait in the foreground, checking the
+     watcher process about once a minute until it exits, then act on its last
+     line (step 7). If Codex was not woken and the user asks, use the resume
+     path above.
    If the watcher shell dies (the harness may kill background jobs), the push and
    Evaluate are unaffected — relaunch it with `--resume`; **never re-push**
    because a watcher died.
@@ -939,7 +1045,9 @@ refused → wait a minute and rerun it. If they have no such email and more than
    new run the same way.
 7. **Act on the watcher's `RESULT` line.**
    - **`FINISHED`** → the integration is done (on a Free Tier subsample, run
-     step 8 first).
+     step 8 first). Tell the user, and offer the next step: a Tensorleap
+     analysis report of this version (the `tensorleap-analysis` skill). Start
+     it only if they say yes.
    - **`FAILED`** (`stage=push` or `stage=evaluate`; `run_status` is `FAILED`,
      `STOPPED` or `TERMINATED`) → the watcher printed the run's `errorReport`,
      `hints` and the last log lines. Read the earliest real error (pull more with
@@ -968,6 +1076,12 @@ refused → wait a minute and rerun it. If they have no such email and more than
      printed, and fall back to checking the run in the UI. Don't work around it.
    - **`CLI_ERROR`** → the CLI kept failing (expired auth, network, unknown run
      id). Fix the cause (`leap auth whoami`) and relaunch with `--resume`.
+   - **Reading the logs** (any result): a `cuInit` failure or a no-GPU / CUDA
+     warning from the data pod (`generic-process-<jobId>`) is expected. That pod
+     runs your data code (`preprocess`, inputs, ground truth) on the CPU by
+     design, so the warning is not the error and does not mean the evaluation
+     runs on CPU: the model runs in the main engine pod, which is the one that
+     gets the GPU.
 8. **Free Tier subsample: check for failure modes** (only when step 4 capped
    the dataset). Once the Evaluate is `FINISHED`, call `tl_get_insights` on the
    Tensorleap MCP server (`leap mcp`) for this version; only each insight's
@@ -979,18 +1093,29 @@ refused → wait a minute and rerun it. If they have no such email and more than
    fill most of the subset with the worst-scoring samples and the rest from the
    seeded random draw, write the ids to `tensorleap/subsample_ids.json`, and
    re-push. Offer to do it; don't do it unasked. If the MCP tools aren't
-   available, say the check was skipped and that `leap mcp config` connects them.
-   If they answer that the CLI is not signed in (the assistant started before
-   the sign-in), call `tl_status` once (it re-reads the sign-in) and retry; if
-   it still fails, say the check was skipped and that restarting the assistant
-   picks up the sign-in (older leap CLIs read it only at start).
+   available (none, or only `tl_status`), say the check was skipped and give the
+   user the reload step for their assistant, which keeps this chat:
+   - Claude Code: `/exit`, then `claude --continue`.
+   - Codex: `/quit`, then `codex resume --last`.
+   - Cursor CLI: exit, then `cursor-agent resume`.
+   - VS Code (Copilot): quit VS Code completely (Reload Window is not enough),
+     reopen it and open this chat again.
+   - Any other assistant: restart it.
+
+   If the tools are still missing after the reload, `leap mcp config` connects
+   them. If they answer that the CLI is not signed in (the assistant started
+   before the sign-in), call `tl_status` once (it re-reads the sign-in) and
+   retry; if it still fails, say the check was skipped and give the reload step
+   above (older leap CLIs read the sign-in only at start).
 
 ## Finish report (consent required)
 
 When the integration reaches its terminal outcome — the eval `FINISHED`, or
 you are stopping for good on a failure — first record how it went. No consent
-is needed: this is one anonymous `skill_run` analytics event carrying only the
-skill name, the outcome, the duration and the number of run-loop passes
+is needed: this is one `skill_run` analytics event carrying only the skill name,
+the outcome, the duration, the number of run-loop passes, the skill version
+where the install records it, the assistant when it is Claude Code or Cursor,
+and the leap CLI's device id and, once signed in, the Tensorleap user id
 (`TL_DISABLE_ANALYTICS=1` turns it off):
 
 ```

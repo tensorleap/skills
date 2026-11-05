@@ -11,7 +11,7 @@ description: >
   with equivalence checks, validates on the Tensorleap server, and writes a
   report naming the remaining bottleneck with evidence.
 group: tensorleap
-version: 0.1.4
+version: 0.1.7
 globs: ["leap_integration.py", "leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
@@ -112,10 +112,18 @@ out-of-memory failures.
   candidate, the evidence, what you tried, the `compare` verdict, the commit or patch. It is
   the source of the final report and survives an interrupted session.
 - **Record how the run ended.** `tl_perf preflight` and `tl_perf report` record the start and
-  the end of the run (one anonymous `skill_run` analytics event each: skill name, stage,
-  outcome, duration; `TL_DISABLE_ANALYTICS=1` turns it off). When you stop before Phase 7 —
-  a blocker you cannot clear, or the user's request — run
+  the end of the run (one `skill_run` analytics event each: skill name, stage, outcome, exit
+  code, duration, the skill version where the install records it, the assistant when it is
+  Claude Code or Cursor, and the leap CLI's device id and, once signed in, the Tensorleap user
+  id; `TL_DISABLE_ANALYTICS=1` turns it off). When you stop
+  before Phase 7 — a blocker you cannot clear, or the user's request — run
   `python3 {{scripts_dir}}/skill_run.py tensorleap-runtime-optimization failed --outcome <short_snake_case_reason>`.
+- **Run every `leap` command on its own:** no `| grep`, `| tail`, `; echo …`, `&& …` or
+  `$(leap …)` around it. Codex runs `leap` outside its sandbox only when a rule allows `leap`
+  and the whole command is that `leap` command. **Under Codex** that also rules out `&` and
+  input redirection (`< /dev/null`), even where a command below shows one: write the bare
+  `leap …` command. To keep or filter the output, redirect it to
+  a file (`> leap.log 2>&1`) and read the file in a separate step.
 
 ## The measurement tool
 
@@ -178,13 +186,28 @@ Memory options: `profile --memory-samples N` (samples per state in the memory pa
 4. **Server check (for Phase 6, non-blocking):** `{{scripts_dir}}/perf_preflight.sh`.
    Exit 0 → the validation push is available. Exit 2 → continue locally; the report will
    say the result was not validated on a server. Exit 3 → when you reach Phase 6, sign the
-   CLI in yourself: `leap auth login <url> --non-interactive < /dev/null` in the background
-   (`<url>`: the one the check printed, `http://localhost:4589` locally, else ask the user),
-   show the user the sign-in link it prints, and wait for it (never ask them to type
-   `! leap auth login` into your prompt: it has no keyboard input there). On
-   `unknown flag: --non-interactive` (an older CLI), ask the user to run
-   `leap auth login <url>` in their own terminal instead. If the login ends with
-   `failed to get API key: timeout` (5 minutes, nothing saved), run it again for a new link.
+   CLI in yourself (only the user can sign in; don't look for API keys, passwords or config
+   files, and don't ask the user to run the login). `<url>`: the one the check printed,
+   `http://localhost:4589` locally, else ask the user.
+   Start `leap auth login <url> --non-interactive < /dev/null` as a **background** command:
+   it tries to open the sign-in page in the user's browser, prints the page's link, and waits
+   up to 5 minutes (**VS Code (GitHub Copilot):** run exactly this command with your terminal
+   tool in `mode: async` — no `&`, no `nohup`, not detached). **Your next message is the
+   link**, even if the browser seemed to open: the link on its own line and one sentence: I
+   tried to open the sign-in page in your browser; if you don't see it, open this link and
+   sign in. I'll continue by myself. Run no other tool before sending it, then **end your
+   turn**: your assistant wakes you when the login exits. `Saved credentials` → go on;
+   `failed to get API key: timeout` (5 minutes, nothing saved) → start it again and send the
+   new link. Never ask them to type `! leap auth login` into your prompt (it has no keyboard
+   input there). On `unknown flag: --non-interactive` (an older CLI), ask the user to run
+   `leap auth login <url>` in their own terminal instead.
+   **Under Codex**, run it in the **foreground** instead, as the bare command
+   `leap auth login <url> --non-interactive`, outside the sandbox (the `leap` rule from
+   `leap mcp config codex` allows that; without the rule, ask for escalation). In the sandbox
+   it has no network and exits right after printing the link. Show the user the link (I
+   tried to open the sign-in page in your browser; if you don't see it, open this link), tell
+   them they have 5 minutes to sign in, and wait for that command until it prints
+   `Saved credentials`.
    Exit 6 → ask whether the server is remote (port-forward) or must be started, when you
    reach Phase 6.
 
@@ -514,10 +537,10 @@ at least as well, so don't go below it.
    **commit** the report, the log and `static.json`. A long push or evaluation, or a
    session that ends, must never leave the work without a committed report.
 
-   **Wait in the foreground.** Poll with one foreground command at a time (`sleep 120 &&
-   leap run info <push-job-id>`), not a background timer followed by ending your turn: an
-   unattended session that ends its turn is over, and whatever it was waiting for is
-   lost. Then:
+   **Wait in the foreground.** Poll with one foreground command at a time (`sleep 120`, then
+   `leap run info <push-job-id>` as its own command), not a background timer followed by
+   ending your turn: an unattended session that ends its turn is over, and whatever it was
+   waiting for is lost. Then:
 8. Find the Evaluate run (`leap run list -t Evaluate`) and watch **that** run with a
    token-free background loop until it is terminal:
    ```
@@ -525,6 +548,8 @@ at least as well, so don't go below it.
      case "$s" in *FINISHED*|*FAILED*|*STOPPED*|*TERMINATED*) echo "$s"; break;; esac
      sleep 300; done
    ```
+   This loop is the one place `leap` runs inside a larger command; under Codex, start it
+   escalated (outside the sandbox), since no `leap` rule can match it.
    If the watcher dies, the evaluation is unaffected — relaunch the watcher, never re-push.
    **Push finished but no Evaluate exists** (older CLIs: the push process was killed
    between the push and the evaluate trigger): with the cap re-applied, re-push over the
