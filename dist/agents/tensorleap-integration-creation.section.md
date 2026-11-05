@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-integration-creation -->
-<!-- Tensorleap skill 'tensorleap-integration-creation' v0.6.10, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-integration-creation' v0.7.0, generated from skills/tensorleap-integration-creation/skill.md; do not edit here. -->
 # Writing a Tensorleap integration
 
 You are authoring `leap_integration.py` (the decorator-based style), not the
@@ -540,7 +540,14 @@ order:
    `np.float32` array. Call each directly and run. Encoders must return
    `float32`; if the model needs integer inputs (e.g. `input_ids`), export it to
    accept `float32` and cast internally (see `.tensorleap/reference/error-signals.md`,
-   load_model).
+   load_model). On the model's **image** input add
+   `foundation=FoundationInput(range=…, rgb_channels=…)` (`code-loader`
+   ≥ 1.0.219): the platform's foundation latent spaces are computed from it, and
+   without it the version has none. `range` is the preprocessing convention's
+   range, never the observed values; exactly one `foundation=` per project. The
+   one encoder allowed to return `uint8` is a dedicated foundation input that is
+   never fed to the model — only for non-affine preprocessing or extra
+   resolution (`.tensorleap/reference/authoring-order.md`, Step 4, *Foundation input*).
 5. `@tensorleap_load_model` with explicit `prediction_types`. Call it directly
    and run.
 6. A minimal `@tensorleap_integration_test` as soon as preprocess + min encoders
@@ -778,6 +785,10 @@ Add these one at a time, running after each:
   See `.tensorleap/reference/element-instances.md` for the row model, the whole
   instance interface (preprocess, length + masks encoders, instance metrics,
   instance custom LS), instance metadata, and the `check_dataset` companion rules.
+  With `foundation=` on the native input the native masks serve the instance
+  foundation space as they are; only a dedicated foundation input needs a
+  second masks encoder passed as `masks=` (*Foundation input on an instance
+  project* there).
   Non-negotiable:
     1. **All-or-nothing wiring:** the element-instance preprocess and the masks
        encoder come together. Registering the instance custom latent space
@@ -1089,6 +1100,61 @@ refused → wait a minute and rerun it. If they have no such email and more than
    before the sign-in), call `tl_status` once (it re-reads the sign-in) and
    retry; if it still fails, say the check was skipped and give the reload step
    above (older leap CLIs read the sign-in only at start).
+
+**Foundation outcome in the status table.** With `foundation=` declared, a
+GPU Evaluate computes the foundation columns beside the native pass, so they get
+no row of their own: the outcome is a suffix on the **Evaluate** row, e.g.
+`Evaluate — foundation: image 3,492 rows; instance 8,875 rows`. A column the
+encoder stopped on reads
+``instance partial: 0 of 8,875 rows (<error>); fill with `leap push -o <version> -u foundation` ``,
+and a job that could not compute them (a CPU job) reads
+`foundation: skipped (<reason>)`. After a `-u samples` update (new samples
+evaluated by the model only) the suffix counts the new samples that are not
+embedded, e.g.
+``foundation: 1,200 new samples not embedded; fill with `leap push -o <version> -u foundation` ``
+(`1 new sample` for one). The Evaluate row's own status stays the
+native pass's — a partial or skipped column does not fail it. Relay the suffix
+to the user as it is.
+
+**Adding the foundation column to an evaluated version.** A version evaluated
+before `foundation=` was declared (Authoring order, step 4), whose foundation
+column is partial, or whose new samples from a `-u samples` update are not
+embedded (the suffix above names the fill command in both cases), gets the
+column without re-running the model. Run it as a **background shell**
+— it waits for the push, then starts the update and returns:
+```
+leap push -o <version> -u foundation < /dev/null > push.log 2>&1
+```
+`-u` names what changed on an overwrite (no prompt) and implies `--eval`; `-m` is
+not needed (the version's model is kept) and neither is `-b`. Don't add
+`--no-wait`: the CLI refuses it with `-u` (an update is not chained
+server-side). On a CLI that answers `invalid --update value "foundation"`, ask
+the user to upgrade it (`leap cli upgrade`). When the push exits 0, `push.log`
+has the line `Update evaluate started with job ID: <id>`; watch that run like any
+Evaluate (step 6), in a background shell: `<env-python> .tensorleap/scripts/watch_run.py <id>`. The update runs the
+input encoder — and the masks encoder on an instance project — and the
+platform's foundation encoders on every sample the column is missing, old and
+new, writes the column, and leaves metrics and the native latent spaces untouched; an instance
+project gets both the image-level and the instance-level column. On an
+unchanged dataset its status table has one row,
+`Foundation embeddings: <outcome>` (the same clauses as the suffix, or
+`nothing missing; the store is unchanged`). The column is computed only on a
+**GPU** — a CPU Evaluate skips it (the suffix says `skipped`), and
+`-u foundation` (alone or with `-u samples`) refuses at once, before the native
+pass, without a GPU or without `foundation=` — so on a CPU-only server there is
+nothing to add.
+
+Each update flag fills one store: `-u samples` evaluates the new samples with
+the model and does **not** embed them in the foundation spaces (the Evaluate
+row then counts them as not embedded, above). To add samples to both, pass
+both flags — `leap push -o <version> -u samples -u foundation` — one job that
+evaluates the new samples, fills every sample the column is missing, and reads
+the new samples once. Its Evaluate row carries the usual foundation suffix,
+one count covering the new samples and the filled older ones, and there is no
+separate `Foundation embeddings` row; with no new samples the Evaluate step
+shows `SKIPPED` and the job only fills. `-u foundation` alone on a grown dataset
+behaves the same way. `-u metric` is a full re-evaluate and rebuilds the column
+with everything else, so never use it just to get the column.
 
 ## Finish report (consent required)
 

@@ -196,6 +196,56 @@ instance rows (declared-but-empty on image rows) — filterable and usable for
 coloring exactly like sample metadata. The metadata concept cap from
 `metadata.md` applies to the combined set.
 
+## Foundation input on an instance project
+
+`foundation=` on the image input (`authoring-order.md` Step 4, *Foundation
+input*) gives an instance project **two** foundation latent spaces: an
+image-level one on image rows (SigLIP 2) and an instance-level one on instance
+rows (OWLv2, pooled under each instance's mask). Which masks the instance space
+uses follows from where the flag sits:
+
+- **On the model's image input** (the usual case): the native masks encoder
+  applies as is — the inverted image has the model's geometry, so the masks
+  already line up. `masks=` here is a `check_dataset` error.
+- **On a dedicated foundation input** (its own geometry, e.g. the original
+  resolution): pass `masks=` the **function object** of a second
+  `@tensorleap_instances_masks_encoder` that draws the instance in the
+  foundation image's coordinates:
+
+  ```python
+  @tensorleap_instances_masks_encoder("foundation_image")
+  def foundation_mask(sample_id: str, preprocess: PreprocessResponse,
+                      instance_id: int) -> Optional[ElementInstance]:
+      box = instance_boxes(sample_id, preprocess)[instance_id]   # same helper, same order
+      return ElementInstance(name=box.label, mask=draw(box, original_hw))   # a bare H×W array also works
+
+  @tensorleap_input_encoder(name="foundation_image", channel_dim=-1,
+                            foundation=FoundationInput(range=ImageRange.BYTE, masks=foundation_mask))
+  def foundation_image(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
+      ...
+  ```
+
+  Without `masks=` the native masks are used, nearest-scaled to the foundation
+  image when their H×W differs — `check_dataset` warns, and the result is right
+  only when the native input is a plain resize of the original. Letterbox, crop
+  or tile → write the second encoder.
+
+Rules:
+
+- **The enumeration stays shared**: one length encoder, one `instance_id`, so
+  instance `i` must be the same object in both masks encoders — build both from
+  the one helper the length encoder uses.
+- **Only the geometry (`.mask`) is read** from the foundation encoder. Instance
+  identity and metadata (`name`, `instance_metadata`) stay with the native
+  encoder; `check_dataset` warns when they differ for the same instance.
+- On the probe samples the mask's H×W must equal the foundation image's (or an
+  integer divisor of it); `None` where the native encoder returned a mask is an
+  error.
+- The element-instance preprocess still takes the **native** masks encoder as
+  its argument; the foundation one is bound only through `masks=`.
+- Without an element-instance preprocess (a classification project) `masks=`
+  is ignored with a warning.
+
 ## How insights use the two populations
 
 One insights run sweeps both: a **sample-level pass** (built-in latent spaces,
