@@ -1119,23 +1119,43 @@ refused → wait a minute and rerun it. If they have no such email and more than
    retry; if it still fails, say the check was skipped and give the reload step
    above (older leap CLIs read the sign-in only at start).
 
+**Foundation outcome in the status table.** With `foundation=` declared, a
+GPU Evaluate computes the foundation columns beside the native pass, so they get
+no row of their own: the outcome is a suffix on the **Evaluate** row, e.g.
+`Evaluate — foundation: image 3,492 rows; instance 8,875 rows`. A column the
+encoder stopped on reads
+``instance partial: 0 of 8,875 rows (<error>); fill with `leap push -o <version> -u foundation` ``,
+and a job that could not compute them (a CPU job) reads
+`foundation: skipped (<reason>)`. The Evaluate row's own status stays the
+native pass's — a partial or skipped column does not fail it. Relay the suffix
+to the user as it is.
+
 **Adding the foundation column to an evaluated version.** A version evaluated
-before `foundation=` was declared (Authoring order, step 4), or whose
-foundation column is partial because the encoder stopped mid-run (the job
-ended with a warning naming it), gets the column without re-running the model:
+before `foundation=` was declared (Authoring order, step 4), or whose foundation
+column is partial (the suffix above says `partial` and names the fill command),
+gets the column without re-running the model. Run it as a **background shell**
+— it waits for the push, then starts the update and returns:
 ```
-leap push -o <version> -u foundation --eval --no-wait < /dev/null > push.log 2>&1
+leap push -o <version> -u foundation < /dev/null > push.log 2>&1
 ```
-(On an overwrite the CLI asks what changed; `-u foundation` answers it.) The
-update runs the input encoder — and the masks encoder on an instance project —
-and the platform's foundation encoders on the samples the column is missing,
-writes the column, and leaves metrics and the native latent spaces untouched;
-an instance project gets both the image-level and the instance-level column.
-Watch it like any push (step 6). The column is computed only on a **GPU**
-Evaluate — a CPU job skips it and says so in the status table — so on a
-CPU-only server there is nothing to add. `-u samples` includes it (new samples
-get the column too); `-u metric` is a full re-evaluate and rebuilds it with
-everything else, so never use it just to get the column.
+`-u` names what changed on an overwrite (no prompt) and implies `--eval`; `-m` is
+not needed (the version's model is kept) and neither is `-b`. Don't add
+`--no-wait`: the CLI refuses it with `-u` (an update is not chained
+server-side). On a CLI that answers `invalid --update value "foundation"`, ask
+the user to upgrade it (`leap cli upgrade`). When the push exits 0, `push.log`
+has the line `Update evaluate started with job ID: <id>`; watch that run like any
+Evaluate (step 6), in a background shell: `<env-python> {{scripts_dir}}/watch_run.py <id>`. The update runs the
+input encoder — and the masks encoder on an instance project — and the
+platform's foundation encoders on the samples the column is missing, writes the
+column, and leaves metrics and the native latent spaces untouched; an instance
+project gets both the image-level and the instance-level column. Its status
+table has one row, `Foundation embeddings: <outcome>` (the same clauses as the
+suffix, or `nothing missing; the store is unchanged`). The column is computed
+only on a **GPU** — a CPU Evaluate skips it (the suffix says `skipped`) and a
+`-u foundation` job without a GPU fails asking for one — so on a CPU-only server
+there is nothing to add. `-u samples` includes it (new samples get the column
+too); `-u metric` is a full re-evaluate and rebuilds it with everything else, so
+never use it just to get the column.
 
 ## Finish report (consent required)
 

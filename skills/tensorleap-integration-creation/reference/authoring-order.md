@@ -219,7 +219,7 @@ def image_input(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
   grayscale, `(3, 2, 1)` for multispectral true colour.
 - **Exactly one `foundation=` per project** — two is a `check_dataset` error
   naming both. None → the version has no foundation latent space, and the
-  Evaluate's status table says so.
+  Evaluate row of the status table carries no foundation suffix.
 - Deliver the image at **≤ 960 px on the longest side** (the largest encoder
   input); 256 px on the short side is enough when only the image-level space
   matters. The platform keeps the geometry as the model saw it (resize,
