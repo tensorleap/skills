@@ -207,9 +207,14 @@ uses follows from where the flag sits:
 - **On the model's image input** (the usual case): the native masks encoder
   applies as is — the inverted image has the model's geometry, so the masks
   already line up. `masks=` here is a `check_dataset` error.
-- **On a dedicated foundation input** (its own geometry, e.g. the original
-  resolution): pass `masks=` the **function object** of a second
-  `@tensorleap_instances_masks_encoder` that draws the instance in the
+- **On a dedicated foundation input with the native geometry** (the default
+  for a dedicated input: the same crop and letterbox, only a different size —
+  `authoring-order.md` Step 4, *Dedicated foundation input*): no `masks=`. The
+  native masks are nearest-scaled to the foundation image's H×W, which is exact
+  when only the size differs; `check_dataset`'s size warning is expected here.
+- **On a dedicated foundation input with its own geometry** (the original image,
+  a different crop, no letterbox): pass `masks=` the **function object** of a
+  second `@tensorleap_instances_masks_encoder` that draws the instance in the
   foundation image's coordinates:
 
   ```python
@@ -227,8 +232,8 @@ uses follows from where the flag sits:
 
   Without `masks=` the native masks are used, nearest-scaled to the foundation
   image when their H×W differs — `check_dataset` warns, and the result is right
-  only when the native input is a plain resize of the original. Letterbox, crop
-  or tile → write the second encoder.
+  only when the two images differ by size alone. A different crop, letterbox or
+  tiling between the native and the foundation image → write the second encoder.
 
 Rules:
 
