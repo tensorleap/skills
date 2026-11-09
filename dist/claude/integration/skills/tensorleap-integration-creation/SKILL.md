@@ -554,12 +554,15 @@ order:
    accept `float32` and cast internally (see `reference/error-signals.md`,
    load_model). On the model's **image** input add
    `foundation=FoundationInput(range=…, rgb_channels=…)` (`code-loader`
-   ≥ 1.0.219) **by default**: the platform's foundation latent spaces are
+   ≥ 1.0.221) **by default**: the platform's foundation latent spaces are
    computed from it, and without it the version has none. Leave it out only when
    the user explicitly said they don't want the foundation latent spaces, or
    the server's license is **Free Tier** (the `License:` line of `leap auth
    whoami`, Preflight gate) — the Free Tier doesn't include them. `range` is the preprocessing convention's
-   range, never the observed values; exactly one `foundation=` per project. By
+   range per channel, never the observed values: an `ImageRange` preset
+   (`IMAGENET`/`CLIP` are per-channel), one `(min, max)` pair when every channel
+   shares it, or three pairs in R, G, B order for a custom per-channel
+   mean/std; exactly one `foundation=` per project. By
    default it rides on the **native** model input; add a dedicated foundation
    input (the one encoder allowed to return `uint8`, never fed to the model) only
    when the user explicitly asks for one — or, if the native input cannot be

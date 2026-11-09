@@ -45,7 +45,7 @@ from typing import List
 import numpy as np
 
 from code_loader.contract.datasetclasses import PreprocessResponse, PredictionTypeHandler
-from code_loader.contract.datasetclasses import FoundationInput, ImageRange   # code-loader >= 1.0.219
+from code_loader.contract.datasetclasses import FoundationInput, ImageRange   # code-loader >= 1.0.221
 from code_loader.contract.enums import DataStateType
 from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_preprocess,
@@ -197,7 +197,7 @@ The platform runs its own foundation image encoders over the dataset and stores
 the result as extra latent spaces (SigLIP 2 at image level; on an instance
 project also OWLv2 at instance level). No encoder code, weights or preprocessing
 in the integration — only a declaration of what the image tensor's values mean,
-so the platform can turn them back into RGB bytes (`code-loader` ≥ 1.0.219; on
+so the platform can turn them back into RGB bytes (`code-loader` ≥ 1.0.221; on
 an older one skip this).
 
 **When:** add it **by default** to every model with an image input. Leave it out
@@ -216,12 +216,25 @@ def image_input(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
 ```
 
 - `range` (required) — the **convention's theoretical** `[min, max]` of the
-  tensor the encoder returns, never the observed min/max of samples:
-  `ImageRange.BYTE` `[0, 255]`, `UNIT` `[0, 1]`, `SIGNED` `[-1, 1]`, `IMAGENET`
-  `[-2.118, 2.640]` (mean/std normalised), `CLIP` `[-1.792, 2.146]`, or a
-  `(min, max)` tuple (caffe-style: `(-123.68, 151.06)`). Read it off the
-  preprocessing code: `/255` → `UNIT`; a `Normalize(mean, std)` after it →
-  `IMAGENET`.
+  tensor the encoder returns, **per channel**, never the observed min/max of
+  samples. Three forms:
+  - an `ImageRange` preset — `BYTE` `(0, 255)`, `UNIT` `(0, 1)`, `SIGNED`
+    `(-1, 1)` (same on every channel); `IMAGENET` and `CLIP` are per-channel
+    (each channel's own `((0 - mean) / std, (1 - mean) / std)`; IMAGENET R
+    `(-2.118, 2.249)`, G `(-2.036, 2.429)`, B `(-1.804, 2.640)`);
+  - **one** `(min, max)` pair — enough whenever every channel shares the
+    convention (`/255`, `/127.5 - 1`, caffe-style `(-123.68, 151.06)`, a single
+    scalar mean/std); it applies to all three channels;
+  - **three** `(min, max)` pairs in **R, G, B order** — for a custom
+    per-channel `Normalize(mean, std)` that is neither ImageNet's nor CLIP's:
+    `range=tuple(((0 - m) / s, (1 - m) / s) for m, s in zip(mean, std))`,
+    with `mean`/`std` the RGB-ordered values the preprocessing uses.
+
+  Any other number of pairs is rejected at import. Read it off the
+  preprocessing code: `/255` → `UNIT`; a `Normalize(mean, std)` after it with
+  ImageNet's mean/std → `IMAGENET`, with CLIP's → `CLIP`, with other per-channel
+  values → three pairs. Never collapse a per-channel normalisation to one pair
+  (e.g. ImageNet's `(-2.118, 2.640)`): the colours come back shifted.
 - `rgb_channels` — the three indices on the `channel_dim` axis that are R, G, B.
   Default `(0, 1, 2)`; `(2, 1, 0)` for BGR (OpenCV-fed), `(0, 0, 0)` for
   grayscale, `(3, 2, 1)` for multispectral true colour.
@@ -235,9 +248,10 @@ def image_input(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
   line up.
 
 `check_dataset` (`tl_check.py`, payload `foundation_input`) probes the declared
-range on a few samples: the inverted values must fall within `[-2, 257]`, and
-the observed inverted range is printed. A byte or signed tensor declared `UNIT`
-fails with that range shown — fix the declaration, not the encoder.
+range on a few random samples per split, inverting each channel with its own
+bounds: the inverted values must fall within `[-2, 257]`, and the observed
+inverted range is printed. A byte or signed tensor declared `UNIT` fails with
+that range shown — fix the declaration, not the encoder.
 
 **Default: on the native input.** Put `foundation=` on the model's own image
 encoder (above). Add a dedicated foundation input **only when the user explicitly
