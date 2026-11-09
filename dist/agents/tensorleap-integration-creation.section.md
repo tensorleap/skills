@@ -547,10 +547,12 @@ order:
    the user explicitly said they don't want the foundation latent spaces, or
    the server's license is **Free Tier** (the `License:` line of `leap auth
    whoami`, Preflight gate) — the Free Tier doesn't include them. `range` is the preprocessing convention's
-   range, never the observed values; exactly one `foundation=` per project. The
-   one encoder allowed to return `uint8` is a dedicated foundation input that is
-   never fed to the model — only for non-affine preprocessing or extra
-   resolution (`.tensorleap/reference/authoring-order.md`, Step 4, *Foundation input*).
+   range, never the observed values; exactly one `foundation=` per project. By
+   default it rides on the **native** model input; add a dedicated foundation
+   input (the one encoder allowed to return `uint8`, never fed to the model) only
+   when the user explicitly asks for one — or, if the native input cannot be
+   inverted, tell the user and ask (`.tensorleap/reference/authoring-order.md`,
+   Step 4, *Foundation input*).
 5. `@tensorleap_load_model` with explicit `prediction_types`. Call it directly
    and run.
 6. A minimal `@tensorleap_integration_test` as soon as preprocess + min encoders

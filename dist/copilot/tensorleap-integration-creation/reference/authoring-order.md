@@ -239,17 +239,33 @@ range on a few samples: the inverted values must fall within `[-2, 257]`, and
 the observed inverted range is printed. A byte or signed tensor declared `UNIT`
 fails with that range shown — fix the declaration, not the encoder.
 
-**Dedicated foundation input.** Only when the native input cannot be inverted
-(non-affine preprocessing, bands without a shared range, a non-image tensor), or
-the project wants more resolution than the native input (e.g. 2048×1024 scenes
-squashed to 640×640 for the model). Add one more input encoder that carries the
-flag and is **never passed to the model**:
+**Default: on the native input.** Put `foundation=` on the model's own image
+encoder (above). Add a dedicated foundation input **only when the user explicitly
+asks for one** (typically for more resolution than the model sees, e.g. 2048×1024
+scenes squashed to 640×640). If the native input cannot be inverted (non-affine
+preprocessing, bands without a shared range, a non-image tensor), don't switch on
+your own: tell the user and ask whether to add a dedicated input.
+
+**Dedicated foundation input.** One more input encoder that carries the flag and
+is **never passed to the model**. Build it from the native preprocessing and
+change only what has to differ, and say what differs in a comment:
+- **Resize — the main decision.** Keep the native **geometry** (the same crop,
+  letterbox/padding and aspect handling, so instances and masks stay where the
+  model saw them) and choose only the **target size**: larger than the native
+  input when the point is more resolution, never above 960 px on the longest side
+  (the largest encoder input). A different geometry than the native input needs
+  a `masks=` encoder on an instance project (`element-instances.md`).
+- **No normalisation** — return the RGB pixels as `uint8` `[0, 255]`
+  (`range=ImageRange.BYTE`), RGB channel order.
+- Everything else (which image, which crop, augmentations off) as the native
+  encoder does it.
 
 ```python
 @tensorleap_input_encoder(name="foundation_image", channel_dim=-1,
                           foundation=FoundationInput(range=ImageRange.BYTE))
 def foundation_image(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
-    return load_original(sample_id)       # uint8, HWC, RGB, any size ≤ 960 longest side
+    # Same geometry as the native encoder (crop/letterbox); differs only in size and no normalisation.
+    return native_geometry_resize(load_original(sample_id), longest=960)   # uint8, HWC, RGB
 ```
 
 It **should return `uint8`** — RGB pixels in `[0, 255]`, declared `range=ImageRange.BYTE`
