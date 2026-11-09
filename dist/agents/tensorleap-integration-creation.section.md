@@ -542,8 +542,11 @@ order:
    accept `float32` and cast internally (see `.tensorleap/reference/error-signals.md`,
    load_model). On the model's **image** input add
    `foundation=FoundationInput(range=…, rgb_channels=…)` (`code-loader`
-   ≥ 1.0.219): the platform's foundation latent spaces are computed from it, and
-   without it the version has none. `range` is the preprocessing convention's
+   ≥ 1.0.219) **by default**: the platform's foundation latent spaces are
+   computed from it, and without it the version has none. Leave it out only when
+   the user explicitly said they don't want the foundation latent spaces, or
+   the server's license is **Free Tier** (the `License:` line of `leap auth
+   whoami`, Preflight gate) — the Free Tier doesn't include them. `range` is the preprocessing convention's
    range, never the observed values; exactly one `foundation=` per project. The
    one encoder allowed to return `uint8` is a dedicated foundation input that is
    never fed to the model — only for non-affine preprocessing or extra
@@ -904,8 +907,10 @@ refused → wait a minute and rerun it. If they have no such email and more than
    it no longer returns your user/team, sign in again: **Signing the CLI in**. Its
    `License:` line names the server's license: **`Free Tier`** means Evaluate
    runs on at most **5,000 samples** (training + validation + test + unlabeled
-   together), a limited number of projects, and no dataset curation or sample
-   analysis — tell the user once and apply step 4's cap. No `License:` line
+   together), a limited number of projects, no dataset curation or sample
+   analysis, and no foundation latent spaces — tell the user once and apply
+   step 4's cap; if a `foundation=` is in the integration, remove it before the
+   push. No `License:` line
    (older CLI or server) → assume no limit.
 2. **Project** — the workspace must point at a project (a `projectId` in
    `leap.yaml`). If `leap projects info` says "No project configured," run

@@ -198,7 +198,15 @@ the result as extra latent spaces (SigLIP 2 at image level; on an instance
 project also OWLv2 at instance level). No encoder code, weights or preprocessing
 in the integration — only a declaration of what the image tensor's values mean,
 so the platform can turn them back into RGB bytes (`code-loader` ≥ 1.0.219; on
-an older one skip this):
+an older one skip this).
+
+**When:** add it **by default** to every model with an image input. Leave it out
+only when (a) the user explicitly said they don't want the foundation latent
+spaces, or (b) the server's license is **Free Tier** (`License:` line of `leap
+auth whoami`) — the Free Tier doesn't include them. A model with no image input
+has nothing to declare.
+
+
 
 ```python
 @tensorleap_input_encoder(name="image", channel_dim=1,
