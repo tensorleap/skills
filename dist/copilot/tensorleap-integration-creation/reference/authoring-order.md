@@ -254,21 +254,22 @@ def image_input(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
 - Deliver the image at **≤ 960 px on the longest side** (the largest encoder
   input); 256 px on the short side is enough when only the image-level space
   matters. The platform keeps the geometry as the model saw it (resize,
-  letterbox, crop) and inverts only the photometry, so native instance masks
-  line up.
+  letterbox, crop) and only converts the values back to pixel values, so
+  native instance masks line up.
 
-`check_dataset` (`tl_check.py`, payload `foundation_input`) probes the declared
-range on a few random samples per split, inverting each channel with its own
-bounds: the inverted values must fall within `[-2, 257]`, and the observed
-inverted range is printed. A byte or signed tensor declared `UNIT` fails with
+`check_dataset` (`tl_check.py`, payload `foundation_input`) checks the declared
+range on a few random samples per split, converting each channel back to pixel
+values with its own bounds: the pixel values must fall within `[-2, 257]`, and
+the pixel-value range is printed per split. A byte or signed tensor declared `UNIT` fails with
 that range shown — fix the declaration, not the encoder.
 
 **Default: on the native input.** Put `foundation=` on the model's own image
 encoder (above). Add a dedicated foundation input **only when the user explicitly
 asks for one** (typically for more resolution than the model sees, e.g. 2048×1024
-scenes squashed to 640×640). If the native input cannot be inverted (non-affine
-preprocessing, bands without a shared range, a non-image tensor), don't switch on
-your own: tell the user and ask whether to add a dedicated input.
+scenes squashed to 640×640). If the native input cannot be converted back to
+pixel values (non-affine preprocessing, bands without a shared range, a
+non-image tensor), don't switch on your own: tell the user and ask whether to
+add a dedicated input.
 
 **Dedicated foundation input.** One more input encoder that carries the flag and
 is **never passed to the model**. Build it from the native preprocessing and

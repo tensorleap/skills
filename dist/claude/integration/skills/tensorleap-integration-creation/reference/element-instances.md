@@ -205,24 +205,26 @@ rows (OWLv2, pooled under each instance's mask). Which masks the instance space
 uses follows from where the flag sits:
 
 - **On the model's image input** (the usual case): the native masks encoder
-  applies as is — the inverted image has the model's geometry, so the masks
-  already line up. `masks=` here is a `check_dataset` error.
+  applies as is — the image converted back to pixel values has the model's
+  geometry, so the masks already line up. `masks=` here is a `check_dataset` error.
 - **On a dedicated foundation input with the native geometry** (the default
   for a dedicated input: the same crop and letterbox, only a different size —
   `authoring-order.md` Step 4, *Dedicated foundation input*): no `masks=`. The
-  native masks are nearest-scaled to the foundation image's H×W, which is exact
+  native masks are resized to the foundation image's H×W, which is exact
   when only the size differs; `check_dataset`'s size warning is expected here.
 - **On a dedicated foundation input with its own geometry** (the original image,
   a different crop, no letterbox): pass `masks=` the **function object** of a
-  second `@tensorleap_instances_masks_encoder` that draws the instance in the
-  foundation image's coordinates:
+  second `@tensorleap_instances_masks_encoder` that returns just the instance's
+  H×W mask in the foundation image's coordinates (or `None` when the sample has
+  no such instance). Only the mask is used from it; the instance's name and
+  metadata come from the native encoder:
 
   ```python
   @tensorleap_instances_masks_encoder("foundation_image")
   def foundation_mask(sample_id: str, preprocess: PreprocessResponse,
-                      instance_id: int) -> Optional[ElementInstance]:
+                      instance_id: int) -> Optional[np.ndarray]:
       box = instance_boxes(sample_id, preprocess)[instance_id]   # same helper, same order
-      return ElementInstance(name=box.label, mask=draw(box, original_hw))   # a bare H×W array also works
+      return draw(box, original_hw)                                # the H×W mask only
 
   @tensorleap_input_encoder(name="foundation_image", channel_dim=-1,
                             foundation=FoundationInput(range=ImageRange.BYTE, masks=foundation_mask))
@@ -230,7 +232,7 @@ uses follows from where the flag sits:
       ...
   ```
 
-  Without `masks=` the native masks are used, nearest-scaled to the foundation
+  Without `masks=` the native masks are used, resized to the foundation
   image when their H×W differs — `check_dataset` warns, and the result is right
   only when the two images differ by size alone. A different crop, letterbox or
   tiling between the native and the foundation image → write the second encoder.
@@ -240,10 +242,10 @@ Rules:
 - **The enumeration stays shared**: one length encoder, one `instance_id`, so
   instance `i` must be the same object in both masks encoders — build both from
   the one helper the length encoder uses.
-- **Only the geometry (`.mask`) is read** from the foundation encoder. Instance
-  identity and metadata (`name`, `instance_metadata`) stay with the native
-  encoder; `check_dataset` warns when they differ for the same instance.
-- On the probe samples the mask's H×W must equal the foundation image's (or an
+- **Only the mask is used** from the foundation encoder, so it returns the bare
+  H×W array. Instance identity and metadata (`name`, `instance_metadata`) come
+  from the native encoder.
+- On the sampled images the mask's H×W must equal the foundation image's (or an
   integer divisor of it); `None` where the native encoder returned a mask is an
   error.
 - The element-instance preprocess still takes the **native** masks encoder as

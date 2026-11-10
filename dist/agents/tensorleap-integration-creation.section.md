@@ -556,7 +556,7 @@ order:
    `range=ImageRange.BYTE`, one fixed size for every sample, never fed to the
    model) only
    when the user explicitly asks for one — or, if the native input cannot be
-   inverted, tell the user and ask (`.tensorleap/reference/authoring-order.md`,
+   converted back to pixel values, tell the user and ask (`.tensorleap/reference/authoring-order.md`,
    Step 4, *Foundation input*).
 5. `@tensorleap_load_model` with explicit `prediction_types`. Call it directly
    and run.
