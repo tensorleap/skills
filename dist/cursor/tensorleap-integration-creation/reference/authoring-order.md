@@ -45,6 +45,7 @@ from typing import List
 import numpy as np
 
 from code_loader.contract.datasetclasses import PreprocessResponse, PredictionTypeHandler
+from code_loader.contract.datasetclasses import FoundationInput, ImageRange   # code-loader >= 1.0.221
 from code_loader.contract.enums import DataStateType
 from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_preprocess,
@@ -189,6 +190,127 @@ if __name__ == "__main__":
 ```
 
 Return a single sample, NOT a batch. Catches wrong shape/dtype/lookup fastest.
+
+**Multi-frame inputs — `frame_dim`.** For a 4-D sample (several frames, e.g.
+`[T, H, W, C]` video or a frame stack) set `frame_dim` to the frame axis,
+counted like `channel_dim` on the *batched* tensor (`[T, H, W, C]` →
+`frame_dim=1`, `channel_dim=-1`). Default `None`; set it only on a 4-D input —
+on any other rank, or equal to `channel_dim`, it is a validation error.
+
+### Foundation input — `foundation=` on the model's image input
+
+The platform runs its own foundation image encoders over the dataset and stores
+the result as extra latent spaces (SigLIP 2 at image level; on an instance
+project also OWLv2 at instance level). No encoder code, weights or preprocessing
+in the integration — only a declaration of what the image tensor's values mean,
+so the platform can turn them back into RGB bytes (`code-loader` ≥ 1.0.221; on
+an older one skip this).
+
+**When:** add it **by default** to every model with an image input. Leave it out
+only when (a) the user explicitly said they don't want the foundation latent
+spaces, or (b) the server's license is **Free Tier** (`License:` line of `leap
+auth whoami`) — the Free Tier doesn't include them. A model with no image input
+has nothing to declare.
+
+
+
+```python
+@tensorleap_input_encoder(name="image", channel_dim=1,
+                          foundation=FoundationInput(rgb_range=ImageRange.IMAGENET, rgb_channels=(0, 1, 2)))
+def image_input(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
+    ...
+```
+
+- `rgb_range` (required) — the **convention's theoretical** `[min, max]` of the
+  tensor the encoder returns, **per channel**, never the observed min/max of
+  samples. Its pairs are in R, G, B order and apply after `rgb_channels` picks
+  the channels. Three forms:
+  - an `ImageRange` preset — `BYTE` `(0, 255)`, `UNIT` `(0, 1)`, `SIGNED`
+    `(-1, 1)` (same on every channel); `IMAGENET` and `CLIP` are per-channel
+    (each channel's own `((0 - mean) / std, (1 - mean) / std)`; IMAGENET R
+    `(-2.118, 2.249)`, G `(-2.036, 2.429)`, B `(-1.804, 2.640)`);
+  - **one** `(min, max)` pair — enough whenever every channel shares the
+    convention (`/255`, `/127.5 - 1`, caffe-style `(-123.68, 151.06)`, a single
+    scalar mean/std); it applies to all three channels;
+  - **three** `(min, max)` pairs in **R, G, B order** — for a custom
+    per-channel `Normalize(mean, std)` that is neither ImageNet's nor CLIP's:
+    `rgb_range=tuple(((0 - m) / s, (1 - m) / s) for m, s in zip(mean, std))`,
+    with `mean`/`std` the RGB-ordered values the preprocessing uses.
+
+  Any other number of pairs is rejected at import. Read it off the
+  preprocessing code: `/255` → `UNIT`; a `Normalize(mean, std)` after it with
+  ImageNet's mean/std → `IMAGENET`, with CLIP's → `CLIP`, with other per-channel
+  values → three pairs. Never collapse a per-channel normalisation to one pair
+  (e.g. ImageNet's `(-2.118, 2.640)`): the colours come back shifted.
+- `rgb_channels` — the three indices on the `channel_dim` axis that are R, G, B.
+  Default `(0, 1, 2)`; `(2, 1, 0)` for BGR (OpenCV-fed), `(0, 0, 0)` for
+  grayscale, `(3, 2, 1)` for multispectral true colour.
+- **Exactly one `foundation=` per project** — a second one raises at
+  decoration (import), naming both. None → the version has no foundation latent space, and the
+  Evaluate row of the status table carries no foundation suffix.
+- **Multi-frame (4-D) input:** the foundation encoders take the **middle
+  frame** on `frame_dim` (with a warning). With `frame_dim` unset on a 4-D
+  input the frame axis is inferred, also with a warning — set `frame_dim`
+  (Step 4, *Multi-frame inputs*) to make it explicit.
+- Deliver the image at **≤ 960 px on the longest side** (the largest encoder
+  input); 256 px on the short side is enough when only the image-level space
+  matters. The platform keeps the geometry as the model saw it (resize,
+  letterbox, crop) and only converts the values back to pixel values, so
+  native instance masks line up.
+
+`check_dataset` (`tl_check.py`, payload `foundation_input`) checks the declared
+range on a few random samples per split, converting each channel back to pixel
+values with its own bounds: the pixel values must fall within `[-2, 257]`, and
+the pixel-value range is printed per split; its `input` line says whether the
+input is the model's own (converted back to pixels) or dedicated (read only by
+the foundation encoders). A byte or signed tensor declared `UNIT` fails with
+that range shown — fix the declaration, not the encoder.
+
+**Default: on the native input.** Put `foundation=` on the model's own image
+encoder (above). Add a dedicated foundation input **only when the user explicitly
+asks for one** (typically for more resolution than the model sees, e.g. 2048×1024
+scenes squashed to 640×640). If the native input cannot be converted back to
+pixel values (non-affine preprocessing, bands without a shared range, a
+non-image tensor), don't switch on your own: tell the user and ask whether to
+add a dedicated input.
+
+**Dedicated foundation input.** One more input encoder that carries the flag and
+is **never passed to the model**. Build it from the native preprocessing and
+change only what has to differ, and say what differs in a comment:
+- **Resize — the main decision.** Keep the native **geometry** (the same crop,
+  letterbox/padding and aspect handling, so instances and masks stay where the
+  model saw them) and choose only the **target size**: larger than the native
+  input when the point is more resolution, never above 960 px on the longest side
+  (the largest encoder input). A different geometry than the native input needs
+  a `masks=` encoder on an instance project (`element-instances.md`).
+- **One fixed size for every sample** — resize to one fixed target (e.g.
+  960×540); samples of different shapes are a `check_dataset` error. Not "any
+  size": samples are batched like every other input.
+- **No normalisation** — return the RGB pixels as `uint8` `[0, 255]`
+  (`rgb_range=ImageRange.BYTE`), RGB channel order.
+- Everything else (which image, which crop, augmentations off) as the native
+  encoder does it.
+
+```python
+@tensorleap_input_encoder(name="foundation_image", channel_dim=-1,
+                          foundation=FoundationInput(rgb_range=ImageRange.BYTE))
+def foundation_image(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
+    # Same geometry as the native encoder (crop/letterbox); differs only in size and no normalisation.
+    return native_geometry_resize(load_original(sample_id), longest=960)   # uint8, HWC, RGB
+```
+
+It **should return `uint8`** — RGB pixels in `[0, 255]` — at any **fixed** size (the same
+for every sample); it is the one input encoder allowed to. A `uint8` input **must**
+declare `rgb_range=ImageRange.BYTE`: any other range on it is a `check_dataset` error. Do not scale it to `[0, 1]` or
+normalise it: the platform carries it as `uint8` end to end (a quarter of the bytes of a
+float32 copy, never cast), and the foundation encoder applies its own preprocessing. A
+visualizer connected to this input receives the same `uint8` array on the platform as in
+the local `integration_test`. Still one
+`foundation=` per project: on the model's input *or* on the dedicated one, never
+both. Native vs dedicated is decided by **wiring** — whether `integration_test`
+feeds the encoder's output to the model — not by a flag, so call it in
+`integration_test` like any encoder but never pass it to the model. Instance
+projects: see `element-instances.md`, *Foundation input on an instance project*.
 
 ## Step 5 — load_model
 
