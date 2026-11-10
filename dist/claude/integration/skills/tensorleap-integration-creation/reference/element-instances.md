@@ -227,7 +227,7 @@ uses follows from where the flag sits:
       return draw(box, original_hw)                                # the H×W mask only
 
   @tensorleap_input_encoder(name="foundation_image", channel_dim=-1,
-                            foundation=FoundationInput(range=ImageRange.BYTE, masks=foundation_mask))
+                            foundation=FoundationInput(rgb_range=ImageRange.BYTE, masks=foundation_mask))
   def foundation_image(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
       ...
   ```
