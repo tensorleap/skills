@@ -191,6 +191,12 @@ if __name__ == "__main__":
 
 Return a single sample, NOT a batch. Catches wrong shape/dtype/lookup fastest.
 
+**Multi-frame inputs — `frame_dim`.** For a 4-D sample (several frames, e.g.
+`[T, H, W, C]` video or a frame stack) set `frame_dim` to the frame axis,
+counted like `channel_dim` on the *batched* tensor (`[T, H, W, C]` →
+`frame_dim=1`, `channel_dim=-1`). Default `None`; set it only on a 4-D input —
+on any other rank, or equal to `channel_dim`, it is a validation error.
+
 ### Foundation input — `foundation=` on the model's image input
 
 The platform runs its own foundation image encoders over the dataset and stores
@@ -241,6 +247,10 @@ def image_input(sample_id: str, preprocess: PreprocessResponse) -> np.ndarray:
 - **Exactly one `foundation=` per project** — two is a `check_dataset` error
   naming both. None → the version has no foundation latent space, and the
   Evaluate row of the status table carries no foundation suffix.
+- **Multi-frame (4-D) input:** the foundation encoders take the **middle
+  frame** on `frame_dim` (with a warning). With `frame_dim` unset on a 4-D
+  input the frame axis is inferred, also with a warning — set `frame_dim`
+  (Step 4, *Multi-frame inputs*) to make it explicit.
 - Deliver the image at **≤ 960 px on the longest side** (the largest encoder
   input); 256 px on the short side is enough when only the image-level space
   matters. The platform keeps the geometry as the model saw it (resize,
@@ -269,6 +279,9 @@ change only what has to differ, and say what differs in a comment:
   input when the point is more resolution, never above 960 px on the longest side
   (the largest encoder input). A different geometry than the native input needs
   a `masks=` encoder on an instance project (`element-instances.md`).
+- **One fixed size for every sample** — resize to one fixed target (e.g.
+  960×540); samples of different shapes are a `check_dataset` error. Not "any
+  size": samples are batched like every other input.
 - **No normalisation** — return the RGB pixels as `uint8` `[0, 255]`
   (`range=ImageRange.BYTE`), RGB channel order.
 - Everything else (which image, which crop, augmentations off) as the native
@@ -282,8 +295,9 @@ def foundation_image(sample_id: str, preprocess: PreprocessResponse) -> np.ndarr
     return native_geometry_resize(load_original(sample_id), longest=960)   # uint8, HWC, RGB
 ```
 
-It **should return `uint8`** — RGB pixels in `[0, 255]`, declared `range=ImageRange.BYTE`
-— at any size; it is the one input encoder allowed to. Do not scale it to `[0, 1]` or
+It **should return `uint8`** — RGB pixels in `[0, 255]` — at any **fixed** size (the same
+for every sample); it is the one input encoder allowed to. A `uint8` input **must**
+declare `range=ImageRange.BYTE`: any other range on it is a `check_dataset` error. Do not scale it to `[0, 1]` or
 normalise it: the platform carries it as `uint8` end to end (a quarter of the bytes of a
 float32 copy, never cast), and the foundation encoder applies its own preprocessing. A
 visualizer connected to this input receives the same `uint8` array on the platform as in

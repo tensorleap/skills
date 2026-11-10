@@ -548,9 +548,9 @@ order:
    dynamic batch dim must give the same per-sample outputs for a batch of 2 as
    for each sample alone; a batch-1-only model must declare a fixed batch of 1.
 4. The minimum input encoder set for **one real inference** — one encoder per
-   model input, `channel_dim` explicit, returns a single unbatched
-   `np.float32` array. Call each directly and run. Encoders must return
-   `float32`; if the model needs integer inputs (e.g. `input_ids`), export it to
+   model input, `channel_dim` explicit (`frame_dim` too, only for a 4-D
+   multi-frame sample), returns a single unbatched `np.float32` array. Call
+   each directly and run. Encoders must return `float32`; if the model needs integer inputs (e.g. `input_ids`), export it to
    accept `float32` and cast internally (see `reference/error-signals.md`,
    load_model). On the model's **image** input add
    `foundation=FoundationInput(range=…, rgb_channels=…)` (`code-loader`
@@ -564,7 +564,9 @@ order:
    shares it, or three pairs in R, G, B order for a custom per-channel
    mean/std; exactly one `foundation=` per project. By
    default it rides on the **native** model input; add a dedicated foundation
-   input (the one encoder allowed to return `uint8`, never fed to the model) only
+   input (the one encoder allowed to return `uint8`, declared
+   `range=ImageRange.BYTE`, one fixed size for every sample, never fed to the
+   model) only
    when the user explicitly asks for one — or, if the native input cannot be
    inverted, tell the user and ask (`reference/authoring-order.md`,
    Step 4, *Foundation input*).
