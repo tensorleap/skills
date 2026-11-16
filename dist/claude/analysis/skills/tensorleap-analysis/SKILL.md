@@ -27,7 +27,9 @@ Data comes from the Tensorleap MCP server (`leap mcp`, part of the leap
 CLI), through its tools: `tl_status`, `tl_list_projects`, `tl_list_versions`,
 `tl_get_insights`, `tl_export_analysis`, `tl_get_integration_code`,
 `tl_view_samples`, `tl_list_samples`, `tl_query`, and `tl_publish_report`
-for the finished report. Read its
+for the finished report; `tl_list_reports`, `tl_get_report` and
+`tl_decide_finding` are for working from a published report later (last
+section). Read its
 `tensorleap://glossary` resource once. The report plumbing is one script
 (python3, stdlib only):
 
@@ -509,9 +511,12 @@ the user can mail or Slack.
 **Then publish it, without asking**: call `tl_publish_report` with `dir` =
 the absolute `<out-dir>`. It uploads report.html (with report.md and
 report.json) to the Tensorleap server; the team finds it in the project's
-Reports tab in the UI and the returned `link` opens it. Every publish adds
-a new report, so after an edit tell the user the earlier card is still
-there. Skip it only when the user asked not to publish; if the
+Reports tab in the UI and the returned `link` opens it. The first publish
+adds a report and returns its `reportId`. When you rebuild a report you
+already published (an edit, a re-run after a fix), pass that `reportId` so
+the same report is updated and the link the team has keeps showing the
+current one; without it a second report is added and the earlier one stays.
+Skip it only when the user asked not to publish; if the
 tool refuses (an older server, no connection), keep the local files and
 say so in the closing message. Also write `<out-dir>/report.md`, the
 executive summary, summary table, per-insight action checklists, and the
@@ -605,3 +610,32 @@ the published link, where `report.html` and `report.md` are, the ask to acknowle
 user agrees with, and the Insights panel link; plus one code block with the
 `copy:`/`tunnel:` commands when the script printed them. No bullet lists,
 findings or extra sections.**
+
+## Later: working from a published report
+
+The report outlives the session that wrote it. When the user comes back
+("continue with the report", "fix what we agreed on", "what is left?"), do
+not redo the analysis: read the report back.
+
+1. `tl_list_reports` for the project, then `tl_get_report` (`reportId`, or
+   `"latest"`). It returns each finding with its action items (`doNext`),
+   its status now, and who decided it.
+2. **Acknowledged findings come first.** A finding whose status is
+   `Approved` is one a person agreed with: its action items are the work
+   they expect. A finding still in review is a proposal; ask before
+   spending effort on it. An archived finding was dismissed; leave it.
+3. Do the action items with the tools you have (the export, the user's
+   code and data), one finding at a time, and say what you changed and what
+   is still open.
+4. **Decide only on the user's word.** When the user tells you to
+   acknowledge, archive or reopen a finding, call `tl_decide_finding` with
+   the report's `projectId` (the id, not the project name) and the
+   finding's `insightId`; it is recorded under their name, marked as
+   done through their assistant. Never decide on your own judgment.
+5. When the work changed what the report says (a new evaluation, a fix
+   that held), rebuild it and publish with the earlier `reportId`, so there
+   is one report to follow rather than a pile.
+
+If `tl_get_report` says the report was published without its content, or
+the tools are missing (an older server or CLI), fall back to the local
+`report.md` when the user still has it, and say what the upgrade unlocks.
