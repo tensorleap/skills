@@ -132,7 +132,8 @@ def check_existing():
     lr = json.loads(summ.stdout)[0]
     assert lr["group_rows"] == 2 and lr["csv_rows"] == 3 and lr["metrics"]["metrics.loss"]["group_mean"] == 2.0, lr
     assert "is_low_perf_root_member" not in lr["metadata"]
-    card = {"id": "insight-1", "severity": 2, "heading": "Fog <frames>", "chips": [], "lede": "x"}
+    card = {"id": "insight-1", "severity": 2, "heading": "Fog <frames>", "chips": [], "lede": "x",
+            "explore": {"link": p["deep_link"]}}
     card4 = {"id": "insight-4", "severity": 1, "heading": "Copies", "chips": [], "lede": "y"}
     with open(os.path.join(root, "report.json"), "w") as f:
         json.dump({"project": "p", "version": "v", "meta": "2 insights", "insights_link": "http://ui/p",
@@ -141,15 +142,16 @@ def check_existing():
                               {"type": "Duplication", "count": "1", "meaning": "m", "cards": [card4]}]}, f)
     subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "build-report", root], capture_output=True, check=True)
     page = open(os.path.join(root, "report.html")).read()
-    assert '<button type="button" class="apv" aria-pressed="false">' in page and 'id="approved" hidden' in page
+    assert page.count('href="http://ui/i1?decide=acknowledge&amp;decideInsight=') == 1 and 'id="acknowledged" hidden' in page
     state = json.loads(re.search(r'id="tl-review">(\{.*?\})</script>', page).group(1))
-    assert re.fullmatch(r"[0-9a-f]{32}", state["reportId"]) and state["readonly"] is False, state
-    assert state["approved"] == ["insight-4"], "cards start in the insight's platform status"
+    assert state["v"] == 2 and re.fullmatch(r"[0-9a-f]{32}", state["reportId"]) and state["readonly"] is False, state
+    assert state["decisions"] == {"insight-1": {"status": "InReview"}, "insight-4": {"status": "Approved"}}, \
+        "cards start in the insight's platform status"
+    assert state["approved"] == ["insight-4"] and state["savedAt"] == "", "kept for viewers that predate v2"
     assert state["sync"] == {"apiBase": "http://srv/api/v2", "projectId": "p",
                              "insights": {"insight-1": CID1, "insight-4": CID4}}, state
-    assert "window.prompt" not in page and '"reviewer"' not in page, "approvals carry no name"
-    assert page.index('id="tl-review">') < page.index("SRC.replace"), "state block must precede the script"
-    assert "localStorage.setItem(KEY" in page and "Save with my approvals" not in page
+    assert page.index('id="tl-review">') < page.index('getElementById("tl-review")'), "state block must precede the script"
+    assert "localStorage" not in page and "fetch(" not in page, "the report changes nothing itself"
     assert 'src="' not in page.split("<main>")[1], "inline-html would rewrite script text"
     old = json.load(open(os.path.join(root, "insights.json")))
     old["api_base"] = "http://x/</script><b>"
@@ -163,7 +165,8 @@ def check_existing():
     subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "build-report", root], capture_output=True, check=True)
     page = open(os.path.join(root, "report.html")).read()
     state = json.loads(re.search(r'id="tl-review">(\{.*?\})</script>', page).group(1))
-    assert "sync" not in state and state["approved"] == ["insight-4"], "an older server's export approves in the browser only"
+    assert "sync" not in state and 'href="http://ui/i1?decide=' not in page, "an older server's export has no decide action"
+    assert state["decisions"]["insight-4"] == {"status": "Approved"} and state["approved"] == ["insight-4"], state
     empty = tempfile.mkdtemp()
     assert subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "digest", empty], capture_output=True).returncode == 5
 

@@ -11,7 +11,7 @@ description: >
   self-contained HTML report with evidence, embedded sample visualizations,
   and concrete action items for an ML engineer.
 group: tensorleap
-version: 0.4.9
+version: 0.5.0
 globs: ["leap.yaml"]
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents]
@@ -488,15 +488,17 @@ the **download button** (`download_csv`) when the digest has
 the **"Test" header button** (`add_test`) when the digest has `add_test_link`,
 the **"Add comment" header button** (`add_comment`) when the digest has
 `add_comment_link`,
-and the **"Analyze insight"** header button using the insight's
+and the **"Open proof"** header button using the insight's
 `deep_link` (lands on the insight already analyzed, opened as the
 dashboard's top panel with its cluster filter applied, what the panel's
 "Analyze" button does; insights without a cluster blob fall back to the
-version-level Insights-panel link). The script adds an **Approve** toggle to
-every card, approving the insight on the platform it was exported from (on
-servers that support it, server versions > 1.6.100; on older ones approvals
-stay in the reader's browser), and a review box to the header that shares a
-read-only copy; they need nothing from you.
+version-level Insights-panel link). The script adds a status pill (Needs
+review / Acknowledged / Archived) and an **Acknowledge** button to every card
+whose insight the export identifies (an older server's export gets neither),
+and a review box to the header that counts the decisions. The report changes
+nothing by itself: Acknowledge opens Tensorleap, where the signed-in person
+confirms and the decision is recorded under their name. They need nothing
+from you.
 Then render and make it self-contained:
 
 ```
@@ -584,14 +586,14 @@ commands; no bullet lists:
    `<path>/report.md`.
    After `not opened:` in an SSH session or without a display, give the `copy:`
    command and, when printed, the `tunnel:` command in one code block, and say
-   to keep the tunnel open while reviewing: the report's **Approve** buttons
-   and links reach the server through it (`localhost:4589` on the user's own
+   to keep the tunnel open while reviewing: the report's buttons and links
+   open Tensorleap through it (`localhost:4589` on the user's own
    machine). If those commands contain `<server>` (the session came through a
    local forward such as AWS SSM, so the script can't know the machine's
    address), tell the user to replace it with the address they use to reach
    this machine. On any other `not opened:`, ask the user to open the path.
-2. The ask, verbatim: "Review the insights and press **Approve** on each one
-   you agree with; approvals are saved in Tensorleap."
+2. The ask, verbatim: "Review the findings and press **Acknowledge** on each
+   one you agree with; you confirm it in Tensorleap, under your name."
 3. The Insights panel link from `insights panel:`, to review them there too.
 
 No findings, no summaries, no severity counts, no
@@ -604,7 +606,7 @@ Then answer follow-up questions from the analysis you already did, the
 conversational depth is for when the user asks, never volunteered up front.
 
 **Last rule, binding: the closing message is at most four short sentences:
-the published link, where `report.html` and `report.md` are, the ask to approve the insights the
+the published link, where `report.html` and `report.md` are, the ask to acknowledge the findings the
 user agrees with, and the Insights panel link; plus one code block with the
 `copy:`/`tunnel:` commands when the script printed them. No bullet lists,
 findings or extra sections.**

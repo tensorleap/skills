@@ -25,30 +25,30 @@ visible tags.
 **The report serves two audiences at once.** The prose and diagrams are for
 an ML engineer working in the data's domain who has never opened Tensorleap,
 write as a colleague in that domain (its terminology, its standard fixes;
-skill Step 4); the "Analyze insight" button on each insight
+skill Step 4); the "Open proof" button on each insight
 is for users who know the platform and want to continue there.
 
-**The reader reviews the report in place.** Every card header leads with an
-**Approve** toggle; approved cards move to an "Approved" section above the
-type groups, and a "Your review" box in the sticky header counts them. Cards
-start in their insight's platform status, and each click approves or unapproves
-the insight on the Tensorleap server the report was built on (no login; the card
-title is added to the insight's comment on approve, and taken off again on
-unapprove while it is still the comment's last line). On another server, or one
-that can't be reached, nothing changes and the card says so. Each click is also
-kept in the reader's browser, keyed by a report id baked in at build time, so a
-reload, a browser restart or a moved file shows the last confirmed state; an
-export from an older server, without insight ids, approves in the browser only.
-"Share" downloads a read-only copy with the approvals baked in, to send on. All
-of it is script-owned: no report.json field, nothing for you to write, and never
-mention it in the prose.
+**The reader reviews in the report and decides in Tensorleap.** Every card
+carries its insight's platform status as a pill (Needs review, Acknowledged or
+Archived); acknowledged cards are pinned in an "Acknowledged" section above the
+type groups, and a "Review" box in the sticky header counts the decided ones.
+The report changes nothing by itself. Opened as a file, the **Acknowledge**
+button (**Back to review** on a decided card) is a link into Tensorleap, where
+the signed-in person confirms and the decision is recorded under their name; the
+file keeps showing the statuses it was exported with. Inside Tensorleap's report
+viewer the same buttons hand the action to the app, and the pills follow the
+decisions made there. An export from an older server, without insight ids, gets
+no Acknowledge button. "Share a read-only copy" in the Review box downloads the
+report with the statuses baked in and no card buttons, for someone who does not
+use Tensorleap. All of it is script-owned: no report.json field, nothing
+for you to write, and never mention it in the prose.
 
 **The page is dark-only**, the Tensorleap product palette (Nunito Sans,
 embedded; each insight type carries its own accent color). All of that is
 script-owned; you never pick colors.
 
 **A card is skimmable first, deep on demand.** What is visible by default:
-heading, the "Test", "Analyze insight" and "Add comment" header buttons,
+heading, the "Open proof", "Acknowledge", "Test" and "Add comment" header buttons,
 chips, the bold bottom line, and "Do next". The diagnosis (root cause, prose,
 split/contrast bars) sits behind a collapsed **Analysis info** fold, your read of the samples
 behind a collapsed **LLM <modality> analysis** fold (the script derives the
@@ -101,7 +101,7 @@ groups, and ends with the last card. Notes live in `report.md` alone
 1. **Sticky header**, "Tensorleap analysis" eyebrow, `PROJECT · VERSION`
    title, an "Open in Tensorleap" button (the Insights-panel link), and a
    chip row: evaluation date (`evaluated`) and the insight counts (`meta`),
-   plus the script's "Your review" box.
+   plus the script's "Review" box.
    The model/version identity lives in the title alone, no model chip, no
    severity-summary chip.
 2. **KPI strip** (`.tiles`): 3–4 stat tiles with the model-level numbers a
@@ -194,10 +194,9 @@ restate severity in `chips`. Card content, in render order:
    the script derives it from `id` and renders it in the card header and the
    overview table; prose cross-references between cards go by NAME ("the
    tiny-objects fix above"), never by number.
-   *The script's Approve toggle leads the header buttons; items 9's
-   `add_test` ("Test") and `add_comment` ("Add comment") and 10's
-   `explore` ("Analyze insight") follow it, opening the platform in a new
-   tab.*
+   *The header buttons, in order: item 10's `explore` ("Open proof"), the
+   script's Acknowledge button, then item 9's `add_test` ("Test") and
+   `add_comment` ("Add comment"); each opens the platform in a new tab.*
 2. **Chips** (`chips`): sample count, key metric, latent space (the severity
    chip is script-generated, and an "insight #N" chip is dropped, the
    header already carries the number). The count chip is
@@ -314,15 +313,16 @@ restate severity in `chips`. Card content, in render order:
    insight's Note on the user's confirmation. A sub-based card uses its own
    sub-insight's `add_comment_link`. Never edit the link (build-report
    exits 8 when it doesn't end with `=`).
-10. **Analyze insight** (`explore`): the second card-header button. `link` =
+10. **Open proof** (`explore`): the first card-header button. `link` =
     the insight's `deep_link` from the digest, which lands on the insight
     already analyzed (opened as the dashboard's top panel with its cluster
     filter applied, exactly what the panel's "Analyze" button does); the
-    label is fixed by the script ("Analyze insight"); `text` (panel
+    label is fixed by the script ("Open proof"); `text` (panel
     type and severity) and `detail` (latent space · split counts · platform
     label/acquire counts) are optional and shown only as the button's hover
     tooltip. A sub-based card links its own sub-insight's `deep_link`. No
-    filter JSON.
+    filter JSON. The script builds the Acknowledge button from this link, so
+    a card without `explore` has none.
 
 ## report.json schema
 

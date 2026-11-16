@@ -533,10 +533,25 @@ a.button { display: inline-flex; align-items: center; gap: 7px; height: 32px;
      background: var(--chip); color: #fff; font-size: 12px; font-weight: 700;
      letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
      transition: color .15s, border-color .15s, background .15s; }
-a.button:hover { color: var(--acc-light); border-color: var(--acc-light);
+a.button:hover { color: #93c5fd; border-color: var(--acc-light);
      background: rgba(59,130,246,.12); text-decoration: none; }
 a.button svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
-     stroke-width: 2; stroke-linecap: round; flex: none; }
+     stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+a.button:focus-visible, a.download:focus-visible, a.rownum:focus-visible,
+summary:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+a.act svg.ext { width: 11px; height: 11px; margin-left: -2px; stroke-width: 2.6;
+     opacity: .75; }
+html[data-host] a.act svg.ext { display: none; }
+.card:not([data-status="Archived"]) a[data-act="open"] {
+     border-color: rgba(96,165,250,.75); background: rgba(59,130,246,.24); }
+.card:not([data-status="Archived"]) a[data-act="open"]:hover { color: #fff;
+     border-color: #93c5fd; background: rgba(59,130,246,.38); }
+.card:not([data-status="Approved"], [data-status="Archived"]) a[data-act="decide"] {
+     border-color: rgba(52,211,153,.55); background: rgba(16,185,129,.10);
+     color: #6ee7b7; }
+.card:not([data-status="Approved"], [data-status="Archived"]) a[data-act="decide"]:hover {
+     border-color: #34d399; background: rgba(16,185,129,.20);
+     box-shadow: 0 0 0 3px rgba(52,211,153,.14); }
 main { max-width: 1180px; margin: 0 auto; padding: 26px 28px 96px;
        display: flex; flex-direction: column; gap: 34px; }
 .block { display: flex; flex-direction: column; gap: 14px; }
@@ -597,7 +612,8 @@ a.rownum:hover { border-color: var(--acc-light); text-decoration: none; }
      font-variant-numeric: tabular-nums; padding-top: 3px; white-space: nowrap; }
 .chead h3 { flex: 1 1 380px; min-width: 0; margin: 0; font-size: 17px;
      font-weight: 700; line-height: 1.35; }
-.cbtns { flex: none; display: flex; align-items: center; gap: 8px; }
+.cbtns { flex: 0 1 auto; display: flex; flex-wrap: wrap; align-items: center;
+     gap: 8px; }
 .card .chips { padding: 13px 16px 0; }
 .lede { margin: 14px 16px 0; padding: 11px 14px; border-left: 3px solid var(--ins-a);
      border-radius: 0 6px 6px 0; background: rgba(255,255,255,.03);
@@ -693,9 +709,9 @@ a.download { display: inline-flex; align-items: center; height: 32px;
      text-transform: uppercase; white-space: nowrap; }
 a.download:hover { background: var(--acc-light); color: #fff;
      text-decoration: none; }
-.block.group:not(:has(.card)), #approved[hidden] { display: none; }
-#approved h2 { border-bottom-color: #34d399; color: #d1fae5; }
-#approved .count { border-color: rgba(52,211,153,.4); color: #6ee7b7; }
+.block.group:not(:has(.card)), #acknowledged[hidden], .review[hidden] { display: none; }
+#acknowledged h2 { border-bottom-color: #34d399; color: #d1fae5; }
+#acknowledged .count { border-color: rgba(52,211,153,.4); color: #6ee7b7; }
 .review { flex: 0 1 340px; min-width: 260px; padding: 12px 14px;
      border: 1px solid var(--line); border-radius: 8px; background: var(--card);
      display: flex; flex-direction: column; gap: 8px; }
@@ -710,231 +726,188 @@ a.download:hover { background: var(--acc-light); color: #fff;
 .rbar span { display: block; height: 100%; width: 0; border-radius: 4px;
      background: #34d399; transition: width .5s cubic-bezier(.2,.8,.2,1); }
 .rnote { font-size: 12px; line-height: 1.5; color: var(--muted); }
-.rfoot { display: flex; align-items: center; justify-content: space-between; gap: 10px;
-     padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; }
-.rsaved { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); }
-.rsaved b { color: var(--ink-2); }
-.rsaved svg { flex: none; margin-top: 2px; stroke: #6ee7b7; }
-.rsaved.warn { color: #fbbf24; }
-.rsaved.warn svg { display: none; }
-.racts { display: flex; flex: none; gap: 6px; }
-.racts[hidden], html[data-ro] button.apv { display: none; }
-button.share { display: inline-flex; align-items: center; gap: 8px; height: 32px;
-     padding: 0 12px; border: 0; border-radius: 6px; background: var(--acc); color: #fff;
-     font: inherit; font-size: 12px; font-weight: 800; letter-spacing: .08em;
-     text-transform: uppercase; white-space: nowrap; cursor: pointer; transition: background .15s; }
-button.share:hover { background: var(--acc-light); }
+.rfoot { padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px;
+     line-height: 1.5; color: var(--muted); }
+.rfoot:empty { display: none; }
+button.share { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+     height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px;
+     background: transparent; color: var(--ink-2); font: inherit; font-size: 11px;
+     font-weight: 800; letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
+     transition: background .15s; }
+button.share:hover { background: rgba(255,255,255,.06); }
 button.share:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
-.toast { position: fixed; left: 50%; bottom: 24px; z-index: 50; transform: translateX(-50%);
-     padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px;
-     background: var(--card); color: var(--ink-2); font-size: 13px;
-     box-shadow: 0 12px 30px -12px rgba(0,0,0,.6); }
-.toast[hidden] { display: none; }
-button.apv { display: inline-flex; align-items: center; gap: 7px; height: 32px;
-     padding: 0 14px; border: 1px solid rgba(52,211,153,.55); border-radius: 6px;
-     background: rgba(16,185,129,.10); color: #6ee7b7; font: inherit;
-     font-size: 12px; font-weight: 800; letter-spacing: .08em;
-     text-transform: uppercase; white-space: nowrap; cursor: pointer;
-     transition: background .18s, color .18s, border-color .18s, box-shadow .18s; }
-button.apv:hover { background: rgba(16,185,129,.20); border-color: #34d399;
-     box-shadow: 0 0 0 3px rgba(52,211,153,.14); }
-button.apv:focus-visible { outline: 2px solid #6ee7b7; outline-offset: 2px; }
-button.apv[aria-pressed="true"] { border-color: #10b981; background: #10b981; color: #052e1f; }
-button.apv[aria-pressed="true"]:hover { background: #34d399; border-color: #34d399; }
-button.apv:disabled { opacity: .6; cursor: progress; }
-.review svg, button.apv svg, .apvbadge svg { width: 16px; height: 16px;
-     fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round;
+button.share svg { width: 14px; height: 14px; fill: none; stroke: currentColor;
+     stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+html[data-ro] .cbtns, html[data-ro] button.share, html[data-host] button.share { display: none; }
+.pill { display: none; width: fit-content; align-items: center; gap: 6px;
+     margin-bottom: 6px; padding: 2px 10px; border-radius: 999px;
+     font-size: 12px; font-weight: 700; line-height: 18px; }
+.pill svg { display: none; flex: none; width: 12px; height: 12px; fill: none;
+     stroke: currentColor; stroke-width: 3; stroke-linecap: round;
      stroke-linejoin: round; }
-.apvbadge { display: none; width: fit-content; align-items: center; gap: 6px;
-     margin-bottom: 6px; padding: 2px 9px 2px 7px; border-radius: 999px;
-     background: rgba(16,185,129,.16); color: #6ee7b7; font-size: 11px;
-     font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-.apvbadge svg { width: 12px; height: 12px; stroke-width: 3; }
-.card.approved { border-color: rgba(52,211,153,.42); background: #22302c;
+.card[data-status] .pill { display: flex; }
+.card[data-status="InReview"] .pill { background: rgba(245,158,11,.14); color: #fbbf24; }
+.card[data-status="Approved"] .pill { background: rgba(16,185,129,.16); color: #6ee7b7; }
+.card[data-status="Approved"] .pill svg { display: block; }
+.card[data-status="Archived"] .pill { background: rgba(255,255,255,.07); color: var(--muted); }
+.card[data-status="Approved"] { border-color: rgba(52,211,153,.42); background: #22302c;
      box-shadow: 0 0 0 1px rgba(52,211,153,.10), 0 14px 34px -22px rgba(16,185,129,.7); }
-.card.approved .chead { border-bottom-color: #34d399; background: rgba(16,185,129,.07); }
-.card.approved .lede { border-left-color: #34d399; background: rgba(16,185,129,.07); }
-.card.approved .apvbadge { display: flex; }
-tr.approved a.rownum { border-color: #34d399; color: #6ee7b7; }
+.card[data-status="Approved"] .chead { border-bottom-color: #34d399; background: rgba(16,185,129,.07); }
+.card[data-status="Approved"] .lede { border-left-color: #34d399; background: rgba(16,185,129,.07); }
+tr[data-status="Approved"] a.rownum { border-color: #34d399; color: #6ee7b7; }
+.card[data-status="Archived"] { --ins-a: var(--line-2); --sev-c: var(--muted);
+     --sev-bd: var(--line-2); --sev-bg: var(--chip); background: none; }
+.card[data-status="Archived"] h3, .card[data-status="Archived"] .lede,
+.card[data-status="Archived"] .donext h4, tr[data-status="Archived"] td.issue {
+     color: var(--muted); }
+.card[data-status="Archived"] .lede { font-weight: 400; }
+.card[data-status="Archived"] .donext { border-color: var(--line); background: none; }
+.card[data-status="Archived"] ul.actions li::before { border-color: var(--muted); }
 .settle { animation: settle 1.1s cubic-bezier(.2,.8,.2,1); }
 @keyframes settle {
   0% { transform: translateY(14px); box-shadow: 0 0 0 0 rgba(52,211,153,.55); }
   45% { transform: none; box-shadow: 0 0 0 8px rgba(52,211,153,.10); } }
 @media (prefers-reduced-motion: reduce) {
-  .settle { animation: none; } .rbar span, button.apv { transition: none; } }
+  .settle { animation: none; } .rbar span, a.button { transition: none; } }
 @media (max-width: 700px) { header { position: static; } }
 """
 
-# Review state: every click autosaves in the browser's localStorage, keyed by the
-# report id baked in at build time (not by the file's path, so a moved or renamed
-# report keeps its approvals). "Share" bakes the current approvals into a
-# read-only copy of the page as it was loaded, with only the JSON block replaced.
+# The report never changes anything itself: every action is a plain link into
+# Tensorleap. Inside Tensorleap's viewer (a sandboxed frame) the host answers the
+# ready message, and from then on a click is posted to the host instead of followed.
 REVIEW_JS = """\
 (function () {
   var SRC = "<!doctype html>\\n" + document.documentElement.outerHTML;
-  var stateEl = document.getElementById("tl-review");
-  var ORIG = stateEl.textContent;
-  var st = JSON.parse(ORIG);
-  var RO = !!st.readonly, KEY = "tl-report:" + st.reportId;
-  // with sync, each click updates the insight on the Tensorleap server that built the report
-  var SYNC = !RO && st.sync ? st.sync : null, busy = {}, syncedAt = null;
-  var approved = [], last = null, savedAt = null, canStore = true, local = null;
+  var ORIG = document.getElementById("tl-review").textContent;
+  var st = JSON.parse(ORIG), RO = !!st.readonly;
   if (RO) document.documentElement.setAttribute("data-ro", "");
-  else {
-    try { local = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { canStore = false; }
+  var LABEL = {InReview: "Needs review", Approved: "Acknowledged", Archived: "Archived"};
+  var decisions = st.decisions, sync = st.sync, host = false, user = "";
+  if (!decisions) {
+    decisions = {};
+    (st.approved || []).forEach(function (id) { decisions[id] = {status: "Approved"}; });
   }
-  var saved = local ? local.approved : st.approved.slice();
-  if (local) savedAt = local.savedAt;
-  var shelf = document.getElementById("approved");
+  var shelf = document.getElementById("acknowledged");
   var shelfCards = shelf.querySelector(".cards");
   var cards = {}, home = {}, rows = {};
   document.querySelectorAll("section.card").forEach(function (c) {
     cards[c.id] = c;
     home[c.id] = document.createComment(c.id);
     c.before(home[c.id]);
-    c.querySelector("button.apv").addEventListener("click", function () { toggle(c.id); });
     c.addEventListener("animationend", function () { c.classList.remove("settle"); });
   });
   document.querySelectorAll("a.rownum").forEach(function (a) {
     rows[a.getAttribute("href").slice(1)] = a.closest("tr");
   });
-  var total = Object.keys(cards).length;
   function q(s) { return document.querySelector(s); }
   function when(iso) {
     var d = new Date(iso);
     return isNaN(d) ? iso : d.toLocaleString([], {dateStyle: "medium", timeStyle: "short"});
   }
-  function setOn(id, on) {
-    var i = approved.indexOf(id);
-    if (on && i < 0) { approved.unshift(id); shelfCards.prepend(cards[id]); last = id; }
-    else if (!on && i >= 0) { approved.splice(i, 1); home[id].after(cards[id]); last = null; }
+  function mark(el, s) {
+    if (s) el.setAttribute("data-status", s);
+    else el.removeAttribute("data-status");
   }
-  function titleOf(id) {
-    var h = cards[id].querySelector("h3").cloneNode(true), badge = h.querySelector(".apvbadge");
-    if (badge) badge.remove();
-    return h.textContent.trim();
-  }
-  function toggle(id) {
-    if (RO || busy[id]) return;
-    var want = approved.indexOf(id) < 0, cid = SYNC && SYNC.insights[id];
-    setOn(id, want);
-    persist();
-    render();
-    if (!cid) return;
-    busy[id] = true;
-    render();
-    fetch(SYNC.apiBase + "/insights/reportApproval", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({projectId: SYNC.projectId, insightId: cid,
-                            action: want ? "approve" : "unapprove", title: titleOf(id)})
-    }).then(function (r) {
-      if (r.status === 404) throw "elsewhere";
-      if (!r.ok) throw "failed";
-      return r.json();
-    }).then(function (res) {
-      // the server's status wins: approving an approved insight or unapproving an archived one changes nothing there
-      setOn(id, res.status === "Approved");
-      syncedAt = new Date().toISOString();
-    }, function (why) {
-      setOn(id, !want);
-      toast(why === "elsewhere" ? "This report was made on another Tensorleap server. Nothing changed."
-                                : "Couldn't reach Tensorleap. Nothing changed.");
-    }).then(function () {
-      busy[id] = false;
-      persist();
-      render();
-    });
-  }
-  function persist() {
-    var at = new Date().toISOString();
-    try {
-      localStorage.setItem(KEY, JSON.stringify({approved: approved, savedAt: at}));
-      savedAt = at; canStore = true;
-    } catch (e) { canStore = false; }
-  }
-  function apply(ids) {
-    approved.slice().forEach(function (id) {
-      if (ids.indexOf(id) < 0) { approved.splice(approved.indexOf(id), 1); home[id].after(cards[id]); }
-    });
-    ids.forEach(function (id) {
-      if (cards[id] && approved.indexOf(id) < 0) { approved.push(id); shelfCards.append(cards[id]); }
-    });
-  }
-  function render() {
-    var n = approved.length;
+  function render(live) {
+    var total = 0, done = 0, pinned = 0, latest = 0;
+    var who = user ? "as " + user : "under your name";
     Object.keys(cards).forEach(function (id) {
-      var on = approved.indexOf(id) >= 0, c = cards[id];
-      c.classList.toggle("approved", on);
-      c.classList.toggle("settle", on && id === last);
-      var b = c.querySelector("button.apv");
-      b.setAttribute("aria-pressed", on ? "true" : "false");
-      b.disabled = !!busy[id];
-      b.lastChild.textContent = on ? "Approved" : "Approve";
-      if (rows[id]) rows[id].classList.toggle("approved", on);
+      var c = cards[id], d = decisions[id] || {};
+      var s = typeof LABEL[d.status] === "string" ? d.status : "";
+      mark(c, s);
+      if (rows[id]) mark(rows[id], s);
+      var pill = c.querySelector(".pill");
+      pill.lastChild.textContent = s ? LABEL[s] + (d.by ? " \\u00b7 " + d.by : "") : "";
+      pill.title = s && d.at ? when(d.at) : "";
+      var b = c.querySelector('a[data-act="decide"]');
+      if (b) {
+        var decision = s === "Approved" || s === "Archived" ? "reopen" : "acknowledge";
+        var action = JSON.parse(b.getAttribute("data-tl-action"));
+        action.decision = decision;
+        b.setAttribute("data-tl-action", JSON.stringify(action));
+        b.setAttribute("href", b.getAttribute("href").replace(/([?&]decide=)[a-z]+/, "$1" + decision));
+        b.querySelector("span").textContent = decision === "reopen" ? "Back to review" : "Acknowledge";
+        b.title = host ? "You confirm in Tensorleap, " + who + "."
+                       : "Opens Tensorleap. You confirm there, under your name.";
+      }
+      var on = s === "Approved", was = c.parentNode === shelfCards;
+      if (on && !was) shelfCards[live ? "prepend" : "append"](c);
+      if (!on && was) home[id].after(c);
+      c.classList.toggle("settle", !!live && on && !was);
+      if (s) total++;
+      if (s && s !== "InReview") done++;
+      if (on) pinned++;
+      latest = Math.max(latest, Date.parse(d.at) || 0);
     });
-    last = null;
-    shelf.hidden = n === 0;
-    shelf.querySelector(".count").textContent = n;
-    q(".review").classList.toggle("done", n === total);
-    q(".rtop b").textContent = n;
+    shelf.hidden = !pinned;
+    shelf.querySelector(".count").textContent = pinned;
+    q(".review").hidden = !total;
+    q(".review").classList.toggle("done", done === total);
+    q(".rtop b").textContent = done;
     q(".rtop .tot").textContent = total;
     q(".rbar").setAttribute("aria-valuemax", total);
-    q(".rbar").setAttribute("aria-valuenow", n);
-    q(".rbar span").style.width = Math.round(100 * n / (total || 1)) + "%";
-    q(".rnote").textContent = RO
-      ? "Read-only copy shared from a review; the approvals can't be changed here."
-      : n === 0
-      ? "Approve the insights you agree with. They move to the top so your team sees what was confirmed."
-      : n === total ? "Every insight reviewed."
-      : (total - n) + " left to review. Approved insights are pinned at the top.";
-    var s = q(".rsaved");
-    s.classList.toggle("warn", !RO && !SYNC && !canStore);
-    s.querySelector("span").textContent = RO
-      ? "Shared " + when(st.savedAt)
-      : SYNC ? (syncedAt ? "Saved in Tensorleap, " + when(syncedAt) : "Approvals are saved in Tensorleap as you click.")
-      : !canStore ? "This browser isn't keeping your approvals here. Download a copy to keep them."
-      : savedAt ? "Saved in this browser, " + when(savedAt)
-      : "Your approvals are saved in this browser as you click.";
-    q(".racts").hidden = RO;
+    q(".rbar").setAttribute("aria-valuenow", done);
+    q(".rbar span").style.width = Math.round(100 * done / (total || 1)) + "%";
+    q(".rnote").textContent = RO ? "Read-only copy. It shows what was decided when it was shared."
+      : host ? "Decisions are saved in Tensorleap " + who + "."
+      : "Decisions are made in Tensorleap, under your name. The buttons open it.";
+    q(".rfoot").textContent = RO ? (st.savedAt ? "Shared " + when(st.savedAt) : "")
+      : !host ? "This file shows what was decided when it was exported."
+      : latest ? "Last change " + when(latest) : "";
   }
-  function sharedPage() {
-    var next = {reportId: st.reportId, readonly: true, approved: approved.slice(),
-                savedAt: new Date().toISOString()};
+  // the copy is this page as it was loaded, with only the state block replaced
+  q("button.share").addEventListener("click", function () {
+    var next = {v: 2, reportId: st.reportId, readonly: true, approved: [],
+                savedAt: new Date().toISOString(), decisions: decisions};
+    Object.keys(decisions).forEach(function (id) {
+      if (decisions[id].status === "Approved") next.approved.push(id);
+    });
     var json = JSON.stringify(next).replace(/</g, "\\\\u003c");
-    return SRC.replace('id="tl-review">' + ORIG, function () { return 'id="tl-review">' + json; });
-  }
-  var FILE = (q("h1").textContent.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "")
-              || "report") + "-review.html";
-  function download(page) {
+    var page = SRC.replace('id="tl-review">' + ORIG, function () { return 'id="tl-review">' + json; });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([page], {type: "text/html"}));
-    a.download = FILE;
+    a.download = (q("h1").textContent.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "")
+                  || "report") + "-read-only.html";
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
-  }
-  var toastEl = q(".toast"), toastT = null;
-  function toast(text) {
-    toastEl.textContent = text;
-    toastEl.hidden = false;
-    clearTimeout(toastT);
-    toastT = setTimeout(function () { toastEl.hidden = true; }, 4000);
-  }
-  q("button.share").addEventListener("click", function () {
-    download(sharedPage());
-    toast("Read-only copy downloaded");
   });
-  window.addEventListener("storage", function (e) {
-    if (RO || e.key !== KEY) return;
-    try { var v = JSON.parse(e.newValue || "null"); } catch (x) { return; }
-    apply(v ? v.approved : st.approved);
-    savedAt = v ? v.savedAt : null;
-    render();
-  });
-  apply(saved);
+  function valid(n) {
+    return n && typeof LABEL[n.status] === "string" &&
+      (n.by == null || typeof n.by === "string") && (n.at == null || typeof n.at === "string");
+  }
   render();
+  if (sync && window.parent !== window) {
+    var cardOf = Object.create(null);
+    Object.keys(sync.insights).forEach(function (id) { cardOf[sync.insights[id]] = id; });
+    window.addEventListener("message", function (e) {
+      var d = e.data;
+      if (e.source !== window.parent || !d) return;
+      if (d.type === "tl-report-host" && d.v === 2 && typeof d.user === "string") {
+        host = true;
+        user = d.user;
+        document.documentElement.setAttribute("data-host", "");
+        render();
+      } else if (d.type === "tl-report-decisions" && d.decisions && typeof d.decisions === "object") {
+        Object.keys(d.decisions).forEach(function (cid) {
+          var id = cardOf[cid], n = d.decisions[cid];
+          if (id && cards[id] && valid(n)) decisions[id] = {status: n.status, by: n.by, at: n.at};
+        });
+        render(true);
+      }
+    });
+    document.addEventListener("click", function (e) {
+      var a = host && e.target.closest && e.target.closest("[data-tl-action]");
+      if (!a) return;
+      var action = JSON.parse(a.getAttribute("data-tl-action"));
+      // the host acts on a platform insight; without its id the link is all there is
+      if (!action.insightId) return;
+      e.preventDefault();
+      window.parent.postMessage({type: "tl-report-action", action: action}, "*");
+    });
+    window.parent.postMessage({type: "tl-report-ready", v: 2}, "*");
+  }
 })();
 """
 
@@ -984,6 +957,8 @@ ICON_CHECK = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
               '<path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>')
 ICON_DOWNLOAD = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
                  '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"></path></svg>')
+ICON_ARROW = ('<svg class="ext" viewBox="0 0 24 24" role="img" aria-label="opens Tensorleap">'
+              '<path d="M7 17 17 7M8 7h9v9"></path></svg>')
 
 
 def _font_css():
@@ -1098,29 +1073,45 @@ def _card_chips(card):
     return chips
 
 
-def _card_html(card, kind, base, missing, modality):
+def _action_html(action, href, tip, inner):
+    return (f'<a class="button act" href="{_esc(href)}" target="_blank" rel="noopener" '
+            f'data-tl-action="{_esc(json.dumps(action))}" data-act="{action["type"]}" '
+            f'title="{_esc(tip)}">{inner}{ICON_ARROW}</a>')
+
+
+def _card_html(card, kind, base, missing, modality, state):
     sev = int(card.get("severity", 1))
     idx = _idx(card["id"])
-    buttons = [f'<button type="button" class="apv" aria-pressed="false">'
-               f'{ICON_CHECK}<span>Approve</span></button>']
-    at = card.get("add_test")
-    if at:
-        tip = " ".join(x for x in (at.get("label"), at.get("tip")) if x)
-        buttons.append(f'<a class="button" href="{_esc(at["link"])}" '
-                       f'target="_blank" rel="noopener" title="{_esc(tip)}">'
-                       f'{ICON_PLUS}Test</a>')
+    common = {"card": card["id"], "title": card["heading"]}
+    cid = state.get("sync", {}).get("insights", {}).get(card["id"])
+    if cid:
+        common["insightId"] = cid
+    buttons = []
     ex = card.get("explore")
     if ex:
         tip = " ".join(x for x in (ex.get("text"), ex.get("detail")) if x)
-        buttons.append(f'<a class="button" href="{_esc(ex["link"])}" '
-                       f'target="_blank" rel="noopener" title="{_esc(tip)}">'
-                       f'{ICON_MAGNIFIER}Analyze insight</a>')
+        buttons.append(_action_html({"type": "open", **common}, ex["link"], tip,
+                                    f'{ICON_MAGNIFIER}Open proof'))
+        if cid:
+            decided = state["decisions"].get(card["id"], {}).get("status") in ("Approved", "Archived")
+            decision = "reopen" if decided else "acknowledge"
+            href = (f'{ex["link"]}{"&" if "?" in ex["link"] else "?"}decide={decision}'
+                    f'&decideInsight={cid}')
+            label = "Back to review" if decided else "Acknowledge"
+            buttons.append(_action_html({"type": "decide", **common, "decision": decision}, href,
+                                        "Opens Tensorleap. You confirm there, under your name.",
+                                        f'{ICON_CHECK}<span>{label}</span>'))
+    at = card.get("add_test")
+    if at:
+        tip = " ".join(x for x in (at.get("label"), at.get("tip")) if x)
+        buttons.append(_action_html({"type": "test", **common}, at["link"], tip, f'{ICON_PLUS}Test'))
     ac = card.get("add_comment")
     if ac:
         href = ac["link"] + urllib.parse.quote(card["heading"], safe="")
-        buttons.append(f'<a class="button" href="{_esc(href)}" target="_blank" rel="noopener" '
-                       f'title="Write this card\'s title into the insight\'s note in Tensorleap (you confirm there)">'
-                       f'{ICON_COMMENT}Add comment</a>')
+        buttons.append(_action_html(
+            {"type": "comment", **common, "text": card["heading"]}, href,
+            "Write this card's title into the insight's note in Tensorleap (you confirm there)",
+            f'{ICON_COMMENT}Add comment'))
     btns = f'<span class="cbtns">{"".join(buttons)}</span>'
     chips = [f'<span class="chip sev"><span class="k">Severity</span>'
              f'<b>{sev} of 3</b></span>']
@@ -1130,7 +1121,7 @@ def _card_html(card, kind, base, missing, modality):
     parts = [f'<section class="card" id="{_esc(card["id"])}" '
              f'data-kind="{kind}" data-sev="{sev}">',
              f'<div class="chead"><span class="cidx">{_esc(idx)}</span>'
-             f'<h3><span class="apvbadge">{ICON_CHECK}Approved</span>'
+             f'<h3><span class="pill">{ICON_CHECK}<span></span></span>'
              f'{_esc(card["heading"])}</h3>{btns}</div>',
              f'<div class="chips">{"".join(chips)}</div>',
              f'<p class="lede">{_esc(card["lede"])}</p>']
@@ -1209,15 +1200,13 @@ def _header_html(spec):
 
 
 REVIEW_BOX = (
-    '<div class="review"><div class="rtop"><span class="k">Your review</span>'
-    '<span><b>0</b> of <i class="tot">0</i> approved</span></div>'
-    '<div class="rbar" role="progressbar" aria-label="Insights approved" '
+    '<div class="review" hidden><div class="rtop"><span class="k">Review</span>'
+    '<span><b>0</b> of <i class="tot">0</i> decided</span></div>'
+    '<div class="rbar" role="progressbar" aria-label="Findings decided" '
     'aria-valuemin="0" aria-valuenow="0"><span></span></div>'
-    '<div class="rnote"></div>'
-    f'<div class="rfoot"><div class="rsaved">{ICON_CHECK}<span></span></div>'
-    '<div class="racts"><button type="button" class="share" '
-    f'title="Download a read-only copy to share">{ICON_DOWNLOAD}Share</button>'
-    '</div></div></div>')
+    '<div class="rnote"></div><div class="rfoot"></div>'
+    '<button type="button" class="share" title="Download a copy that shows the decisions '
+    f'and has no buttons, to send to someone">{ICON_DOWNLOAD}Share a read-only copy</button></div>')
 
 
 def _tile_html(tile):
@@ -1229,12 +1218,10 @@ def _tile_html(tile):
 
 
 def _review_state(spec, base):
-    """The page's review state. Each card is matched to its platform insight in
-    insights.json beside report.json: cards start approved when the insight is,
-    and with the server's API address and the insight ids ("sync") Approve updates
-    the insight on the server (insights/reportApproval). Without them (an older
-    server's export) approvals stay in the reader's browser."""
-    state = {"reportId": uuid.uuid4().hex, "readonly": False, "approved": [], "savedAt": ""}
+    # readonly, approved and savedAt stay so a Tensorleap viewer that predates "v": 2
+    # still parses the block
+    state = {"v": 2, "reportId": uuid.uuid4().hex, "readonly": False, "approved": [],
+             "savedAt": "", "decisions": {}}
     try:
         digest = json.load(open(os.path.join(base, "insights.json")))
     except (OSError, ValueError):
@@ -1252,6 +1239,8 @@ def _review_state(spec, base):
             d = m and by_index.get(int(m.group(2) or m.group(1)))
             if not d:
                 continue
+            if d.get("status"):
+                state["decisions"][card["id"]] = {"status": d["status"]}
             if d.get("status") == "Approved":
                 state["approved"].append(card["id"])
             if d.get("cid"):
@@ -1290,16 +1279,17 @@ def _report_html(spec, base, missing):
                  f'severity, then by the number of affected samples.</p>'
                  f'<div class="tablewrap"><table>{"".join(rows)}</table>'
                  f'</div></section>')
-    parts.append('<section class="block" id="approved" hidden>'
-                 '<div class="grouphead"><h2>Approved</h2>'
+    parts.append('<section class="block" id="acknowledged" hidden>'
+                 '<div class="grouphead"><h2>Acknowledged</h2>'
                  '<span class="count">0</span></div>'
-                 '<p class="blurb">Findings the reviewer agreed with, pinned '
-                 'above the rest. Approve or undo from each card header.</p>'
+                 '<p class="blurb">Findings acknowledged in Tensorleap, pinned '
+                 'above the rest.</p>'
                  '<div class="cards"></div></section>')
     modality = _modality(spec)
+    state = _review_state(spec, base)
     for group in spec.get("groups", []):
         kind = _kind(group["type"])
-        cards = "".join(_card_html(c, kind, base, missing, modality)
+        cards = "".join(_card_html(c, kind, base, missing, modality, state)
                         for c in group["cards"])
         parts.append(f'<section class="block group">'
                      f'<div class="grouphead"><h2>{_esc(group["type"])}</h2>'
@@ -1307,8 +1297,6 @@ def _report_html(spec, base, missing):
                      f'<p class="blurb">{_esc(group["meaning"])}</p>'
                      f'<div class="cards">{cards}</div></section>')
     parts.append("</main>")
-    state = _review_state(spec, base)
-    parts.append('<div class="toast" role="status" hidden></div>')
     state_json = json.dumps(state).replace("<", "\\u003c")  # nothing in it may close the script tag
     parts.append(f'<script type="application/json" id="tl-review">{state_json}</script>')
     parts.append(f"<script>\n{REVIEW_JS}</script>")
@@ -1353,7 +1341,7 @@ def _report_txt(spec):
                 lines.append(f'Root cause · {rc["family"]}: {_strip_tags(rc["caption"])}')
             ex = c.get("explore")
             if ex:
-                lines.append(f'[header button] Analyze insight '
+                lines.append(f'[header button] Open proof '
                              f'(tooltip: {_strip_tags(ex.get("text", ""))} '
                              f'{_strip_tags(ex.get("detail", ""))})')
             lines.append(f'Bottom line: {_strip_tags(c["lede"])}')
