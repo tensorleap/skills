@@ -95,13 +95,19 @@ the assistant started before the sign-in, the reload step brings them; when
 they are still missing after it, the leap CLI predates this skill: ask the
 user to run `leap cli upgrade -s | bash` and reload, then stop. If `tl_status` fails, relay its message verbatim (it says whether
 to run `leap auth login`, fix `--env`, or check the tunnel) and stop.
+**Devin:** also tell the user not to run `leap auth login` for this: it does
+not reach Devin's MCP server, and a new login replaces their API key. They put
+the URL and key their own machine's CLI holds now into `TL_API_URL` /
+`TL_API_KEY` in Customize > MCPs and start a new session.
 
 **Signing the CLI in.** Only the user can sign in, so this comes before
 everything else. Don't look for API keys, passwords or config files, and don't
 ask the user to run the login.
+
 **Devin:** skip this block. The sign-in is the `TL_API_URL` / `TL_API_KEY` pair
 on the MCP server: tell the user to fix them in Customize > MCPs and start a
 new session, then stop.
+
 1. Start `leap auth login <url> --non-interactive < /dev/null` as a
    **background** command. It tries to open the sign-in page in the user's
    browser, prints the page's link, and waits up to 5 minutes.

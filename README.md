@@ -303,7 +303,8 @@ The skill activates on Tensorleap-integration language; a good starting prompt:
    set Command `leap`, Arguments `mcp`, and two environment variables:
    `TL_API_URL` (the API URL `leap auth whoami` shows on your own machine) and
    `TL_API_KEY` (the `api_key` that `leap auth login` saved under `auth:` in
-   `~/.config/tensorleap/config.yaml` on your own machine).
+   `~/.config/tensorleap/config.yaml` on your own machine; `auth:` is the
+   current environment only, so for another server take `envs.<name>.api_key`).
 
 A Tensorleap user has one API key at a time, and every `leap auth login`
 replaces it. If you sign in again anywhere with that user, update `TL_API_KEY`
