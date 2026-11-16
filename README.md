@@ -273,8 +273,8 @@ there's no persistent home directory for Devin to read a personal skill from.
 ### Verify it's discovered
 
 Open the skill list in a Devin session for the repo (or ask Devin to list its
-skills) — `tensorleap-integration-creation` should appear, sourced from
-`.devin/skills/`.
+skills) — `tensorleap-integration-creation` and `tensorleap-analysis` should
+appear, sourced from `.devin/skills/`.
 
 ### Use it
 
@@ -293,11 +293,21 @@ The skill activates on Tensorleap-integration language; a good starting prompt:
 
 1. **leap CLI on Devin's machine.** Add the leap CLI install to the
    `initialize` section of the repo's blueprint (Settings > Environment >
-   Blueprints), so every session starts with it. It needs 0.0.163 or newer.
+   Blueprints), so every session starts with it. It needs 0.0.163 or newer:
+
+   ```bash
+   curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash
+   ```
+
 2. **MCP server.** In Customize > MCPs, click "+" > New MCP, choose STDIO, and
    set Command `leap`, Arguments `mcp`, and two environment variables:
    `TL_API_URL` (the API URL `leap auth whoami` shows on your own machine) and
-   `TL_API_KEY`.
+   `TL_API_KEY` (the `api_key` that `leap auth login` saved under `auth:` in
+   `~/.config/tensorleap/config.yaml` on your own machine).
+
+A Tensorleap user has one API key at a time, and every `leap auth login`
+replaces it. If you sign in again anywhere with that user, update `TL_API_KEY`
+in Devin; a separate Tensorleap user for Devin avoids this.
 
 Your Tensorleap server must be reachable from Devin's cloud machine; one on
 your laptop or behind a firewall is not. Then start a new session and ask:

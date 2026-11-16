@@ -112,6 +112,9 @@ to run `leap auth login`, fix `--env`, or check the tunnel) and stop.
 **Signing the CLI in.** Only the user can sign in, so this comes before
 everything else. Don't look for API keys, passwords or config files, and don't
 ask the user to run the login.
+**Devin:** skip this block. The sign-in is the `TL_API_URL` / `TL_API_KEY` pair
+on the MCP server: tell the user to fix them in Customize > MCPs and start a
+new session, then stop.
 1. Start `leap auth login <url> --non-interactive < /dev/null` as a
    **background** command. It tries to open the sign-in page in the user's
    browser, prints the page's link, and waits up to 5 minutes.
