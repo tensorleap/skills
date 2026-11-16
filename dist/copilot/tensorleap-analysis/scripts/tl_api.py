@@ -521,8 +521,8 @@ header { border-bottom: 1px solid var(--line); }
 .topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 40; display: flex;
      align-items: center; gap: 18px; height: 44px; box-sizing: border-box;
      padding: 0 max(28px, calc((100vw - 1180px) / 2 + 28px));
-     border-bottom: 1px solid var(--line); background: rgba(28,28,31,.94);
-     backdrop-filter: blur(8px); font-size: 13px; }
+     border-bottom: 1px solid var(--line); background: var(--page-bg);
+     font-size: 13px; }
 .topbar[hidden], .tprog[hidden] { display: none; }
 .tname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
      white-space: nowrap; font-weight: 800; }
@@ -892,9 +892,9 @@ REVIEW_JS = """\
   });
 
   var bar = q(".topbar"), head = q("header");
-  function onScroll() { bar.hidden = window.scrollY < head.offsetHeight - 8; }
-  window.addEventListener("scroll", onScroll, {passive: true});
-  onScroll();
+  new IntersectionObserver(function (entries) {
+    bar.hidden = entries[0].isIntersecting;
+  }).observe(head);
 
   var zoom = document.createElement("div");
   zoom.className = "lightbox";
@@ -1094,7 +1094,9 @@ def _figure_html(sample, base, missing, pair_labels=None):
                            f"reference the original image")
         elif not os.path.isfile(os.path.join(base, src)):
             missing.append(f"missing image: {src}")
-        imgs.append(f'<img src="{_esc(src)}" loading="lazy" alt="">')
+        imgs.append(
+            f'<img src="{_esc(src)}" loading="lazy" decoding="async" alt="">'
+        )
     if len(imgs) > 1:
         labels = list(pair_labels or [])
         cells = []
