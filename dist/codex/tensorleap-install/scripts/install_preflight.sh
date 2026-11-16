@@ -12,6 +12,9 @@ if [[ -z "${TL_SKILL_NO_UPDATE:-}" && -f "$(dirname "$0")/self_update.sh" ]]; th
   [[ $rc -eq 10 ]] && TL_SKILL_NO_UPDATE=1 exec "$0" "$@"
 fi
 
+# Skills level this skill needs from the server (see compat_check.sh).
+bash "$(dirname "$0")/compat_check.sh" 0
+
 FAILS=0
 ok()   { printf '  [ok]   %s\n' "$*"; }
 warn() { printf '  [warn] %s\n' "$*"; }

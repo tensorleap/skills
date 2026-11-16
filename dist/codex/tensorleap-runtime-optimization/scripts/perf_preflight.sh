@@ -39,6 +39,9 @@ if [[ -z "${TL_SKILL_NO_UPDATE:-}" && -f "$(dirname "$0")/self_update.sh" ]]; th
   [[ $rc -eq 10 ]] && TL_SKILL_NO_UPDATE=1 exec "$0" "$@"
 fi
 
+# Skills level this skill needs from the server (see compat_check.sh).
+TL_CLI="$TL_CLI" bash "$(dirname "$0")/compat_check.sh" 0
+
 echo "Tensorleap server-validation preflight"
 
 # 1. leap.yaml — the push target ------------------------------------------------

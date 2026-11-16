@@ -132,7 +132,7 @@ def load_state():
 def id_from_push_log(path):
     with open(path, errors="replace") as f:
         text = f.read()
-    for line in text.splitlines():  # a future `leap push --output json` line
+    for line in text.splitlines():  # a JSON line, should push ever print one
         line = line.strip()
         if line.startswith("{"):
             try:
