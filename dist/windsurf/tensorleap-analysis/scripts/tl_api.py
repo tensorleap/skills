@@ -484,7 +484,7 @@ def cmd_render_charts(args):
 
 REPORT_CSS = """\
 :root {
-  color-scheme: dark;
+  color-scheme: dark; scrollbar-color: #52525b #1c1c1f;
   --page-bg: #1c1c1f; --card: #27272a; --chip: #323236;
   --ink: #fafafa; --ink-2: #d4d4d8; --muted: #a1a1aa;
   --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.14);
@@ -738,7 +738,7 @@ button.share:hover { background: rgba(255,255,255,.06); }
 button.share:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
 button.share svg { width: 14px; height: 14px; fill: none; stroke: currentColor;
      stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-html[data-ro] .cbtns, html[data-ro] button.share, html[data-host] button.share { display: none; }
+html[data-ro] .cbtns, html[data-ro] button.share { display: none; }
 .pill { display: none; width: fit-content; align-items: center; gap: 6px;
      margin-bottom: 6px; padding: 2px 10px; border-radius: 999px;
      font-size: 12px; font-weight: 700; line-height: 18px; }

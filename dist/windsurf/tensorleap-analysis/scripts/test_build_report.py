@@ -311,7 +311,7 @@ def check_report_names_actions_and_does_nothing_itself():
     assert body.count("<button") == 1 and '<button type="button" class="share"' in body, "Share is the only button"
     assert "readonly: true" in script and "sync" not in script.split("readonly: true")[1].split("};")[0], \
         "the shared copy is read-only and carries no server address"
-    assert "html[data-ro] .cbtns, html[data-ro] button.share, html[data-host] button.share { display: none; }" in page
+    assert "html[data-ro] .cbtns, html[data-ro] button.share { display: none; }" in page
     assert 'id="acknowledged" hidden' in body and '<div class="review" hidden>' in body
     assert body.index('id="tl-review">') < body.index('getElementById("tl-review")'), "state block precedes the script"
 
