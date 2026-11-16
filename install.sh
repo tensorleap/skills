@@ -151,6 +151,8 @@ install_skill_folders() {
     mkdir -p "$dest"
     cp -R "$src/." "$dest/"
     chmod +x "$dest"/scripts/*.sh 2>/dev/null || true
+    # self_update.sh compares this with the ref the installed leap CLI ships with
+    if [ -n "$REF" ]; then printf '%s\n' "$REF" > "$dest/REF"; fi
     say "$1 skill -> $dest"
   done
 }

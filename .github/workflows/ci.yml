@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -23,6 +25,10 @@ jobs:
 
       - name: Manifest validity (marketplace.json + plugin.json)
         run: python build/check_manifests.py
+
+      - name: Version bumps (a changed skill bumps its skill.md and plugin versions)
+        if: github.event_name == 'pull_request'
+        run: python build/check_versions.py ${{ github.event.pull_request.base.sha }}
 
       - name: py_compile (all Python)
         run: python -m py_compile build/*.py skills/*/scripts/*.py

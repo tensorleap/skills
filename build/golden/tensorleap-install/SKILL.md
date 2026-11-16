@@ -159,10 +159,11 @@ reason an install call is wasted is that IT hasn't prepared the machine. Hand ov
 Quick path: `bash <this skill's dir>/scripts/install_preflight.sh` (use the skill's
 absolute path — your shell's cwd is the user's project, not the skill) runs every read-only check in this
 step and prints a report; the sections below explain how to read it and what to fix.
-It first checks for a newer version of this skill. A `Tensorleap skill: updating …` line means
-the skill's files were just refreshed: re-read this file before continuing. A `NOTE:` line means
-a project-local install has an update available: ask the user before running the printed command.
-A Claude Code plugin update loads in the next session; continue with the installed version.
+It first moves this skill to the version the installed leap CLI ships with. A `Tensorleap skill:
+updating …` line means the skill's files were just refreshed: re-read this file before continuing.
+A `NOTE:` line is for the user: relay it, and when it asks for approval of a project-local update,
+ask before running the printed command. When it says the Tensorleap plugins moved (Claude Code),
+the user should run `/reload-plugins` and ask again; continue with the installed version meanwhile.
 
 Fix failures before installing — the installer's own checks happen late and some failures roll
 back a 20-minute install.
