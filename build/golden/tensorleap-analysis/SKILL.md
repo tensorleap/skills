@@ -627,11 +627,14 @@ not redo the analysis: read the report back.
 3. Do the action items with the tools you have (the export, the user's
    code and data), one finding at a time, and say what you changed and what
    is still open.
-4. **Decide only on the user's word.** When the user tells you to
-   acknowledge, archive or reopen a finding, call `tl_decide_finding` with
-   the report's `projectId` (the id, not the project name) and the
-   finding's `insightId`; it is recorded under their name, marked as
-   done through their assistant. Never decide on your own judgment.
+4. **Decide only on the user's word.** When the user names the decision
+   for a finding (acknowledge, archive or reopen), call
+   `tl_decide_finding` with the report's `projectId` (the id, not the
+   project name) and the finding's `insightId`; it is recorded under their
+   name, marked as done through their assistant. When they leave the
+   choice to you ("decide as you see fit", "handle the rest"), record
+   nothing yet: list the decision you would make for each finding with a
+   one-line reason, and record only what they confirm.
 5. When the work changed what the report says (a new evaluation, a fix
    that held), rebuild it and publish with the earlier `reportId`, so there
    is one report to follow rather than a pile.
