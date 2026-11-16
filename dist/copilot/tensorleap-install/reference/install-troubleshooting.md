@@ -780,7 +780,7 @@ evaluate + analysis usually means the machine itself is undersized.
   starting (Elasticsearch is slowest and the gateway waits for it). Wait, then hard-refresh.
 - First `leap push` takes **10–20 min** building the requirements image; later pushes reuse it
   unless requirements change.
-- `leap code push` **CLI wait times out** while the build continues server-side — cosmetic;
+- `leap push` **CLI wait times out** while the build continues server-side — cosmetic;
   follow the job in the UI.
 - First job after an upgrade **pends a couple of minutes** while images cache into k8s.
 - **The last lines of a successful run can be red `ERROR`s.** Installer telemetry POSTs after

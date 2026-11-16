@@ -60,11 +60,17 @@ it off).
 
 ## Step 1: Preflight
 
-Run `bash scripts/self_update.sh` first. Exit 0: nothing to do.
-Exit 10: the skill's files were just refreshed, re-read this file and start
-over. A `NOTE:` line means a project-local install has an update available:
-ask the user before running the printed command. A Claude Code plugin update
-loads in the next session; continue with the installed version.
+Run `bash scripts/self_update.sh` first. It moves the skills to the
+version the installed leap CLI ships with. Exit 0: nothing to do. Exit 10: the
+skill's files were just refreshed, re-read this file and start over. A `NOTE:`
+line is for the user: relay it, and when it asks for approval of a project-local
+update, ask before running the printed command. When it says the Tensorleap
+plugins moved (Claude Code), the user should run `/reload-plugins` and ask
+again; continue with the installed version meanwhile.
+
+Then run `bash scripts/compat_check.sh 0`. A `WARNING:` line means
+this skill needs a newer Tensorleap server than the user has: tell the user
+what it says, then continue.
 
 Then call `tl_status`. **If the Tensorleap tools aren't available** (none, or
 only `tl_status`), now or later in this chat, tell the user first and give them

@@ -89,6 +89,9 @@ if [[ -z "${TL_SKILL_NO_UPDATE:-}" && -f "$(dirname "$0")/self_update.sh" ]]; th
   [[ $rc -eq 10 ]] && TL_SKILL_NO_UPDATE=1 exec "$0" "$@"
 fi
 
+# Skills level this skill needs from the server (see compat_check.sh).
+TL_CLI="$TL_CLI" bash "$(dirname "$0")/compat_check.sh" 0
+
 # Record the run's start (one skill_run event with the leap CLI's device/user id; TL_DISABLE_ANALYTICS=1 turns it off).
 record_start() { python3 "$(dirname "$0")/skill_run.py" tensorleap-integration-creation started --exit-code "$1" >/dev/null 2>&1 || true; }
 trap 'record_start $?' EXIT
