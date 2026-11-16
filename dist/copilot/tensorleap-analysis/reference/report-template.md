@@ -30,17 +30,17 @@ is for users who know the platform and want to continue there.
 
 **The reader reviews in the report and decides in Tensorleap.** Every card
 carries its insight's platform status as a pill (Needs review, Acknowledged or
-Archived); acknowledged cards are pinned in an "Acknowledged" section above the
-type groups, and a "Review" box in the sticky header counts the decided ones.
+Archived); the Findings table shows the same status on each row, and a "Review"
+line in the header counts the reviewed ones. Cards stay where they are.
 The report changes nothing by itself. Opened as a file, the **Acknowledge**
 button (**Back to review** on a decided card) is a link into Tensorleap, where
 the signed-in person confirms and the decision is recorded under their name; the
 file keeps showing the statuses it was exported with. Inside Tensorleap's report
 viewer the same buttons hand the action to the app, and the pills follow the
 decisions made there. An export from an older server, without insight ids, gets
-no Acknowledge button. "Share a read-only copy" in the Review box downloads the
-report with the statuses baked in and no card buttons, for someone who does not
-use Tensorleap. All of it is script-owned: no report.json field, nothing
+no Acknowledge button. "Read-only copy" in the header downloads the report with
+the statuses baked in and no action buttons, for someone who does not use
+Tensorleap. All of it is script-owned: no report.json field, nothing
 for you to write, and never mention it in the prose.
 
 **The page is dark-only**, the Tensorleap product palette (Nunito Sans,
@@ -48,7 +48,7 @@ embedded; each insight type carries its own accent color). All of that is
 script-owned; you never pick colors.
 
 **A card is skimmable first, deep on demand.** What is visible by default:
-heading, the "Open proof", "Acknowledge", "Test" and "Add comment" header buttons,
+heading, the "Open proof" and "Acknowledge" header buttons,
 chips, the bold bottom line, and "Do next". The diagnosis (root cause, prose,
 split/contrast bars) sits behind a collapsed **Analysis info** fold, your read of the samples
 behind a collapsed **LLM <modality> analysis** fold (the script derives the
@@ -98,10 +98,13 @@ The HTML page runs header → KPI tiles → summary → overview table → insig
 groups, and ends with the last card. Notes live in `report.md` alone
 (item 6).
 
-1. **Sticky header**, "Tensorleap analysis" eyebrow, `PROJECT · VERSION`
-   title, an "Open in Tensorleap" button (the Insights-panel link), and a
+1. **Header**, "Tensorleap analysis" eyebrow, `PROJECT · VERSION`
+   title, the script's one-line description of what the report is, an
+   "Open in Tensorleap" button (the Insights-panel link), and a
    chip row: evaluation date (`evaluated`) and the insight counts (`meta`),
-   plus the script's "Review" box.
+   plus the script's "Review" line and "Read-only copy" button. Once the
+   reader scrolls past it, a slim bar keeps the title, the review count and
+   a link back to Findings.
    The model/version identity lives in the title alone, no model chip, no
    severity-summary chip.
 2. **KPI strip** (`.tiles`): 3–4 stat tiles with the model-level numbers a
@@ -194,10 +197,12 @@ restate severity in `chips`. Card content, in render order:
    the script derives it from `id` and renders it in the card header and the
    overview table; prose cross-references between cards go by NAME ("the
    tiny-objects fix above"), never by number.
-   *The header buttons, in order: item 10's `explore` ("Open proof"), the
-   script's Acknowledge button, then item 9's `add_test` ("Test") and
-   `add_comment` ("Add comment"); each opens the platform in a new tab.*
-2. **Chips** (`chips`): sample count, key metric, latent space (the severity
+   *The header buttons, in order: item 10's `explore` ("Open proof") and the
+   script's Acknowledge button; each opens the platform in a new tab. Item
+   9's `add_test` renders with the action items.*
+2. **Chips** (`chips`): sample count and key metric, nothing a reader new to
+   Tensorleap would have to look up: the latent space is translated in the
+   prose, never a chip (the severity
    chip is script-generated, and an "insight #N" chip is dropped, the
    header already carries the number). The count chip is
    `population.samples`, and every other number on the card (composition, contrast,
@@ -302,15 +307,15 @@ restate severity in `chips`. Card content, in render order:
    `automatic_tests`), add `add_test` = `{"link": "<digest add_test_link>",
    "label": "Add regression test in Tensorleap", "tip": "<the test condition
    in one phrase, e.g. cross-entropy stays below 0.46 on this cluster>"}`,
-   rendered as the **"Test" button in the card header**, which opens the
-   platform; there the user confirms creating the insight's automatic test
+   rendered as the **"Add the regression test" button under the action
+   items**, which opens the platform; there the user confirms creating the insight's automatic test
    (nothing is created without their click). `label` + `tip` become the
    button's hover tooltip.
    When the digest carries `add_comment_link`, add `add_comment` =
-   `{"link": "<digest add_comment_link, verbatim>"}`, rendered as the
-   **"Add comment" button in the card header**: the script appends the
-   card's heading to the link, and the platform writes it into the
-   insight's Note on the user's confirmation. A sub-based card uses its own
+   `{"link": "<digest add_comment_link, verbatim>"}`. It is kept in
+   report.json for Tensorleap's own view of the report; the HTML report
+   draws no button for it (a note is written where the decision is made, in
+   Tensorleap). A sub-based card uses its own
    sub-insight's `add_comment_link`. Never edit the link (build-report
    exits 8 when it doesn't end with `=`).
 10. **Open proof** (`explore`): the first card-header button. `link` =
@@ -358,7 +363,7 @@ review pass.
      "cards": [
        {"id": "insight-1", "severity": 3,
         "heading": "Heavy gaussian noise breaks the classifier",
-        "chips": ["314 samples", "accuracy 0.42", "image-non-semantic space"],
+        "chips": ["314 samples", "accuracy 0.42"],
         "lede": "Every sample in this group carries heavy gaussian noise, none of them are training samples, and accuracy halves on them.",
         "root_cause": {"family": "Data gap", "caption": "the corruption never appears in training; a coverage gap, not a model defect."},
         "prose": ["\u2026paragraphs with evidence + latent-space translation\u2026"],

@@ -6,11 +6,9 @@ import re
 import subprocess
 import sys
 import tempfile
-from urllib.parse import parse_qs, quote, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LINK1 = "http://ui/i1?dashboard=d&state=s&addCommentToInsight=c1&comment="
-LINK2 = "http://ui/i2?dashboard=d&state=s&addCommentToInsight=c2&comment="
 
 
 def make_card(**over):
@@ -76,6 +74,11 @@ def labels(page, card_id):
     return [label for _, label, _ in header_buttons(page, card_id)]
 
 
+def card_actions(page, card_id):
+    return [(html.unescape(href), re.sub(r"<[^>]+>", "", inner).strip(), json.loads(html.unescape(action)))
+            for href, action, inner in re.findall(ACTION, card_section(page, card_id), re.S)]
+
+
 def review_state(page):
     return json.loads(re.search(r'<script type="application/json" id="tl-review">([^<]*)</script>', page).group(1))
 
@@ -85,33 +88,32 @@ def chips(page, card_id):
     return [html.unescape(c) for c in re.findall(r'<span class="chip">([^<]*)</span>', block)]
 
 
-def check_add_comment_button_carries_heading():
-    r, page, _ = build([make_card(heading="Night dogs & cats — #1 + 50%", add_comment={"link": LINK1})])
+def check_add_comment_is_accepted_but_not_a_report_button():
+    r, page, txt = build([make_card(add_comment={"link": LINK1})])
     assert r.returncode == 0, r.stderr
-    assert "Add comment" in labels(page, "insight-1"), labels(page, "insight-1")
-    href, _, action = header_buttons(page, "insight-1")[-1]
-    title = "Night dogs & cats, #1 + 50%"
-    assert href == LINK1 + quote(title, safe=""), href
-    assert action == {"type": "comment", "card": "insight-1", "title": title, "text": title}, action
-    assert parse_qs(urlsplit(href).query)["comment"] == [title], href
-    assert parse_qs(urlsplit(href).query)["addCommentToInsight"] == ["c1"], href
+    assert labels(page, "insight-1") == ["Open proof"], labels(page, "insight-1")
+    assert "Add comment" not in page and "Add comment" not in txt
 
 
 def check_sub_insight_card_targets_its_own_insight():
-    parent = make_card(add_comment={"link": LINK1})
-    sub = make_card(id="insight-1-sub-2", heading="Foggy dogs", add_test=None, add_comment={"link": LINK2})
-    r, page, _ = build([parent, sub])
+    parent = make_card()
+    sub = make_card(id="insight-1-sub-2", heading="Foggy dogs", add_test=None)
+    r, page, _ = build([parent, sub], digest=make_digest({1: "InReview", 2: "InReview"}))
     assert r.returncode == 0, r.stderr
     for card_id, cid in (("insight-1", "c1"), ("insight-1-sub-2", "c2")):
-        hrefs = [href for href, label, _ in header_buttons(page, card_id) if label == "Add comment"]
-        assert len(hrefs) == 1, (card_id, header_buttons(page, card_id))
-        assert parse_qs(urlsplit(hrefs[0]).query)["addCommentToInsight"] == [cid], hrefs
+        buttons = header_buttons(page, card_id)
+        assert [label for _, label, _ in buttons] == ["Open proof", "Acknowledge"], (card_id, buttons)
+        assert {action["insightId"] for _, _, action in buttons} == {cid}, (card_id, buttons)
 
 
-def check_report_txt_lists_add_comment():
-    r, _, txt = build([make_card(add_comment={"link": LINK1})])
+def check_test_action_sits_with_the_action_items():
+    r, page, txt = build([make_card(do_next=["Relabel the 2 samples."])], digest=make_digest({1: "InReview"}))
     assert r.returncode == 0, r.stderr
-    assert "[header button] Add comment" in txt, [l for l in txt.splitlines() if "header button" in l]
+    donext = re.search(r'<div class="donext">.*?</div></div>', card_section(page, "insight-1"), re.S).group(0)
+    assert "<li>Relabel the 2 samples.</li>" in donext
+    assert [(label, action["type"]) for _, label, action in card_actions(page, "insight-1")] == [
+        ("Open proof", "open"), ("Acknowledge", "decide"), ("Add the regression test", "test")]
+    assert 'data-act="test"' in donext and "[Do next button] Add the regression test" in txt
 
 
 def check_hand_edited_comment_link_rejected():
@@ -123,9 +125,12 @@ def check_hand_edited_comment_link_rejected():
 def check_no_button_without_link():
     r, page, txt = build([make_card()])
     assert r.returncode == 0, r.stderr
-    assert labels(page, "insight-1") == ["Open proof", "Test"], labels(page, "insight-1")
+    assert labels(page, "insight-1") == ["Open proof"], labels(page, "insight-1")
+    assert [label for _, label, _ in card_actions(page, "insight-1")] == ["Open proof", "Add the regression test"]
     assert "Add comment" not in page and "Add comment" not in txt
     assert "[header button] Open proof" in txt and "Analyze insight" not in page + txt
+    r, page, _ = build([make_card(add_test=None, explore=None)])
+    assert r.returncode == 0 and card_actions(page, "insight-1") == [] and 'class="donext"' not in page
 
 
 MISLABELING = {"family": "Mislabeling", "caption": "the model is right, the ground truth is wrong."}
@@ -222,10 +227,7 @@ def check_cards_without_chip_unchanged():
     r1, page1, txt1 = build([plain])
     r2, page2, txt2 = build([with_link])
     assert r1.returncode == 0 and r2.returncode == 0, (r1.stderr, r2.stderr)
-    stripped = re.sub(r'<a class="button act"[^>]*>(?:(?!</a>).)*Add comment(?:(?!</a>).)*</a>', "",
-                      card_section(page2, "insight-1"), flags=re.S)
-    assert stripped == card_section(page1, "insight-1")
-    assert [line for line in txt2.splitlines() if "Add comment" not in line] == txt1.splitlines()
+    assert card_section(page2, "insight-1") == card_section(page1, "insight-1") and txt2 == txt1
 
 
 def check_state_is_v2_with_decisions():
@@ -244,7 +246,7 @@ def check_state_is_v2_with_decisions():
 def check_actions_carry_payload_and_fallback_link():
     heading = "Night-time dogs are labelled cat"
     link = "http://ui/i?version=v&insight=c1"
-    card = make_card(explore={"link": link, "text": "open"}, add_comment={"link": LINK1})
+    card = make_card(explore={"link": link, "text": "open"})
     r, page, _ = build([card], digest=make_digest({1: "InReview"}))
     assert r.returncode == 0, r.stderr
     common = {"card": "insight-1", "insightId": "c1", "title": heading}
@@ -252,9 +254,10 @@ def check_actions_carry_payload_and_fallback_link():
         (link, "Open proof", dict(common, type="open")),
         (link + "&decide=acknowledge&decideInsight=c1", "Acknowledge",
          dict(common, type="decide", decision="acknowledge")),
-        ("http://ui/i1?addTestFromInsight=c1", "Test", dict(common, type="test")),
-        (LINK1 + quote(heading, safe=""), "Add comment", dict(common, type="comment", text=heading)),
     ], header_buttons(page, "insight-1")
+    assert card_actions(page, "insight-1")[2:] == [
+        ("http://ui/i1?addTestFromInsight=c1", "Add the regression test", dict(common, type="test")),
+    ], card_actions(page, "insight-1")
 
 
 def check_decide_button_follows_status():
@@ -274,27 +277,27 @@ def check_no_decide_without_insight_id_or_explore():
     cards = [make_card(id="insight-1", explore=None), make_card(id="insight-4")]
     r, page, _ = build(cards, digest=make_digest({1: "InReview", 4: None}))
     assert r.returncode == 0, r.stderr
-    assert labels(page, "insight-4") == ["Open proof", "Test"], labels(page, "insight-4")
-    assert not any("insightId" in action for _, _, action in header_buttons(page, "insight-4"))
-    assert [(label, action["insightId"]) for _, label, action in header_buttons(page, "insight-1")] == [("Test", "c1")]
+    assert labels(page, "insight-4") == ["Open proof"], labels(page, "insight-4")
+    assert not any("insightId" in action for _, _, action in card_actions(page, "insight-4"))
+    assert [(label, action["insightId"]) for _, label, action in card_actions(page, "insight-1")] == [
+        ("Add the regression test", "c1")]
     r, page, _ = build([make_card()])
     assert r.returncode == 0, r.stderr
-    assert labels(page, "insight-1") == ["Open proof", "Test"], labels(page, "insight-1")
+    assert labels(page, "insight-1") == ["Open proof"], labels(page, "insight-1")
     state = review_state(page)
     assert state["v"] == 2 and state["decisions"] == {} and "sync" not in state, state
 
 
 def check_heading_with_quotes_and_markup_is_escaped():
     heading = "Dogs \"at night\" <b>read</b> as 'cats' & <script>alert(1)</script>"
-    r, page, _ = build([make_card(heading=heading, add_comment={"link": LINK1})], digest=make_digest({1: "InReview"}))
+    r, page, _ = build([make_card(heading=heading)], digest=make_digest({1: "InReview"}))
     assert r.returncode == 0, r.stderr
     section = card_section(page, "insight-1")
     assert "<b>read" not in section and "<script" not in section, "the heading is text everywhere"
     raw = re.findall(r'data-tl-action="([^"]*)"', section)
-    assert len(raw) == 4 and not any(c in value for value in raw for c in "<>'"), raw
-    buttons = header_buttons(page, "insight-1")
-    assert [action["title"] for _, _, action in buttons] == [heading] * 4, buttons
-    assert buttons[-1][2]["text"] == heading and buttons[-1][0] == LINK1 + quote(heading, safe="")
+    assert len(raw) == 3 and not any(c in value for value in raw for c in "<>'"), raw
+    buttons = card_actions(page, "insight-1")
+    assert [action["title"] for _, _, action in buttons] == [heading] * 3, buttons
     assert f"</span>{html.escape(heading)}</h3>" in section
 
 
@@ -311,8 +314,9 @@ def check_report_names_actions_and_does_nothing_itself():
     assert body.count("<button") == 1 and '<button type="button" class="share"' in body, "Share is the only button"
     assert "readonly: true" in script and "sync" not in script.split("readonly: true")[1].split("};")[0], \
         "the shared copy is read-only and carries no server address"
-    assert "html[data-ro] .cbtns, html[data-ro] button.share { display: none; }" in page
-    assert 'id="acknowledged" hidden' in body and '<div class="review" hidden>' in body
+    assert "html[data-ro] a.act, html[data-ro] button.share { display: none; }" in page
+    assert '<div class="review" hidden>' in body and '<div class="topbar" hidden>' in body
+    assert body.count('<td class="stcell"></td>') == 1, "each findings row has a status cell the script fills"
     assert body.index('id="tl-review">') < body.index('getElementById("tl-review")'), "state block precedes the script"
 
 

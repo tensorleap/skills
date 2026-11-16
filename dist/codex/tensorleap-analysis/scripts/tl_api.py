@@ -508,23 +508,37 @@ a:hover { color: var(--acc); text-decoration: underline; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
-header { position: sticky; top: 0; z-index: 30; background: var(--page-bg);
-         border-bottom: 1px solid var(--line); }
-.hwrap { max-width: 1180px; margin: 0 auto; padding: 18px 28px 14px;
-         display: flex; flex-direction: column; gap: 12px; }
-.hrow { display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+header { border-bottom: 1px solid var(--line); }
+.hwrap { max-width: 1180px; margin: 0 auto; padding: 26px 28px 22px;
+         display: flex; align-items: flex-start; gap: 20px 40px; flex-wrap: wrap; }
 .htitle { flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.htitle .hchips { margin-top: 8px; }
+.htitle .hchips { margin-top: 10px; }
+.hsub { margin: 4px 0 0; max-width: 70ch; font-size: 14px; line-height: 1.5;
+        color: var(--muted); }
+.hside { flex: 0 1 372px; min-width: 260px; display: flex; flex-direction: column;
+         gap: 12px; }
+.hbtns { display: flex; flex-wrap: wrap; gap: 8px; }
+.topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 40; display: flex;
+     align-items: center; gap: 18px; height: 44px; box-sizing: border-box;
+     padding: 0 max(28px, calc((100vw - 1180px) / 2 + 28px));
+     border-bottom: 1px solid var(--line); background: rgba(28,28,31,.94);
+     backdrop-filter: blur(8px); font-size: 13px; }
+.topbar[hidden], .tprog[hidden] { display: none; }
+.tname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+     white-space: nowrap; font-weight: 800; }
+.tprog { color: var(--ink-2); white-space: nowrap; }
+.tprog b { color: #6ee7b7; font-variant-numeric: tabular-nums; }
+.tprog i { font-style: normal; }
 .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .18em;
            text-transform: uppercase; color: var(--brand); }
 h1 { margin: 0; font-size: 26px; font-weight: 900; line-height: 1.15;
      letter-spacing: -.01em; }
-.hchips, .chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px;
-        border: 1px solid var(--line-2); border-radius: 6px; background: var(--chip);
-        font-size: 13px; line-height: 18px; white-space: nowrap; color: var(--ink-2); }
-.chip b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
-.chip.sev { gap: 9px; border-color: var(--sev-bd); background: var(--sev-bg); }
+.hchips, .chips { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 7px; font-size: 13px;
+        line-height: 18px; white-space: nowrap; color: var(--muted); }
+.chip b { color: var(--ink-2); font-weight: 700; font-variant-numeric: tabular-nums; }
+.chip.sev { gap: 9px; padding: 3px 10px; border: 1px solid var(--sev-bd);
+        border-radius: 6px; background: var(--sev-bg); }
 .chip.sev .k { font-size: 11px; font-weight: 700; letter-spacing: .1em;
                text-transform: uppercase; color: var(--muted); }
 .chip.sev b { color: var(--sev-c); }
@@ -539,7 +553,7 @@ a.button svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 a.button:focus-visible, a.download:focus-visible, a.rownum:focus-visible,
 summary:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
-a.act svg.ext { width: 11px; height: 11px; margin-left: -2px; stroke-width: 2.6;
+a.button svg.ext { width: 11px; height: 11px; margin-left: -2px; stroke-width: 2.6;
      opacity: .75; }
 html[data-host] a.act svg.ext { display: none; }
 .card:not([data-status="Archived"]) a[data-act="open"] {
@@ -586,7 +600,11 @@ thead th { padding-top: 9px; padding-bottom: 9px; font-size: 11px; font-weight: 
      letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
      background: var(--chip); }
 td { border-top: 1px solid var(--line); }
+tr:has(a.rownum) { cursor: pointer; }
 tr:hover td { background: var(--chip); }
+td.stcell { white-space: nowrap; font-size: 12px; font-weight: 700; color: var(--muted); }
+tr[data-status="InReview"] td.stcell { color: #fbbf24; }
+tr[data-status="Approved"] td.stcell { color: #6ee7b7; }
 tr.typerow td, tr.typerow:hover td { font-size: 11px; font-weight: 700;
      letter-spacing: .12em; text-transform: uppercase; color: var(--ink);
      background: color-mix(in srgb, var(--ins-a) 5%, transparent); }
@@ -605,7 +623,8 @@ a.rownum:hover { border-color: var(--acc-light); text-decoration: none; }
 .sortnote { margin: -6px 0 12px; font-size: 13px; color: var(--muted); }
 .cards { display: flex; flex-direction: column; gap: 16px; }
 .card { border: 1px solid var(--line); border-radius: 8px; background: var(--card);
-     overflow: hidden; scroll-margin-top: 200px; }
+     overflow: hidden; scroll-margin-top: 60px; }
+#findings { scroll-margin-top: 60px; }
 .chead { display: flex; align-items: flex-start; gap: 14px; padding: 13px 16px;
      border-bottom: 2px solid var(--ins-a); flex-wrap: wrap; }
 .cidx { flex: none; font-size: 13px; font-weight: 700; color: var(--muted);
@@ -618,18 +637,23 @@ a.rownum:hover { border-color: var(--acc-light); text-decoration: none; }
 .lede { margin: 14px 16px 0; padding: 11px 14px; border-left: 3px solid var(--ins-a);
      border-radius: 0 6px 6px 0; background: rgba(255,255,255,.03);
      font-size: 15px; font-weight: 600; line-height: 1.5; }
-.folds { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px 0; }
-.folds details[open] { flex: 1 1 100%; }
+.folds { margin: 14px 16px 0; border: 1px solid var(--line); border-radius: 8px;
+     overflow: hidden; }
+.folds details + details { border-top: 1px solid var(--line); }
 summary { list-style: none; cursor: pointer; }
 summary::-webkit-details-marker { display: none; }
 summary::marker { content: ""; }
-.folds summary { display: inline-flex; align-items: center; gap: 7px;
-     padding: 5px 12px; border: 1px solid var(--line-2); border-radius: 999px;
-     background: var(--chip); font-size: 11px; font-weight: 700;
-     letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-.folds summary::before { content: "\\25B8"; font-size: 14px; line-height: 1; }
-.folds details[open] > summary::before { content: "\\25BE"; }
-.fold { padding: 14px 2px 4px; display: flex; flex-direction: column; gap: 12px; }
+.folds summary { display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+     font-size: 13px; font-weight: 700; color: var(--ink-2);
+     transition: background .15s, color .15s; }
+.folds summary:hover { background: rgba(255,255,255,.04); color: var(--ink); }
+.folds summary:focus-visible { outline-offset: -2px; }
+.folds summary::before { content: ""; flex: none; width: 6px; height: 6px;
+     margin: 0 2px 2px; border-right: 2px solid currentColor;
+     border-bottom: 2px solid currentColor; transform: rotate(-45deg);
+     transition: transform .15s; }
+.folds details[open] > summary::before { transform: rotate(45deg); }
+.fold { padding: 6px 14px 16px; display: flex; flex-direction: column; gap: 12px; }
 .fold p { margin: 0; max-width: 92ch; font-size: 14px; line-height: 1.65;
      color: var(--ink-2); }
 p.rootcause { font-size: 13px; line-height: 1.6; color: var(--muted); }
@@ -676,8 +700,13 @@ p.rootcause { font-size: 13px; line-height: 1.6; color: var(--muted); }
 .grid.wide { grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); }
 .grid.solo { grid-template-columns: 1fr; }
 figure { margin: 0; display: flex; flex-direction: column; gap: 7px; }
-figure img { display: block; width: 100%; border-radius: 4px;
+figure img { display: block; width: 100%; border-radius: 4px; cursor: zoom-in;
      border: 1px solid var(--line); background: var(--chip); box-sizing: border-box; }
+.lightbox { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center;
+     justify-content: center; padding: 24px; box-sizing: border-box;
+     background: rgba(9,9,11,.93); cursor: zoom-out; }
+.lightbox[hidden] { display: none; }
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: 6px; }
 .grid.solo > figure > img { width: auto; max-width: 100%; max-height: 62vh; }
 .pair { display: flex; gap: 6px; }
 .pair > span { position: relative; flex: 1 1 0; min-width: 0; display: block; }
@@ -696,12 +725,13 @@ blockquote .muted { display: block; font-style: normal; margin-top: 6px;
 .donext h4 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .12em;
      text-transform: uppercase; color: var(--acc-light); }
 ul.actions { list-style: none; margin: 0; padding: 0; display: flex;
-     flex-direction: column; gap: 9px; }
-ul.actions li { position: relative; padding-left: 23px; font-size: 14px;
-     line-height: 1.55; color: var(--ink-2); }
-ul.actions li::before { content: ""; position: absolute; left: 0; top: 5px;
-     width: 12px; height: 12px; border: 1.5px solid var(--acc-light);
-     border-radius: 3px; }
+     flex-direction: column; gap: 9px; counter-reset: step; }
+ul.actions li { position: relative; padding-left: 28px; font-size: 14px;
+     line-height: 1.55; color: var(--ink-2); counter-increment: step; }
+ul.actions li::before { content: counter(step); position: absolute; left: 0; top: 2px;
+     width: 18px; height: 18px; border-radius: 50%; background: rgba(59,130,246,.2);
+     color: #93c5fd; font-size: 11px; font-weight: 800; line-height: 18px;
+     text-align: center; font-variant-numeric: tabular-nums; }
 .btnrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 a.download { display: inline-flex; align-items: center; height: 32px;
      padding: 0 12px; border-radius: 6px; background: var(--acc); color: #fff;
@@ -709,13 +739,8 @@ a.download { display: inline-flex; align-items: center; height: 32px;
      text-transform: uppercase; white-space: nowrap; }
 a.download:hover { background: var(--acc-light); color: #fff;
      text-decoration: none; }
-.block.group:not(:has(.card)), #acknowledged[hidden], .review[hidden] { display: none; }
-#acknowledged h2 { border-bottom-color: #34d399; color: #d1fae5; }
-#acknowledged .count { border-color: rgba(52,211,153,.4); color: #6ee7b7; }
-.review { flex: 0 1 340px; min-width: 260px; padding: 12px 14px;
-     border: 1px solid var(--line); border-radius: 8px; background: var(--card);
-     display: flex; flex-direction: column; gap: 8px; }
-.review.done { border-color: rgba(52,211,153,.45); background: rgba(16,185,129,.10); }
+.review[hidden] { display: none; }
+.review { display: flex; flex-direction: column; gap: 7px; }
 .rtop { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .rtop .k { font-size: 11px; font-weight: 700; letter-spacing: .12em;
      text-transform: uppercase; color: var(--muted); }
@@ -726,19 +751,18 @@ a.download:hover { background: var(--acc-light); color: #fff;
 .rbar span { display: block; height: 100%; width: 0; border-radius: 4px;
      background: #34d399; transition: width .5s cubic-bezier(.2,.8,.2,1); }
 .rnote { font-size: 12px; line-height: 1.5; color: var(--muted); }
-.rfoot { padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px;
-     line-height: 1.5; color: var(--muted); }
-.rfoot:empty { display: none; }
-button.share { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-     height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px;
-     background: transparent; color: var(--ink-2); font: inherit; font-size: 11px;
-     font-weight: 800; letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
-     transition: background .15s; }
-button.share:hover { background: rgba(255,255,255,.06); }
+button.share { display: inline-flex; align-items: center; gap: 7px; height: 32px;
+     padding: 0 12px; border: 1px solid var(--line-2); border-radius: 6px;
+     background: var(--chip); color: #fff; font: inherit; font-size: 12px;
+     font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+     white-space: nowrap; cursor: pointer;
+     transition: color .15s, border-color .15s, background .15s; }
+button.share:hover { color: #93c5fd; border-color: var(--acc-light);
+     background: rgba(59,130,246,.12); }
 button.share:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
-button.share svg { width: 14px; height: 14px; fill: none; stroke: currentColor;
-     stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-html[data-ro] .cbtns, html[data-ro] button.share { display: none; }
+button.share svg { width: 15px; height: 15px; fill: none; stroke: currentColor;
+     stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+html[data-ro] a.act, html[data-ro] button.share { display: none; }
 .pill { display: none; width: fit-content; align-items: center; gap: 6px;
      margin-bottom: 6px; padding: 2px 10px; border-radius: 999px;
      font-size: 12px; font-weight: 700; line-height: 18px; }
@@ -750,8 +774,7 @@ html[data-ro] .cbtns, html[data-ro] button.share { display: none; }
 .card[data-status="Approved"] .pill { background: rgba(16,185,129,.16); color: #6ee7b7; }
 .card[data-status="Approved"] .pill svg { display: block; }
 .card[data-status="Archived"] .pill { background: rgba(255,255,255,.07); color: var(--muted); }
-.card[data-status="Approved"] { border-color: rgba(52,211,153,.42); background: #22302c;
-     box-shadow: 0 0 0 1px rgba(52,211,153,.10), 0 14px 34px -22px rgba(16,185,129,.7); }
+.card[data-status="Approved"] { border-color: rgba(52,211,153,.42); background: #232d2a; }
 .card[data-status="Approved"] .chead { border-bottom-color: #34d399; background: rgba(16,185,129,.07); }
 .card[data-status="Approved"] .lede { border-left-color: #34d399; background: rgba(16,185,129,.07); }
 tr[data-status="Approved"] a.rownum { border-color: #34d399; color: #6ee7b7; }
@@ -762,14 +785,12 @@ tr[data-status="Approved"] a.rownum { border-color: #34d399; color: #6ee7b7; }
      color: var(--muted); }
 .card[data-status="Archived"] .lede { font-weight: 400; }
 .card[data-status="Archived"] .donext { border-color: var(--line); background: none; }
-.card[data-status="Archived"] ul.actions li::before { border-color: var(--muted); }
-.settle { animation: settle 1.1s cubic-bezier(.2,.8,.2,1); }
-@keyframes settle {
-  0% { transform: translateY(14px); box-shadow: 0 0 0 0 rgba(52,211,153,.55); }
-  45% { transform: none; box-shadow: 0 0 0 8px rgba(52,211,153,.10); } }
+.card[data-status="Archived"] ul.actions li::before { background: var(--chip);
+     color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 @media (prefers-reduced-motion: reduce) {
-  .settle { animation: none; } .rbar span, a.button { transition: none; } }
-@media (max-width: 700px) { header { position: static; } }
+  .rbar span, a.button, button.share, .folds summary, .folds summary::before {
+    transition: none; } }
 """
 
 # The report never changes anything itself: every action is a plain link into
@@ -787,15 +808,8 @@ REVIEW_JS = """\
     decisions = {};
     (st.approved || []).forEach(function (id) { decisions[id] = {status: "Approved"}; });
   }
-  var shelf = document.getElementById("acknowledged");
-  var shelfCards = shelf.querySelector(".cards");
-  var cards = {}, home = {}, rows = {};
-  document.querySelectorAll("section.card").forEach(function (c) {
-    cards[c.id] = c;
-    home[c.id] = document.createComment(c.id);
-    c.before(home[c.id]);
-    c.addEventListener("animationend", function () { c.classList.remove("settle"); });
-  });
+  var cards = {}, rows = {};
+  document.querySelectorAll("section.card").forEach(function (c) { cards[c.id] = c; });
   document.querySelectorAll("a.rownum").forEach(function (a) {
     rows[a.getAttribute("href").slice(1)] = a.closest("tr");
   });
@@ -808,17 +822,20 @@ REVIEW_JS = """\
     if (s) el.setAttribute("data-status", s);
     else el.removeAttribute("data-status");
   }
-  function render(live) {
-    var total = 0, done = 0, pinned = 0, latest = 0;
+  function render() {
+    var total = 0, done = 0, latest = 0;
     var who = user ? "as " + user : "under your name";
     Object.keys(cards).forEach(function (id) {
       var c = cards[id], d = decisions[id] || {};
       var s = typeof LABEL[d.status] === "string" ? d.status : "";
       mark(c, s);
-      if (rows[id]) mark(rows[id], s);
       var pill = c.querySelector(".pill");
       pill.lastChild.textContent = s ? LABEL[s] + (d.by ? " \\u00b7 " + d.by : "") : "";
       pill.title = s && d.at ? when(d.at) : "";
+      if (rows[id]) {
+        mark(rows[id], s);
+        rows[id].querySelector(".stcell").textContent = s ? LABEL[s] : "";
+      }
       var b = c.querySelector('a[data-act="decide"]');
       if (b) {
         var decision = s === "Approved" || s === "Archived" ? "reopen" : "acknowledge";
@@ -830,31 +847,31 @@ REVIEW_JS = """\
         b.title = host ? "You confirm in Tensorleap, " + who + "."
                        : "Opens Tensorleap. You confirm there, under your name.";
       }
-      var on = s === "Approved", was = c.parentNode === shelfCards;
-      if (on && !was) shelfCards[live ? "prepend" : "append"](c);
-      if (!on && was) home[id].after(c);
-      c.classList.toggle("settle", !!live && on && !was);
       if (s) total++;
       if (s && s !== "InReview") done++;
-      if (on) pinned++;
       latest = Math.max(latest, Date.parse(d.at) || 0);
     });
-    shelf.hidden = !pinned;
-    shelf.querySelector(".count").textContent = pinned;
-    q(".review").hidden = !total;
-    q(".review").classList.toggle("done", done === total);
-    q(".rtop b").textContent = done;
-    q(".rtop .tot").textContent = total;
+    document.querySelectorAll(".review, .tprog").forEach(function (el) {
+      el.hidden = !total;
+      el.classList.toggle("done", !!total && done === total);
+      el.querySelector("b").textContent = done;
+      el.querySelector(".tot").textContent = total;
+    });
     q(".rbar").setAttribute("aria-valuemax", total);
     q(".rbar").setAttribute("aria-valuenow", done);
     q(".rbar span").style.width = Math.round(100 * done / (total || 1)) + "%";
-    q(".rnote").textContent = RO ? "Read-only copy. It shows what was decided when it was shared."
-      : host ? "Decisions are saved in Tensorleap " + who + "."
-      : "Decisions are made in Tensorleap, under your name. The buttons open it.";
-    q(".rfoot").textContent = RO ? (st.savedAt ? "Shared " + when(st.savedAt) : "")
-      : !host ? "This file shows what was decided when it was exported."
-      : latest ? "Last change " + when(latest) : "";
+    q(".rnote").textContent = RO
+      ? "Read-only copy" + (st.savedAt ? ", shared " + when(st.savedAt) : "") + "."
+      : host ? "Your decisions are saved in Tensorleap " + who + "." +
+               (latest ? " Last change " + when(latest) + "." : "")
+      : "Decisions as of this file's export. The buttons open Tensorleap, where you decide under your name.";
   }
+  function valid(n) {
+    return n && typeof LABEL[n.status] === "string" &&
+      (n.by == null || typeof n.by === "string") && (n.at == null || typeof n.at === "string");
+  }
+  render();
+
   // the copy is this page as it was loaded, with only the state block replaced
   q("button.share").addEventListener("click", function () {
     var next = {v: 2, reportId: st.reportId, readonly: true, approved: [],
@@ -873,11 +890,42 @@ REVIEW_JS = """\
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
   });
-  function valid(n) {
-    return n && typeof LABEL[n.status] === "string" &&
-      (n.by == null || typeof n.by === "string") && (n.at == null || typeof n.at === "string");
-  }
-  render();
+
+  var bar = q(".topbar"), head = q("header");
+  function onScroll() { bar.hidden = window.scrollY < head.offsetHeight - 8; }
+  window.addEventListener("scroll", onScroll, {passive: true});
+  onScroll();
+
+  var zoom = document.createElement("div");
+  zoom.className = "lightbox";
+  zoom.hidden = true;
+  zoom.appendChild(new Image());
+  document.body.appendChild(zoom);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") zoom.hidden = true;
+  });
+  // a findings row jumps to its card wherever it is clicked; scrolling by hand
+  // also works where a hash link would leave the page (a blob or srcdoc viewer)
+  document.addEventListener("click", function (e) {
+    var el = e.target;
+    if (!el.closest) return;
+    if (!zoom.hidden) { zoom.hidden = true; return; }
+    if (el.matches("figure img")) {
+      zoom.firstChild.src = el.src;
+      zoom.hidden = false;
+      return;
+    }
+    var a = el.closest('a[href^="#"]');
+    if (!a && !el.closest("a, button, summary")) {
+      var tr = el.closest("tr");
+      a = tr && tr.querySelector("a.rownum");
+    }
+    var target = a && document.getElementById(a.getAttribute("href").slice(1));
+    if (!target) return;
+    e.preventDefault();
+    target.scrollIntoView({block: "start"});
+  });
+
   if (sync && window.parent !== window) {
     var cardOf = Object.create(null);
     Object.keys(sync.insights).forEach(function (id) { cardOf[sync.insights[id]] = id; });
@@ -894,7 +942,7 @@ REVIEW_JS = """\
           var id = cardOf[cid], n = d.decisions[cid];
           if (id && cards[id] && valid(n)) decisions[id] = {status: n.status, by: n.by, at: n.at};
         });
-        render(true);
+        render();
       }
     });
     document.addEventListener("click", function (e) {
@@ -951,8 +999,6 @@ ICON_MAGNIFIER = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
                   '<path d="m21 21-4.3-4.3"></path></svg>')
 ICON_PLUS = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
              '<path d="M12 5v14M5 12h14"></path></svg>')
-ICON_COMMENT = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
-                '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>')
 ICON_CHECK = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
               '<path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>')
 ICON_DOWNLOAD = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
@@ -1101,17 +1147,6 @@ def _card_html(card, kind, base, missing, modality, state):
             buttons.append(_action_html({"type": "decide", **common, "decision": decision}, href,
                                         "Opens Tensorleap. You confirm there, under your name.",
                                         f'{ICON_CHECK}<span>{label}</span>'))
-    at = card.get("add_test")
-    if at:
-        tip = " ".join(x for x in (at.get("label"), at.get("tip")) if x)
-        buttons.append(_action_html({"type": "test", **common}, at["link"], tip, f'{ICON_PLUS}Test'))
-    ac = card.get("add_comment")
-    if ac:
-        href = ac["link"] + urllib.parse.quote(card["heading"], safe="")
-        buttons.append(_action_html(
-            {"type": "comment", **common, "text": card["heading"]}, href,
-            "Write this card's title into the insight's note in Tensorleap (you confirm there)",
-            f'{ICON_COMMENT}Add comment'))
     btns = f'<span class="cbtns">{"".join(buttons)}</span>'
     chips = [f'<span class="chip sev"><span class="k">Severity</span>'
              f'<b>{sev} of 3</b></span>']
@@ -1161,19 +1196,24 @@ def _card_html(card, kind, base, missing, modality, state):
                      f'{"".join(inner)}</div></details>')
     if folds:
         parts.append(f'<div class="folds">{"".join(folds)}</div>')
-    if card.get("do_next"):
-        items = "".join(f"<li>{_esc(x)}</li>" for x in card["do_next"])
-        dl = card.get("download_csv")
-        row = ""
-        if dl:
-            if not os.path.isfile(os.path.join(base, dl["path"])):
-                missing.append(f'missing csv: {dl["path"]}')
-            name = os.path.basename(dl["path"])
-            row = (f'<div class="btnrow"><a class="download" '
-                   f'href="{_esc(dl["path"])}" download="{_esc(name)}">'
-                   f'{_esc(dl["label"])}</a></div>')
-        parts.append(f'<div class="donext"><h4>Do next</h4>'
-                     f'<ul class="actions">{items}</ul>{row}</div>')
+    row = []
+    dl = card.get("download_csv") if card.get("do_next") else None
+    if dl:
+        if not os.path.isfile(os.path.join(base, dl["path"])):
+            missing.append(f'missing csv: {dl["path"]}')
+        name = os.path.basename(dl["path"])
+        row.append(f'<a class="download" href="{_esc(dl["path"])}" '
+                   f'download="{_esc(name)}">{_esc(dl["label"])}</a>')
+    at = card.get("add_test")
+    if at:
+        tip = " ".join(x for x in (at.get("label"), at.get("tip")) if x)
+        row.append(_action_html({"type": "test", **common}, at["link"], tip,
+                                f'{ICON_PLUS}Add the regression test'))
+    if card.get("do_next") or row:
+        items = "".join(f"<li>{_esc(x)}</li>" for x in card.get("do_next", []))
+        steps = f'<ul class="actions">{items}</ul>' if items else ""
+        btnrow = f'<div class="btnrow">{"".join(row)}</div>' if row else ""
+        parts.append(f'<div class="donext"><h4>Do next</h4>{steps}{btnrow}</div>')
     parts.append("</section>")
     return "".join(parts)
 
@@ -1189,24 +1229,31 @@ def _header_html(spec):
         chips.append(f'<span class="chip">evaluated '
                      f'<b>{_esc(spec["evaluated"])}</b></span>')
     chips.append(f'<span class="chip">{_bold_leading_count(spec["meta"])}</span>')
-    return (f'<header><div class="hwrap"><div class="hrow">'
+    name = f'{_esc(spec["project"])} \u00b7 {_esc(spec["version"])}'
+    return (f'<header><div class="hwrap">'
             f'<div class="htitle"><span class="eyebrow">Tensorleap analysis'
-            f'</span><h1>{_esc(spec["project"])} \u00b7 '
-            f'{_esc(spec["version"])}</h1>'
+            f'</span><h1>{name}</h1>'
+            f'<p class="hsub">Where this model version fails, the likely cause, '
+            f'and what to do next.</p>'
             f'<div class="hchips">{"".join(chips)}</div></div>'
+            f'<div class="hside">{REVIEW_BOX}<div class="hbtns">{SHARE_BUTTON}'
             f'<a class="button" href="{_esc(spec["insights_link"])}" '
-            f'target="_blank" rel="noopener">Open in Tensorleap</a>'
-            f'{REVIEW_BOX}</div></div></header>')
+            f'target="_blank" rel="noopener">Open in Tensorleap{ICON_ARROW}</a>'
+            f'</div></div></div></header>'
+            f'<div class="topbar" hidden><span class="tname">{name}</span>'
+            f'<span class="tprog" hidden><b>0</b> of <i class="tot">0</i> reviewed</span>'
+            f'<a href="#findings">Findings</a></div>')
 
 
 REVIEW_BOX = (
     '<div class="review" hidden><div class="rtop"><span class="k">Review</span>'
-    '<span><b>0</b> of <i class="tot">0</i> decided</span></div>'
-    '<div class="rbar" role="progressbar" aria-label="Findings decided" '
+    '<span><b>0</b> of <i class="tot">0</i> reviewed</span></div>'
+    '<div class="rbar" role="progressbar" aria-label="Findings reviewed" '
     'aria-valuemin="0" aria-valuenow="0"><span></span></div>'
-    '<div class="rnote"></div><div class="rfoot"></div>'
+    '<div class="rnote"></div></div>')
+SHARE_BUTTON = (
     '<button type="button" class="share" title="Download a copy that shows the decisions '
-    f'and has no buttons, to send to someone">{ICON_DOWNLOAD}Share a read-only copy</button></div>')
+    f'and has no action buttons, to send to someone">{ICON_DOWNLOAD}Read-only copy</button>')
 
 
 def _tile_html(tile):
@@ -1259,10 +1306,10 @@ def _report_html(spec, base, missing):
     parts.append(f'<section class="block"><h2>Executive summary</h2>'
                  f'{_para(spec["executive_summary"], "summary")}</section>')
     rows = ["<thead><tr><th>Insight #</th><th>Issue</th><th>Severity</th>"
-            '<th class="num">Samples</th><th>First action</th></tr></thead>']
+            '<th class="num">Samples</th><th>First action</th><th>Status</th></tr></thead>']
     for group in spec.get("overview", []):
         rows.append(f'<tr class="typerow" data-kind="{_kind(group["type"])}">'
-                    f'<td colspan="5"><span class="tick"></span>'
+                    f'<td colspan="6"><span class="tick"></span>'
                     f'{_esc(group["type"])}</td></tr>')
         for r in group["rows"]:
             sev = str(r["severity"]).strip()[:1]
@@ -1273,18 +1320,13 @@ def _report_html(spec, base, missing):
                         f'<td class="issue">{_esc(r["issue"])}</td>'
                         f'<td class="sevcell"{sev_attr}>{word}</td>'
                         f'<td class="num">{_esc(r["samples"])}</td>'
-                        f'<td class="action">{_esc(r["first_action"])}</td></tr>')
-    parts.append(f'<section class="block"><h2>Findings</h2>'
+                        f'<td class="action">{_esc(r["first_action"])}</td>'
+                        f'<td class="stcell"></td></tr>')
+    parts.append(f'<section class="block" id="findings"><h2>Findings</h2>'
                  f'<p class="sortnote">Within each insight type, ordered by '
                  f'severity, then by the number of affected samples.</p>'
                  f'<div class="tablewrap"><table>{"".join(rows)}</table>'
                  f'</div></section>')
-    parts.append('<section class="block" id="acknowledged" hidden>'
-                 '<div class="grouphead"><h2>Acknowledged</h2>'
-                 '<span class="count">0</span></div>'
-                 '<p class="blurb">Findings acknowledged in Tensorleap, pinned '
-                 'above the rest.</p>'
-                 '<div class="cards"></div></section>')
     modality = _modality(spec)
     state = _review_state(spec, base)
     for group in spec.get("groups", []):
@@ -1366,12 +1408,9 @@ def _report_txt(spec):
                 lines.append(f'Download button: {c["download_csv"]["label"]} '
                              f'({c["download_csv"]["path"]})')
             if c.get("add_test"):
-                lines.append(f'[header button] Test, {c["add_test"]["label"]} '
+                lines.append(f'[Do next button] Add the regression test, {c["add_test"]["label"]} '
                              f'(opens Tensorleap, user confirms; '
                              f'{c["add_test"].get("tip", "")})')
-            if c.get("add_comment"):
-                lines.append("[header button] Add comment (opens Tensorleap, user confirms; "
-                             "writes the heading into the insight's note)")
     return "\n".join(lines) + "\n"
 
 

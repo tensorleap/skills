@@ -142,7 +142,7 @@ def check_existing():
                               {"type": "Duplication", "count": "1", "meaning": "m", "cards": [card4]}]}, f)
     subprocess.run([sys.executable, os.path.join(HERE, "tl_api.py"), "build-report", root], capture_output=True, check=True)
     page = open(os.path.join(root, "report.html")).read()
-    assert page.count('href="http://ui/i1?decide=acknowledge&amp;decideInsight=') == 1 and 'id="acknowledged" hidden' in page
+    assert page.count('href="http://ui/i1?decide=acknowledge&amp;decideInsight=') == 1
     state = json.loads(re.search(r'id="tl-review">(\{.*?\})</script>', page).group(1))
     assert state["v"] == 2 and re.fullmatch(r"[0-9a-f]{32}", state["reportId"]) and state["readonly"] is False, state
     assert state["decisions"] == {"insight-1": {"status": "InReview"}, "insight-4": {"status": "Approved"}}, \

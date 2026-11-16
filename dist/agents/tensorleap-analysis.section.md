@@ -466,9 +466,10 @@ the samples (behind a collapsed "Samples (N)" fold that shows all of them
 when opened), action items,
 the **download button** (`download_csv`) when the digest has
 `files.fixing_csv`, the platform's selected samples to label/acquire,
-the **"Test" header button** (`add_test`) when the digest has `add_test_link`,
-the **"Add comment" header button** (`add_comment`) when the digest has
-`add_comment_link`,
+the **"Add the regression test" button** under the action items (`add_test`)
+when the digest has `add_test_link`, `add_comment` when the digest has
+`add_comment_link` (kept in report.json; the HTML report draws no button for
+it),
 and the **"Open proof"** header button using the insight's
 `deep_link` (lands on the insight already analyzed, opened as the
 dashboard's top panel with its cluster filter applied, what the panel's
@@ -476,7 +477,7 @@ dashboard's top panel with its cluster filter applied, what the panel's
 version-level Insights-panel link). The script adds a status pill (Needs
 review / Acknowledged / Archived) and an **Acknowledge** button to every card
 whose insight the export identifies (an older server's export gets neither),
-and a review box to the header that counts the decisions. The report changes
+and a review line to the header that counts the reviewed ones. The report changes
 nothing by itself: Acknowledge opens Tensorleap, where the signed-in person
 confirms and the decision is recorded under their name. They need nothing
 from you.
