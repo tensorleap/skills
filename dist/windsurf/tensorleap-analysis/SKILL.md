@@ -72,6 +72,7 @@ keeps this chat:
 - Cursor CLI: exit, then `cursor-agent resume`.
 - VS Code (Copilot): quit VS Code completely (Reload Window is not enough),
   reopen it and open this chat again.
+- Devin: start a new session (this one cannot pick up a new MCP server).
 - Any other assistant: restart it.
 
 Why the tools can be missing, and what to fix before the reload step:
@@ -82,6 +83,14 @@ Why the tools can be missing, and what to fix before the reload step:
   "mcp"`). Tell the user to upgrade it with `leap cli upgrade -s | bash` (or
   install it: `curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash`)
   and reload, then stop. Do not register a second server.
+- **Devin**: `leap mcp config` has no Devin target, and the session machine
+  is not the user's, so don't run it and don't start the sign-in below. The
+  user sets this up once, outside the session: the leap CLI install goes in
+  the repo blueprint's `initialize` section (Settings > Environment >
+  Blueprints), and the server is added in Customize > MCPs > "+" > New MCP
+  as a STDIO server with command `leap`, argument `mcp`, and the environment
+  variables `TL_API_URL` and `TL_API_KEY`. Tell them that, then stop. If
+  `tl_status` says not signed in, those two values are missing or wrong.
 - **Any other assistant** (Cursor, Copilot, Codex, Windsurf, Claude Desktop,
   or Claude without the plugin): tell the user to run `leap mcp config` in a
   terminal. It asks which assistant, writes the assistant's MCP settings,
@@ -95,10 +104,19 @@ the assistant started before the sign-in, the reload step brings them; when
 they are still missing after it, the leap CLI predates this skill: ask the
 user to run `leap cli upgrade -s | bash` and reload, then stop. If `tl_status` fails, relay its message verbatim (it says whether
 to run `leap auth login`, fix `--env`, or check the tunnel) and stop.
+**Devin:** also tell the user not to run `leap auth login` for this: it does
+not reach Devin's MCP server, and a new login replaces their API key. They put
+the URL and key their own machine's CLI holds now into `TL_API_URL` /
+`TL_API_KEY` in Customize > MCPs and start a new session.
 
 **Signing the CLI in.** Only the user can sign in, so this comes before
 everything else. Don't look for API keys, passwords or config files, and don't
 ask the user to run the login.
+
+**Devin:** skip this block. The sign-in is the `TL_API_URL` / `TL_API_KEY` pair
+on the MCP server: tell the user to fix them in Customize > MCPs and start a
+new session, then stop.
+
 1. Start `leap auth login <url> --non-interactive < /dev/null` as a
    **background** command. It tries to open the sign-in page in the user's
    browser, prints the page's link, and waits up to 5 minutes.

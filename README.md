@@ -259,9 +259,12 @@ activates the skill when your task matches its description.
 curl -fsSL https://raw.githubusercontent.com/tensorleap/skills/main/install.sh | sh -s -- --tool devin /path/to/your-project
 ```
 
-(Omit the path to install into the current directory.) This creates
-`.devin/skills/tensorleap-integration-creation/` in the project — a
-self-contained folder (`SKILL.md` + helper scripts + reference docs).
+(Omit the path to install into the current directory.) This creates one
+self-contained folder per skill under `.devin/skills/` in the project
+(`SKILL.md` + helper scripts + reference docs), for example
+`.devin/skills/tensorleap-integration-creation/` and
+`.devin/skills/tensorleap-analysis/`. Commit and push them: Devin only sees
+what is in the repo it clones.
 
 There is no `--global` install for Devin: sessions run on ephemeral cloud
 machines that clone the repo fresh each time, not the user's own machine, so
@@ -270,8 +273,8 @@ there's no persistent home directory for Devin to read a personal skill from.
 ### Verify it's discovered
 
 Open the skill list in a Devin session for the repo (or ask Devin to list its
-skills) — `tensorleap-integration-creation` should appear, sourced from
-`.devin/skills/`.
+skills) — `tensorleap-integration-creation` and `tensorleap-analysis` should
+appear, sourced from `.devin/skills/`.
 
 ### Use it
 
@@ -282,6 +285,35 @@ The skill activates on Tensorleap-integration language; a good starting prompt:
 > in the decorator style for the model at `<path/to/model.onnx>` over the dataset
 > at `<path/to/data>`. Start with the skill's preflight gate, then follow its run
 > loop until check_dataset() passes and the integration-test exit table is green.
+
+### Analysis: connect Devin to your Tensorleap server
+
+`tensorleap-analysis` reads your results through the Tensorleap MCP server, and
+`leap mcp config` has no Devin target, so set these up once by hand:
+
+1. **leap CLI on Devin's machine.** Add the leap CLI install to the
+   `initialize` section of the repo's blueprint (Settings > Environment >
+   Blueprints), so every session starts with it. It needs 0.0.163 or newer:
+
+   ```bash
+   curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash
+   ```
+
+2. **MCP server.** In Customize > MCPs, click "+" > New MCP, choose STDIO, and
+   set Command `leap`, Arguments `mcp`, and two environment variables:
+   `TL_API_URL` (the API URL `leap auth whoami` shows on your own machine) and
+   `TL_API_KEY` (the `api_key` that `leap auth login` saved under `auth:` in
+   `~/.config/tensorleap/config.yaml` on your own machine; `auth:` is the
+   current environment only, so for another server take `envs.<name>.api_key`).
+
+A Tensorleap user has one API key at a time, and every `leap auth login`
+replaces it. If you sign in again anywhere with that user, update `TL_API_KEY`
+in Devin; a separate Tensorleap user for Devin avoids this.
+
+Your Tensorleap server must be reachable from Devin's cloud machine; one on
+your laptop or behind a firewall is not. Then start a new session and ask:
+
+> Write a Tensorleap analysis report for project `<name>`
 
 **Staying up to date:** there is no self-update check for Devin installs (no
 persistent global install to check from) — rerun the install command to pull
