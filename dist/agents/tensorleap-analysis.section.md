@@ -533,9 +533,11 @@ never pad.
 
 Order insights by `severity` descending. **Lead every insight with what
 is going wrong**, what fails and why, named in plain ML terms, and write for
-an ML engineer with zero knowledge of Tensorleap internals: no blob paths,
-filter JSON, or raw payload field names in the prose (the template's language
-rules are binding). Keep the executive summary honest, if the insights are
+a reader with zero knowledge of Tensorleap internals or of this project's
+integration code (they may never have read it): no blob paths, filter JSON,
+or raw payload field names in the prose, and every metric, metadata field
+or visualizer the report names is explained in a few plain words where it
+first appears (the template's language rules are binding). Keep the executive summary honest, if the insights are
 low-severity or repetitive, say so. The HTML ends with the last insight
 card, **no Notes section in the HTML.**
 

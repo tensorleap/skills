@@ -597,6 +597,7 @@ th, td { text-align: left; padding: 11px 12px; vertical-align: baseline; }
 th:first-child, td:first-child { padding-left: 16px; }
 th:last-child, td:last-child { padding-right: 16px; }
 thead th { padding-top: 9px; padding-bottom: 9px; font-size: 11px; font-weight: 700;
+           white-space: nowrap;
      letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
      background: var(--chip); }
 td { border-top: 1px solid var(--line); }
@@ -762,7 +763,8 @@ button.share:hover { color: #93c5fd; border-color: var(--acc-light);
 button.share:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
 button.share svg { width: 15px; height: 15px; fill: none; stroke: currentColor;
      stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-html[data-ro] a.act, html[data-ro] button.share { display: none; }
+html[data-ro] a.act, html[data-ro] button.share, html[data-ro] .needs-act { display: none; }
+.folds.top { margin: 0; max-width: 78ch; }
 .pill { display: none; width: fit-content; align-items: center; gap: 6px;
      margin-bottom: 6px; padding: 2px 10px; border-radius: 999px;
      font-size: 12px; font-weight: 700; line-height: 18px; }
@@ -1253,6 +1255,27 @@ REVIEW_BOX = (
     '<div class="rbar" role="progressbar" aria-label="Findings reviewed" '
     'aria-valuemin="0" aria-valuenow="0"><span></span></div>'
     '<div class="rnote"></div></div>')
+HOW_TO_READ = (
+    '<div class="folds top"><details class="howto"><summary>How to read this report'
+    '</summary><div class="fold">'
+    '<p><b>What this is.</b> Tensorleap ran this model version on the dataset and '
+    'grouped the samples the model handles badly. Each group is one finding below. '
+    'Tensorleap calls a finding an insight and numbers it (#1, #2); a "sub" finding '
+    'is a tighter slice of the finding it follows.</p>'
+    '<p><b>Reading a finding.</b> It opens with the bottom line and the likely cause. '
+    'The folds under it hold the evidence: how the group scores against all the data, '
+    'and samples from it. "Do next" lists the steps that address it.</p>'
+    '<p><b>Severity.</b> High, Medium or Low is Tensorleap\'s rating of how much the '
+    'group hurts the model.</p>'
+    '<p><b>Status.</b> A finding needs review until someone decides on it. '
+    'Acknowledged means a person agreed it is real and worth acting on; Archived '
+    'means it was set aside.</p>'
+    '<p class="needs-act"><b>Buttons.</b> Open proof shows the finding in Tensorleap '
+    'with its samples selected. Acknowledge records your decision in Tensorleap, '
+    'under your name, after you confirm it.</p>'
+    '<p><b>Names and numbers.</b> Metrics and data fields come from this project\'s '
+    'own evaluation code. Each is explained where it first appears.</p>'
+    '</div></details></div>')
 SHARE_BUTTON = (
     '<button type="button" class="share" title="Download a copy that shows the decisions '
     f'and has no action buttons, to send to someone">{ICON_DOWNLOAD}Read-only copy</button>')
@@ -1306,7 +1329,8 @@ def _report_html(spec, base, missing):
     if tiles:
         parts.append(f'<div class="tiles">{tiles}</div>')
     parts.append(f'<section class="block"><h2>Executive summary</h2>'
-                 f'{_para(spec["executive_summary"], "summary")}</section>')
+                 f'{_para(spec["executive_summary"], "summary")}{HOW_TO_READ}'
+                 f'</section>')
     rows = ["<thead><tr><th>Insight #</th><th>Issue</th><th>Severity</th>"
             '<th class="num">Samples</th><th>First action</th><th>Status</th></tr></thead>']
     for group in spec.get("overview", []):
@@ -1352,8 +1376,9 @@ def _report_html(spec, base, missing):
 
 
 def _strip_tags(text):
+    import html
     import re
-    return re.sub(r"<[^>]+>", "", str(text or "")).strip()
+    return html.unescape(re.sub(r"<[^>]+>", "", str(text or ""))).strip()
 
 
 def _report_txt(spec):
@@ -1364,7 +1389,8 @@ def _report_txt(spec):
              head, ""]
     lines += [f'[tile] {t["value"]}: {t["label"]}' for t in spec.get("tiles", [])]
     lines += ["", "Executive summary",
-              _strip_tags(spec["executive_summary"]), "", "Overview table"]
+              _strip_tags(spec["executive_summary"]),
+              '[fold, fixed text] How to read this report', "", "Overview table"]
     for group in spec.get("overview", []):
         lines.append(f'-- {group["type"]}')
         lines += [f'{r["num"]} | {_strip_tags(r["issue"])} | sev {r["severity"]} | '

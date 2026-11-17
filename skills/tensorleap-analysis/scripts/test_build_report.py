@@ -88,6 +88,14 @@ def chips(page, card_id):
     return [html.unescape(c) for c in re.findall(r'<span class="chip">([^<]*)</span>', block)]
 
 
+def check_report_explains_itself_once_and_hides_button_help_in_a_read_only_copy():
+    r, page, txt = build([make_card()])
+    assert r.returncode == 0, r.stderr
+    assert page.count("<summary>How to read this report</summary>") == 1
+    assert "How to read this report" in txt
+    assert '<p class="needs-act">' in page, "the line about buttons is the one a read-only copy hides"
+
+
 def check_add_comment_is_accepted_but_not_a_report_button():
     r, page, txt = build([make_card(add_comment={"link": LINK1})])
     assert r.returncode == 0, r.stderr
@@ -314,7 +322,8 @@ def check_report_names_actions_and_does_nothing_itself():
     assert body.count("<button") == 1 and '<button type="button" class="share"' in body, "Share is the only button"
     assert "readonly: true" in script and "sync" not in script.split("readonly: true")[1].split("};")[0], \
         "the shared copy is read-only and carries no server address"
-    assert "html[data-ro] a.act, html[data-ro] button.share { display: none; }" in page
+    assert ("html[data-ro] a.act, html[data-ro] button.share, html[data-ro] .needs-act "
+            "{ display: none; }") in page
     assert '<div class="review" hidden>' in body and '<div class="topbar" hidden>' in body
     assert body.count('<td class="stcell"></td>') == 1, "each findings row has a status cell the script fills"
     assert body.index('id="tl-review">') < body.index('getElementById("tl-review")'), "state block precedes the script"

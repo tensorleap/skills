@@ -60,6 +60,17 @@ write every field in full.
 
 ## Language rules
 
+- **The reader knows neither Tensorleap nor this project's integration
+  code.** They may be a stakeholder who was sent the report, or the model's
+  owner who never read the integration. So a name that comes from the
+  integration (a metric, a metadata field, a visualizer, a class id) is
+  never left bare: the first time it appears, say in a few plain words what
+  it measures or shows ("mean frame brightness, the average pixel value of
+  a clip's frames", "the attention heatmap, where the model looked"),
+  using `tl_get_integration_code` to find out. After that the plain name is
+  enough. The script adds a collapsed "How to read this report" section
+  that covers the report's own vocabulary (finding, insight number,
+  severity, status, the buttons); do not repeat it.
 - **"Failure Mode" is an insight TYPE** (the Insights panel's name for
   `low_performance`). Never use the phrase for anything else, not as a
   table column, not as generic prose ("each failure mode…"). When you need
@@ -101,7 +112,9 @@ groups, and ends with the last card. Notes live in `report.md` alone
 1. **Header**, "Tensorleap analysis" eyebrow, `PROJECT · VERSION`
    title, the script's one-line description of what the report is, an
    "Open in Tensorleap" button (the Insights-panel link), and a
-   chip row: evaluation date (`evaluated`) and the insight counts (`meta`),
+   chip row: evaluation date (`evaluated`) and the counts (`meta`, in plain
+   words: how many findings the report covers out of how many Tensorleap
+   found, e.g. "5 findings shown \u00b7 9 found by Tensorleap"),
    plus the script's "Review" line and "Read-only copy" button. Once the
    reader scrolls past it, a slim bar keeps the title, the review count and
    a link back to Findings.
@@ -114,11 +127,14 @@ groups, and ends with the last card. Notes live in `report.md` alone
    visible,
    then one tile per insight type present with its count, the same numbers
    the reader sees in the Insights panel.
-3. **Executive summary**: 3–5 sentences. This is where impact PRIORITY
+3. **Executive summary**: 3–5 sentences, 120 words at most, so the point
+   lands without scrolling. This is where impact PRIORITY
    lives ("labeling the two corruption groups is the highest-leverage
    action"), the rest of the report is panel-ordered, not impact-ordered.
    Where the prose names a specific issue, link the phrase to its card's
-   anchor ("a <a href="#insight-1">gaussian-noise group</a>…").
+   anchor ("a <a href="#insight-1">gaussian-noise group</a>…"). The script
+   puts its collapsed "How to read this report" section right under it
+   (fixed text, nothing to author).
 4. **Overview table** (rendered under a "Findings" heading): a TOC of the
    report in body order, columns
    `Insight # | Issue | Severity | Samples | First action`, with a subheader
@@ -344,7 +360,7 @@ review pass.
 {
   "project": "PROJECT", "version": "VERSION",
   "evaluated": "2026-07-28",
-  "meta": "9 insights \u00b7 6 top-level, 3 sub",
+  "meta": "5 findings shown \u00b7 9 found by Tensorleap",
   "insights_link": "LINKS.insights_panel from insights.json",
   "tiles": [
     {"value": "0.71", "label": "recall, all data"},
