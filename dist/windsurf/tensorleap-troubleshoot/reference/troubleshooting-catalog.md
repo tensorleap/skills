@@ -53,7 +53,7 @@ start; the previous container's log says why it died. `health.txt`'s direct prob
 | `mongodb-*` restarting, or Pending | disk full (D1), or a root-owned `storage/mongodb` | fix the cause; node-server reconnects by itself |
 | any pod, `permission denied` on its data folder | storage folders created by a sudo install are root-owned | `tensorleap-install` (its entry on root-owned folders) |
 | `tensorleap-node-server-*` not ready | one of its dependencies is down: `health.txt` says which | fix that one first |
-| any pod, last state `OOMKilled` | the machine is out of memory | D2; on a Mac also A5 |
+| a platform pod, last state `OOMKilled` (a run's own pods are F1, its Redis F9, CoreDNS F5) | the machine is out of memory | D2; on a Mac also A5 |
 | any pod, `ImagePullBackOff` | right after an upgrade: an image of that release is missing or unreachable; on an airgapped server: X1 | `tensorleap-install`, or X1 |
 
 Once the cause is fixed, a pod that stays stuck in a crash-loop can be deleted; its controller
@@ -144,12 +144,14 @@ tunnel, SSM) if it continues on a current server.
 
 ### L6. "License expired. Please run "leap auth license" to continue."
 **Confirm:** pushes and new runs fail with this message (HTTP 403); Population Exploration and
-Fetch Similar still work on results already computed. `leap auth whoami` shows the license.
+Fetch Similar still work on results already computed. `leap auth whoami` shows the license's
+expiry (compare it with today) and the signed-in account.
 **Cause:** the license period ended. It counts from the day the token was *issued*, not
 applied, so a fresh airgapped install can show only a few days left.
 **Fix:** ask Tensorleap for a new token and apply it: MANAGE LICENSE, or
-`leap auth license -t <token>` (or `-f <file>`). A token issued to an email domain applies only
-while signed in with an account at that domain. Then resume what the expiry stopped:
+`leap auth license -t <token>` (or `-f <file>`, the usual way to carry it to an airgapped
+server). A token issued to an email domain applies only while signed in with an account at that
+domain: check the account `whoami` shows first. Then resume what the expiry stopped:
 **Continue Evaluate** in the version's menu (not across an upgrade: F11).
 A new token applied but the days remaining don't change: a bug of servers before 1.6.100;
 upgrade (`tensorleap-install`).
@@ -180,17 +182,26 @@ PowerShell but not from the VS Code terminal is a PATH or environment difference
 
 ### P1. The push fails installing requirements from a private index or git repository
 **Confirm:** the push's logs show pip failing on a `git+ssh://` or `git+https://` requirement or
-an authentication error; or, with a Pip Index URL set,
-`Failed to build image after 3 attempts. … NewConnectionError("HTTPConnection(host='<index host>', port=<port>): Failed to establish a new connection: [Errno 111] Connection refused")`.
+an authentication error; or, with a Pip Index URL set (in GENERAL SETTINGS, or at install:
+`pipindexurl` in `server-info.txt`),
+`Failed to build image after 3 attempts. … NewConnectionError("HTTPConnection(host='<index host>', port=<port>): Failed to establish a new connection: [Errno 111] Connection refused")`
+(or `Name or service not known`, a timeout, a 401 from the index).
 **Cause:** the dependency build runs inside the platform: it has none of the user's SSH keys or
-credentials, and `localhost` there is the build container, not the host. "Connection refused"
-means nothing listens at that address for the build: the index server isn't running (a server
-started with `&` dies with its terminal) or listens on the host's loopback only.
+credentials, and `localhost` there is the build container, not the host; on Docker Desktop
+(macOS, Windows) `172.17.0.1` isn't the host either. A `curl` that works on the host proves
+nothing. "Connection refused" means nothing listens at that address for the build: the index
+server isn't running (a server started with `&` dies with its terminal) or listens on the
+host's loopback only. Read-only checks on the server: `ss -ltn` (Linux) or
+`lsof -nP -iTCP -sTCP:LISTEN` (macOS) for the index's port (`127.0.0.1:<port>` is loopback
+only, `*:<port>` or `0.0.0.0:<port>` all interfaces); then the build's own view,
+`docker exec k3d-tensorleap-server-0 wget -q -T 5 -O /dev/null <index URL>`
+(`can't connect to remote host` means the build can't reach it either).
 **Fix:** serve the packages from an index the build can reach: the company's PyPI mirror, or a
 local one on the server (`pypi-server` on the wheels' folder), listening on all interfaces and
-kept running as a service, addressed by the host's real IP. Set it as the Pip Index URL in
-GENERAL SETTINGS, and replace the `git+…` lines in `requirements.txt` with plain package names.
-If it can't be made reachable, clear the Pip Index URL and use public PyPI.
+kept running as a service, addressed by the host's real IP. Listening on all interfaces exposes
+the packages to the network: the user's IT decides, and a firewall rule can narrow it. Set it as
+the Pip Index URL in GENERAL SETTINGS, and replace the `git+…` lines in `requirements.txt` with
+plain package names. If it can't be made reachable, clear the Pip Index URL and use public PyPI.
 
 ### P2. The dependency build is very slow or seems stuck
 **Cause:** the first push builds the requirements image (10 to 20 minutes is normal; later pushes
@@ -249,6 +260,8 @@ older code-loader than the code needs): hand over to `tensorleap-integration-cre
 one waits for a running one to finish.
 **Fix:** wait, or stop a run you don't need (`leap run stop <runId>`). A machine that is always
 queueing is undersized for its load: D2.
+An Evaluate that stays PENDING (not QUEUED) was admitted, but its pod never started: J2, J4 on a
+GPU server, X1 when airgapped.
 
 ### J2. Stuck in initializing or "Build Model" for hours: a pod can't be scheduled
 **Confirm:** `job-<id>/pods.txt` (or `pods/<pod>.txt`): a `generic-process-<id>` (or another of
@@ -326,11 +339,16 @@ or `Main engine process ran out of memory. Minimize model/data memory usage or c
 `OOMKilled: Engine worker ran out of memory. …` / `Engine worker ran out of memory. Minimize data loader memory usage …`
 (the user's integration code: data loading, metrics, visualizers). The CLI can show the run
 FAILED with no reason while the run's details in the UI show this text.
+**Confirm:** `job-<id>/pods.txt` (the summary prints it): a pod's last state `OOMKilled`, exit
+code 137, and its memory limit. A `generic-process-…` pod is a worker, the run's Redis pod is F9,
+the run's other pod is the main process.
 **Fix:** PROJECT SETTINGS: Main → Engine Memory (GB) for the main process, Workers → Worker
 Memory (GB) for workers, or that tab's Auto-Settings on. Population Exploration and other light
 runs use Pop. Exp. Settings. Update Evaluate and visualization runs use Main's Engine Memory (GB)
-even with Auto-Settings on: raise it by hand when they run out. A smaller batch size lowers the
-main process's memory. The values can't exceed what the machine has free (J2). A worker that
+even with Auto-Settings on: raise it by hand when they run out. Size the values to what the
+machine has free (J2, step 3), then resume with Continue Evaluate. Large inputs times the batch
+size (32 images of 3 × 1024 × 1024, for example) are the usual cause: a smaller batch size lowers
+the main process's memory, but needs a fresh Evaluate. A worker that
 needs more per sample than expected is the integration's own footprint →
 `tensorleap-runtime-optimization`. Label Next and Domain Gap ran out of memory on millions of
 samples on older servers: upgrade first.
@@ -389,9 +407,13 @@ storage, not from Kubernetes, is U3.)
 
 ### F9. "This job was stopped because the Redis service restarted while it was running. Please retry the job."
 Often with `Error 111 connecting to redis…:6379. Connection refused.`
-**Cause:** the run's own Redis ran out of memory. **Fix:** a smaller batch size (in the field,
-256 failed, 128 failed, 64 worked), or more memory in PROJECT SETTINGS → Redis → Redis Memory
-(GB); then start the run again.
+**Confirm:** `job-<id>/pods.txt` (the summary prints it): the run's Redis pod last state
+`OOMKilled` at its memory limit, while the machine has room (not D2).
+**Cause:** the run's own Redis ran out of memory; a retry unchanged fails the same way.
+**Fix:** either more memory in PROJECT SETTINGS → Redis → Redis Memory (GB) (default 1 GB:
+double what the pod's limit shows), then **Continue Evaluate**; or a smaller batch size (in the
+field, 256 failed, 128 failed, 64 worked), which needs a fresh Evaluate, since Continue Evaluate
+keeps the batch size.
 
 ### F10. "Channel is closed." (with `StreamLostError` / `AMQPConnectionError` in the run's logs)
 **Cause:** RabbitMQ restarted under a heavy run; `rabbitmq-0` shows restarts in `cluster.txt`.
@@ -401,6 +423,8 @@ things at once; heavy custom metrics that saturate the CPU make it worse
 RabbitMQ's logs.
 
 ### F11. Continue Evaluate after an upgrade: the latent space is missing or wrong, or the run fails at the end
+**Confirm:** the version's first Evaluate ran before the server's last upgrade: `runs.txt`
+against the upgrade's date in `install-notes.md` History or `installer-last-log.txt`.
 **Cause:** an evaluation started on an older server and continued on a newer one can lose its
 latent space, or rebuild it inconsistently, when the run's format changed between the releases.
 **Fix:** push the version again and run a fresh Evaluate. Continue Evaluate is for resuming on
@@ -489,15 +513,21 @@ Hard-refresh the browser (Ctrl+Shift+R, Cmd+Shift+R on a Mac). Browser-console
 `Low disk space on the installation volume: <n> GiB free. The job will run, but …` is the
 server's early warning when a run starts.
 **Confirm:** `host.txt` (`df -h` of the data directory, `/` and `/tmp`, Docker's disk), the
-summary's DISK lines, `node.txt` (`DiskPressure True`), Evicted pods in `cluster.txt`.
+summary's DISK lines, `node.txt` (`DiskPressure True`), Evicted pods in `cluster.txt`. On Docker
+Desktop (macOS, Windows) these are two disks: the host's, which holds the data directory, and
+Docker's virtual disk (images and containers, its size set in Docker Desktop), which the node's
+`DiskPressure` and evictions measure. `du -sh <data-dir>` (read-only; minutes on a large
+install) shows how much of the disk is Tensorleap's; the rest is the user's to clean.
 **Cause:** the kubelet evicts pods when free space drops below the larger of 30 GB and roughly
-15 to 20 % of the disk; Elasticsearch stops writing earlier still (F4). The data directory grows
-with every evaluated version (metrics, latent spaces, visualizations); Docker's disk grows with
-images.
-**Fix, safest first, each with the user's yes:**
+15 to 20 % of the disk; Elasticsearch stops writing earlier still (F4), and dashboards turn slow
+or fail. The data directory grows with every evaluated version (metrics, latent spaces,
+visualizations); Docker's disk grows with images.
+**Fix, safest first, each with the user's yes,** until well over 150 GB is free (the number F4
+names; runs start with a warning under 100 GB):
 1. Delete versions and projects that are no longer needed, in the UI.
-2. Docker's disk: `docker image prune -a -f` while no install or upgrade is running (the
-   platform keeps its own copy of its images).
+2. Docker's disk (on Docker Desktop this frees Docker's disk, not the host's):
+   `docker image prune -a -f` while no install or upgrade is running (the platform keeps its own
+   copy of its images).
 3. Old installer caches: `tensorleap-install` (its entry on reclaiming disk on a running
    install).
 Never delete folders under `<data-dir>/storage` by hand. Once there is room, Kubernetes clears
@@ -553,6 +583,9 @@ Healthy servers log these too; don't diagnose from them.
 | `Manual job failed, collecting logs` | node-server log | the log-archiving step after a failure, not a new failure |
 | `Failed to create overlay heatmap … showing visualizer without the heatmap` | run logs | a visualizer heatmap whose shape doesn't match its input: cosmetic; the fix is in the integration |
 | `socket io connect_error xhr poll error`, `No token provided` | browser console | the connection blinked, or a session expired (sign in again) |
+| `No token provided`, `Invalid token` (HTTP 401) | node-server log | a request from a signed-out browser tab or an expired session; a problem only if the user can't sign in (L) |
+| Warning `Validation` on `elasticsearch/tl-elasticsearch`: `xpack.security.enabled: Forbidden: Configuration setting is reserved…` | `events.txt` | the platform sets it on purpose; Elasticsearch runs normally with it |
+| Elasticsearch health `yellow` | `cluster.txt` | a single node can't place replica copies; `red` is the problem |
 | red `POST request failed with status code: 500` after `Successfully completed` | installer log | telemetry after a successful run |
 | `no kubernetes cluster available` | `leap server tools` during an install | the cluster doesn't exist yet |
 | one old restart of `elastic-operator-0` (or another platform pod) dating from an upgrade or reboot | `cluster.txt` | a dependency wasn't ready yet during the restart; only restarts within the last day, or repeating ones, matter |

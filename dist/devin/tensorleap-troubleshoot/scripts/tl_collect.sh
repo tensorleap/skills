@@ -136,7 +136,8 @@ if [ -d "$DATA_DIR/logs" ]; then
   LAST_LOG="$(ls -t "$DATA_DIR/logs"/*.log 2>/dev/null | head -1)"
   [ -n "$LAST_LOG" ] && cap installer-last-log.txt tail -n 400 "$LAST_LOG"
 fi
-cap server-info.txt leap server info
+# leap server info reads only $TL_DATA_DIR or the default dir, not the data dir the install recorded.
+cap server-info.txt env TL_DATA_DIR="$DATA_DIR" leap server info
 PORT="$(sed -n 's/^port:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$OUT/server-info.txt" | head -1)"
 # The browser's path (through ingress-nginx), then node-server straight through the cluster's API.
 cap health.txt curl -s -m 10 -w '\nHTTP %{http_code}\n' "http://localhost:${PORT:-4589}/api/v2/monitor/healthCheck"
@@ -197,14 +198,18 @@ summary() {
     grep -E '(DiskPressure|MemoryPressure|PIDPressure)[[:space:]]+True' "$OUT/node.txt" | sed 's/^[[:space:]]*/  NODE CONDITION: /'
     awk '/^\$ / { cmd = $0 } /Warning/ && cmd ~ /get events/ { n[$4]++ } END { for (r in n) printf "  warning events: %s x%d\n", r, n[r] }' "$OUT/events.txt"
     grep -h -E 'Admission \| (queued engine job|starting oversized job|low free storage)' "$OUT/components/engine-orchestrator.txt" 2>/dev/null | tail -n 5 | cut -c1-240 | sed 's/^/  orchestrator: /'
+  elif grep -q 'No installation information found' "$OUT/server-info.txt" 2>/dev/null; then
+    echo "  no Tensorleap server installed on this machine: only run evidence is valid here; collect on the server (SKILL.md Step 2)"
   elif docker ps >/dev/null 2>&1; then
-    echo "  no running Tensorleap cluster on this machine: see docker.txt (Exited = stopped), or the server is another machine"
+    echo "  Tensorleap is installed here but its cluster isn't running: see docker.txt (Exited = stopped)"
   else
     echo "  docker isn't installed or readable here: not the server, or this user is not in the docker group"
   fi
-  awk '$5 ~ /%$/ && $5 + 0 >= 80 { printf "  DISK %s used on %s\n", $5, $NF }' "$OUT/host.txt"
+  awk '$5 ~ /%$/ && $5 + 0 >= 80 && !seen[$NF]++ { printf "  DISK %s used on %s\n", $5, $NF }' "$OUT/host.txt"
   for id in ${JOBS[@]+"${JOBS[@]}"}; do
     echo "  run $id: $(grep -m1 -E 'status:' "$OUT/job-$id/info.txt" | tr -s ' ')"
+    sed -n -E 's/^[[:space:]]+FAILED[[:space:]]+/    failed step: /p' "$OUT/job-$id/info.txt" 2>/dev/null | head -3
+    awk '/^Name:/ { pod = $2; oom = 0 } /Reason:[[:space:]]+OOMKilled/ { oom = 1 } oom && /^[[:space:]]+memory:/ && !seen[pod]++ { printf "    pod %s OOMKilled at its memory limit %s\n", pod, $2 }' "$OUT/job-$id/pods.txt" 2>/dev/null
     grep -h -m4 -E '^[[:space:]]*(HTTP-Code|Body):|error:' "$OUT/job-$id/info.txt" 2>/dev/null | sed 's/[[:space:]]*$//' | cut -c1-300 | sed 's/^[[:space:]]*/    /'
     grep -h -m5 -iE 'error|exception|traceback|oomkilled|evicted|denied' "$OUT/job-$id/logs.txt" 2>/dev/null | cut -c1-300 | sed 's/^[[:space:]]*/    /'
   done
