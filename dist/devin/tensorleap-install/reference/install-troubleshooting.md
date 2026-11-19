@@ -687,8 +687,11 @@ and first-login tokens have failed on raw-IP access.
 reinstall with `--domain` (and TLS); upgrade — ingress fixes shipped.
 
 ### 53. First-login / license traps
-First registered user = admin, approves all later signups; **no password reset exists
-on-prem** — a forgotten admin password has forced a full reinstall. No spaces in usernames.
+First registered user = admin, approves all later signups. A forgotten password once forced a
+full reinstall; now the login page's **Forgot password?** emails a reset code (server 1.6.100
+or newer, with outbound HTTPS; airgapped and proxied servers answer `EMAIL_RESET_UNAVAILABLE`),
+and `leap server reset-password <email>` on the server machine (leap CLI v0.0.163 or newer)
+sets a temporary password. Keep two admins. No spaces in usernames.
 Apply the license/extension token via Settings → Manage License (or
 `leap auth license -t <token>`). With a Free Tier token the install is Free Tier. After any
 reinstall: re-register, re-apply token, re-run `leap auth login`.
@@ -741,27 +744,24 @@ several unrelated-looking failures that are actually one cause.
 kubectl -n kube-system describe pod -l k8s-app=kube-dns | grep -A5 -E "Restart Count|Last State"
 ```
 `Restart Count >= 1` with `Last State: OOMKilled` around the failure time confirms it.
-**Fix merged to helm-charts master 2026-08-13 — but not yet in any released installer.**
-The installer patches CoreDNS to Guaranteed QoS (requests==limits, 512Mi/250m) on every
-install/upgrade, but as of installer pin `v0.10.15` (shipped in the latest CLI, `v0.0.161`)
-**no released version carries it** — verified on a live install, which still shows the k3s
-default. Do not assume a current install is protected; check:
+**Fixed from installer v0.10.18 (shipped from leap CLI v0.0.162):** the installer patches
+CoreDNS to Guaranteed QoS (requests==limits, 512Mi/250m) on every install, reinstall and
+upgrade. A cluster last installed or upgraded with an older CLI still runs the k3s default;
+check:
 ```
 kubectl -n kube-system get deployment coredns -o jsonpath='{.spec.template.spec.containers[0].resources}'
 ```
 `{"limits":{"memory":"170Mi"},"requests":{"cpu":"100m","memory":"70Mi"}}` = unpatched (the
 k3s default, Burstable). `512Mi`/`250m` on both requests and limits = patched.
-**Apply it yourself today** — same patch the installer will apply, safe to run on a live
-cluster (CoreDNS restarts in seconds):
+**Unpatched:** `leap cli upgrade -s | bash`, then `leap server upgrade` applies it. To protect
+a running cluster right away, apply the same patch by hand (safe on a live cluster; CoreDNS
+restarts in seconds):
 ```
 kubectl -n kube-system patch deployment coredns -p '{"spec":{"template":{"spec":{"containers":[{"name":"coredns","resources":{"requests":{"cpu":"250m","memory":"512Mi"},"limits":{"cpu":"250m","memory":"512Mi"}}}]}}}}'
 ```
-**The manual patch does not survive a cluster rebuild.** Verified live: a `leap server
-reinstall` (and any `upgrade` that triggers the reinstall prompt — which is the norm, not the
-exception) recreates the cluster from the k3s manifest and puts CoreDNS straight back to
-`170Mi`/Burstable. Re-apply the patch and re-check the QoS class (`Guaranteed`) after every
-reinstall/upgrade until a released installer carries the fix, or the protection silently
-lapses exactly when the cluster is most disrupted.
+A manual patch does not survive a cluster rebuild by an older CLI: a `leap server reinstall`
+(or an `upgrade` that triggers the reinstall prompt) recreates CoreDNS from the k3s manifest,
+and only installers from v0.10.18 re-apply the patch afterwards.
 
 ### 56. Jobs OOM, insights stall, "unexplained errors" under load
 The install is fine; the platform's job resources are sized for a bigger machine than this
@@ -820,6 +820,10 @@ against what's on disk before concluding data loss.
   didn't show; `VERBOSE=true` streams it live. `watch df -h` plus
   `leap server tools kubectl get pods -n tensorleap -w` in side terminals are the standard
   live-monitoring pair.
-- Security questionnaires: nothing leaves the machine except installer telemetry
-  (disableable) and image pulls; data and models never leave; SSO via Keycloak, internal pip
-  mirrors, and full airgap are the supported answers to "no external services".
+- Security questionnaires: datasets and models never leave the machine. What does leave: image
+  pulls; installer telemetry (`DISABLE_REPORTING=true` turns it off); and, unless the server was
+  installed with `--disable-metrics` or is airgapped, the platform's service logs (including the
+  output of the user's integration code), sent to Tensorleap by an in-cluster Datadog agent,
+  plus the UI's browser telemetry. Install with `--disable-metrics` when logs must stay on site.
+  SSO via Keycloak, internal pip mirrors, and full airgap are the supported answers to "no
+  external services".

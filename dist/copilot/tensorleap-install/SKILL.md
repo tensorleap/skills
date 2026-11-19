@@ -52,10 +52,10 @@ Hard rules:
   has a `== Codex ==` section with an `Optional: leap mcp config codex …` line: pass it on to
   the user once. The script prints it for no other assistant, so if the report has no such
   line, don't mention `leap mcp config codex`.
-- **`leap server check` does not exist.** Verified on the shipped CLI (v0.0.161): it is not a
+- **`leap server check` does not exist.** Verified on the shipped CLI (v0.0.168): it is not a
   registered subcommand — it silently prints the `leap server` help and **exits 0**, so a
   script would read it as success. Never suggest it as a diagnostic. The registered
-  subcommands are exactly: `info install reinstall run stop tools uninstall upgrade`.
+  subcommands are exactly: `info install reinstall reset-password run stop tools uninstall upgrade`.
 
 The failure catalog ships alongside this skill as `reference/install-troubleshooting.md`;
 a read-only preflight script lives at `~/.copilot/skills/tensorleap-install/scripts/install_preflight.sh`.
@@ -569,11 +569,14 @@ Until the image phase finishes there is no cluster yet, so this correctly answer
    `ssh <server> -L 4589:localhost:4589` then browse `http://localhost:4589` (use `localhost`,
    not `127.0.0.1` — tunnels have failed on the raw IP), or `http://<server-ip>:4589` inside a
    VPN/LAN.
-3. **First registered user becomes admin and approves every later signup. There is no
-   password reset on-prem — make the user store the admin password now** (a forgotten admin
-   password has forced a full wipe in the field). Mitigation to set up immediately: **have the
-   first admin promote a second admin** — admins can reset each other, which turns a lost
-   password from a reinstall into a two-minute fix. No spaces in usernames.
+3. **First registered user becomes admin and approves every later signup. Make the user store
+   the admin password now.** A lost password no longer means a wipe (it forced one in the field
+   before): from server 1.6.100 the login page's **Forgot password?** emails a 6-digit code
+   (the server needs outbound HTTPS; airgapped and proxied servers answer
+   `EMAIL_RESET_UNAVAILABLE`), and on any server `leap server reset-password <email>`, run on
+   the server machine with leap CLI v0.0.163 or newer, sets a temporary password the user
+   replaces at their next browser login. Still **have the first admin promote a second
+   admin** — admins can reset each other. No spaces in usernames.
 4. Apply the license/trial-extension token: Settings (gear) → Manage License → insert token →
    Apply. With a Free Tier token the install is Free Tier. When you describe the user's
    license, base it on the license line the installer prints. Explain it in your own words
