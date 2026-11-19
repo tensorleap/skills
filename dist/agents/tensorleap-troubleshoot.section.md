@@ -66,11 +66,11 @@ Hard rules:
   `&` and `< /dev/null`; the collector runs `leap` and `docker` inside it, so start it escalated
   (outside the sandbox).
 - **Know which machine you're on, and as whom.** The server is the machine whose Docker runs
-  `k3d-tensorleap-server-0`. The CLI often runs on a laptop that reaches the server over an SSH
-  tunnel, a VPN or a domain. Run evidence (status, error report, logs) works from wherever the
-  CLI is signed in; machine and cluster evidence needs a shell on the server, as the user who
-  installed Tensorleap (its leap config is per user; an SSM session starts as `ssm-user`:
-  `sudo su - <that user>` first).
+  `k3d-tensorleap-server-0` (on Windows, inside WSL2: work in the WSL shell). The CLI often
+  runs on a laptop that reaches the server over an SSH tunnel, a VPN or a domain. Run evidence
+  (status, error report, logs) works from wherever the CLI is signed in; machine and cluster
+  evidence needs a shell on the server, as the user who installed Tensorleap (its leap config is
+  per user; an SSM session starts as `ssm-user`: `sudo su - <that user>` first).
 - **`leap server check` is not a diagnostic.** The shipped CLI has no such subcommand: it prints
   the `leap server` help and exits 0, so it looks like success. Never use it.
 
@@ -196,10 +196,10 @@ symptom above it. Then find the matching catalog entry and quote its id.
    approval, license? → catalog L
 5. **The run.** Status and error report; for a Pending pod its scheduling reason; OOMKilled or
    Evicted; the first exception in the logs, not the last. A run's pod OOMKilled at its own
-   memory limit is that run's setting (F1; its Redis: F9), not the machine. A traceback whose
-   frames are all under `src_tensorleap/` is Tensorleap's code, not the user's. → catalog J
-   (stuck), F (failed), P (push), U (results missing or wrong, and storage errors such as
-   `AccessDenied`)
+   memory limit is that run's setting (F1; its Redis or a streaming handler: F9), not the
+   machine. A traceback whose frames are all under `src_tensorleap/` is Tensorleap's code, not
+   the user's. → catalog J (stuck), F (failed), P (push), U (results missing or wrong, and
+   storage errors such as `AccessDenied`)
 
 Before you blame a line, check the catalog's **Not a failure** section: every healthy install
 logs some red lines (TensorFlow notices, pip resolver chatter, a RabbitMQ reconnect, socket.io

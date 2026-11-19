@@ -53,7 +53,7 @@ start; the previous container's log says why it died. `health.txt`'s direct prob
 | `mongodb-*` restarting, or Pending | disk full (D1), or a root-owned `storage/mongodb` | fix the cause; node-server reconnects by itself |
 | any pod, `permission denied` on its data folder | storage folders created by a sudo install are root-owned | `tensorleap-install` (its entry on root-owned folders) |
 | `tensorleap-node-server-*` not ready | one of its dependencies is down: `health.txt` says which | fix that one first |
-| a platform pod, last state `OOMKilled` (a run's own pods are F1, its Redis F9, CoreDNS F5) | the machine is out of memory | D2; on a Mac also A5 |
+| a platform pod, last state `OOMKilled` (a run's own pods are F1, its Redis and streaming handlers F9, CoreDNS F5) | the machine is out of memory | D2; on a Mac also A5 |
 | any pod, `ImagePullBackOff` | right after an upgrade: an image of that release is missing or unreachable; on an airgapped server: X1 | `tensorleap-install`, or X1 |
 
 Once the cause is fixed, a pod that stays stuck in a crash-loop can be deleted; its controller
@@ -107,6 +107,17 @@ machine is off, or the tunnel was opened to `127.0.0.1` instead of `localhost`.
 `localhost`); connect the VPN first; on an SSM-only EC2 machine, an SSM port-forwarding session.
 A Tensorleap install running on the laptop itself collides with the tunnel's port: stop one of
 them. Remapping only the tunnel's local port breaks the login session; don't.
+
+### A7. Windows (WSL2): runs starve for memory, or the PC's drive fills
+On Windows the server runs inside WSL2 (`microsoft` in `versions.txt`'s `uname -a`): run the
+collector in that WSL shell, not in PowerShell.
+**Confirm:** `host.txt` shows far less memory than the PC has: WSL2 gives its virtual machine
+half of Windows' memory by default. Runs queue (J1) or die of memory (F1) on a PC that should fit
+them.
+**Fix:** on Windows, set `memory=<n>GB` under `[wsl2]` in `%UserProfile%\.wslconfig`, then run
+`wsl --shutdown` in PowerShell. That stops every WSL distribution, Tensorleap included: running
+jobs die, projects survive. Open the WSL shell again and check that the UI comes back (A2). WSL's
+disk lives on `C:` whatever the data directory says: `tensorleap-install` (its WSL2 entries).
 
 ---
 
@@ -186,12 +197,12 @@ an authentication error; or, with a Pip Index URL set (in GENERAL SETTINGS, or a
 `pipindexurl` in `server-info.txt`),
 `Failed to build image after 3 attempts. … NewConnectionError("HTTPConnection(host='<index host>', port=<port>): Failed to establish a new connection: [Errno 111] Connection refused")`
 (or `Name or service not known`, a timeout, a 401 from the index).
-**Cause:** the dependency build runs inside the platform: it has none of the user's SSH keys or
-credentials, and `localhost` there is the build container, not the host; on Docker Desktop
-(macOS, Windows) `172.17.0.1` isn't the host either. A `curl` that works on the host proves
-nothing. "Connection refused" means nothing listens at that address for the build: the index
-server isn't running (a server started with `&` dies with its terminal) or listens on the
-host's loopback only. Read-only checks on the server: `ss -ltn` (Linux) or
+**Cause:** the dependency build (pippin, in the logs) runs inside the platform: it has none of
+the user's SSH keys or credentials, and `localhost` there is the build container, not the host;
+on Docker Desktop (macOS, Windows) `172.17.0.1` isn't the host either. A `curl` that works on the
+host proves nothing. "Connection refused" means nothing listens at that address for the build:
+the index server isn't running (a server started with `&` dies with its terminal) or listens on
+the host's loopback only. Read-only checks on the server: `ss -ltn` (Linux) or
 `lsof -nP -iTCP -sTCP:LISTEN` (macOS) for the index's port (`127.0.0.1:<port>` is loopback
 only, `*:<port>` or `0.0.0.0:<port>` all interfaces); then the build's own view,
 `docker exec k3d-tensorleap-server-0 wget -q -T 5 -O /dev/null <index URL>`
@@ -203,12 +214,17 @@ the packages to the network: the user's IT decides, and a firewall rule can narr
 the Pip Index URL in GENERAL SETTINGS, and replace the `git+…` lines in `requirements.txt` with
 plain package names. If it can't be made reachable, clear the Pip Index URL and use public PyPI.
 
-### P2. The dependency build is very slow or seems stuck
+### P2. The dependency build (pippin) is very slow, seems stuck, or times out
 **Cause:** the first push builds the requirements image (10 to 20 minutes is normal; later pushes
-reuse it until the requirements change); behind a proxy, downloads inside the build can crawl.
-**Fix:** wait once; behind a proxy, point the Pip Index URL at the company's PyPI mirror. The
-CLI giving up waiting is cosmetic: the build continues on the server; follow it in the UI or
-with `leap run info <runId> -o text`.
+reuse it until the requirements change). A run that starts before that image exists (a
+Visualize, for example) waits for the build too; older servers show it as Initializing all along.
+Behind a proxy, downloads inside the build can crawl, or end in `Failed to build image after 3
+attempts` with `ReadTimeoutError: HTTPSConnectionPool(host='files.pythonhosted.org', port=443):
+Read timed out.`
+**Fix:** wait once. After a timeout, push again; if it repeats, the build's way to the internet
+is slow or blocked: point the Pip Index URL at the company's PyPI mirror, or check the proxy
+(`tensorleap-install`, its proxy entries). The CLI giving up waiting is cosmetic: the build
+continues on the server; follow it in the UI or with `leap run info <runId> -o text`.
 
 ### P3. "Timed out waiting for the push model import", or the model import takes very long
 **Cause:** large models take long to import, H5 far longer than ONNX (a 16 GB H5 took over 25
@@ -249,6 +265,12 @@ insights runs that wait for memory show PENDING, not QUEUED (J1).
 code-loader import error such as `cannot import name 'FoundationInput'` (the requirements pin an
 older code-loader than the code needs): hand over to `tensorleap-integration-creation`.
 
+### P9. A poetry project's push fails in the dependency build: `poetry install --no-root`, hash mismatch
+**Cause:** on servers up to 1.6.100 the dependency build (pippin) can't install a poetry
+project: the lock file stops matching once the build removes code-loader from it.
+**Fix:** upgrade (`tensorleap-install`): later releases turn poetry.lock into a requirements list
+and install that. On an older server, give the integration a `requirements.txt` instead.
+
 ---
 
 ## J. A run is stuck: queued, pending, initializing, "Build Model"
@@ -262,6 +284,9 @@ one waits for a running one to finish.
 queueing is undersized for its load: D2.
 An Evaluate that stays PENDING (not QUEUED) was admitted, but its pod never started: J2, J4 on a
 GPU server, X1 when airgapped.
+Servers up to 1.6.112 can also queue runs while memory is free: they counted idle warmup pods as
+used (fixed after 1.6.112). Runs queueing while `host.txt` and `node.txt` show plenty free on
+such a server: upgrade (`tensorleap-install`).
 
 ### J2. Stuck in initializing or "Build Model" for hours: a pod can't be scheduled
 **Confirm:** `job-<id>/pods.txt` (or `pods/<pod>.txt`): a `generic-process-<id>` (or another of
@@ -327,6 +352,16 @@ restarting), or a step inside it deadlocked.
 **Fix:** `leap run stop <runId>`, delete its leftover pods (J2 step 2), then start it again. Hours
 without new log lines are not proof of a hang: some steps log nothing for long stretches, then
 fail with an out-of-memory error (F1). If runs keep losing status, check `rabbitmq-0` (A3).
+**Hang or slow step?** Check twice, a few minutes apart, read-only:
+`kubectl -n tensorleap top pods -l jobId=<runId>` (a hung run's pods sit near zero CPU; a slow
+step keeps a core busy), and the main pod's latest lines (`job-<id>/pods.txt` names it;
+`kubectl -n tensorleap logs <main pod> --since=10m`; in the field, a hung run's
+`StreamingHandlerScaler tick` lines showed no documents moving, for good). A hang is a Tensorleap
+bug, and the same run usually hangs again: stop it, delete its leftover pods (deleting the main
+pod alone leaves its workers, Redis and streaming handlers running), and report it with those
+lines and the step it hung in. With the user's yes, on a server with internet access,
+`kubectl -n tensorleap exec <main pod> -- sh -c 'pip install -q py-spy && py-spy dump --pid 1'`
+shows where it waits: add it to the report.
 
 ---
 
@@ -340,8 +375,8 @@ or `Main engine process ran out of memory. Minimize model/data memory usage or c
 (the user's integration code: data loading, metrics, visualizers). The CLI can show the run
 FAILED with no reason while the run's details in the UI show this text.
 **Confirm:** `job-<id>/pods.txt` (the summary prints it): a pod's last state `OOMKilled`, exit
-code 137, and its memory limit. A `generic-process-…` pod is a worker, the run's Redis pod is F9,
-the run's other pod is the main process.
+code 137, and its memory limit. A `generic-process-…` pod is a worker, the run's Redis or a
+`streaming-handler-…` pod is F9, the run's remaining pod is the main process.
 **Fix:** PROJECT SETTINGS: Main → Engine Memory (GB) for the main process, Workers → Worker
 Memory (GB) for workers, or that tab's Auto-Settings on. Population Exploration and other light
 runs use Pop. Exp. Settings. Update Evaluate and visualization runs use Main's Engine Memory (GB)
@@ -405,8 +440,11 @@ applying, interrupted, or mixed builds.
 An upgrade still running: let it finish, then start the run again. (An `AccessDenied` from the
 storage, not from Kubernetes, is U3.)
 
-### F9. "This job was stopped because the Redis service restarted while it was running. Please retry the job."
-Often with `Error 111 connecting to redis…:6379. Connection refused.`
+### F9. A run's Redis ran out of memory: "This job was stopped because the Redis service restarted while it was running. Please retry the job."
+Often with `Error 111 connecting to redis…:6379. Connection refused.` Servers with one Redis per
+run (from mid-2026) say instead `OOMKilled: Process ran out of memory. Try increasing the process
+Memory limit by 25% and re-running the job.`, which they also give for a streaming handler (its
+fix: Streaming Handler → Streaming Handler Memory (GB)).
 **Confirm:** `job-<id>/pods.txt` (the summary prints it): the run's Redis pod last state
 `OOMKilled` at its memory limit, while the machine has room (not D2).
 **Cause:** the run's own Redis ran out of memory; a retry unchanged fails the same way.
