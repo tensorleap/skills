@@ -23,6 +23,11 @@ ships the shared scripts each skill needs.
 >   when every output stays identical, validation on your Tensorleap server, and a report
 >   naming what limits runtime and memory now
 >   ([guide](skills/tensorleap-runtime-optimization/docs/README.md)).
+> - [`tensorleap-troubleshoot`](skills/tensorleap-troubleshoot/skill.md) — debugging a
+>   Tensorleap server that stopped working (UI down, login or license, runs failing or
+>   stuck, out of memory, disk full): collects redacted evidence, finds the root cause in a
+>   field-sourced incident catalog, fixes it with your consent, and writes a support report
+>   when the fix needs a new Tensorleap release.
 
 ## Get started: install the leap CLI, then run `leap mcp config`
 
@@ -60,7 +65,7 @@ itself up to date. You can also name the assistant: `leap mcp config cursor`.
 
 | Assistant | What `leap mcp config` sets up |
 |---|---|
-| Claude Code | the `analysis` (MCP server + skill), `installer`, `integration` and `optimization` plugins |
+| Claude Code | the `analysis` (MCP server + skill), `installer`, `integration`, `optimization` and `troubleshooting` plugins |
 | Cursor | MCP server in `~/.cursor/mcp.json` + skills in `~/.cursor/skills` |
 | VS Code (GitHub Copilot) | MCP server in your user `mcp.json` + skills in `~/.copilot/skills` |
 | OpenAI Codex | MCP server in `~/.codex/config.toml` + skills in `~/.agents/skills` |
@@ -173,9 +178,10 @@ Native plugin-marketplace path (recommended):
 /plugin install integration@tensorleap    # authoring integrations
 /plugin install installer@tensorleap      # installing / upgrading a Tensorleap server
 /plugin install optimization@tensorleap   # measuring and optimizing an integration's runtime and memory
+/plugin install troubleshooting@tensorleap  # debugging a Tensorleap server that stopped working
 ```
 
-`integration`, `installer` and `optimization` are plugins (domain-scoped bundles) within the
+`integration`, `installer`, `optimization` and `troubleshooting` are plugins (domain-scoped bundles) within the
 `tensorleap` marketplace; installing one gives you its skills, and Claude auto-loads
 the relevant one per task. Or use the installer:
 
@@ -381,6 +387,26 @@ and open it in a browser).
 the same way as the integration skill: skill folders update in place, a Claude Code plugin
 through its marketplace.
 
+## Troubleshooting a Tensorleap server that stopped working
+
+The `tensorleap-troubleshoot` skill installs with the same commands as above (in Claude Code
+it is the `troubleshooting` plugin). Use it when an installed server blocks you: the UI won't
+open, you can't log in, a push or Evaluate fails or never starts, the disk filled up, or the
+platform didn't come back after a reboot or upgrade. Open your assistant on the server, or on
+the machine you run `leap` from, and describe what happened:
+
+> My Tensorleap evaluation has been stuck in initializing for an hour. Find out why and fix it.
+
+The skill runs a read-only collector (`tl_collect.sh`) that gathers versions, disk and memory,
+the cluster's pods, events and node conditions, the logs of unhealthy pods and the failing
+run's error report and logs, redacts secrets, and writes everything to
+`tensorleap-support/<time>/` plus a `.tar.gz`. It triages layer by layer (machine, cluster,
+platform services, access, the run), matches the evidence against a catalog of incidents seen
+on customer servers, explains the cause, and applies the fix only after you agree. When the fix
+needs a newer Tensorleap release, it sets up the workaround and writes `support-report.md` for
+you to review and send to Tensorleap with the archive. Server on another machine: the skill
+gives you the one command to run there.
+
 ## How it works
 
 A **skill** is the unit of authorship — `skills/<name>/skill.md` (the dir name *is*
@@ -412,6 +438,11 @@ skills/                             # the atoms — author here
     scripts/                         # tl_perf.py (+ perf_online, perf_code, report_html), perf_preflight.sh
     docs/                            # README.md + how-it-works.html (not installed)
     tests/                           # unit tests (not packaged)
+  tensorleap-troubleshoot/
+    skill.md                        # debug a Tensorleap server that stopped working
+    reference/troubleshooting-catalog.md   # field-sourced incident catalog
+    scripts/tl_collect.sh           # read-only evidence collector + redaction
+    tests/                           # redaction test (not packaged)
 plugins.json                         # which skills compose which Claude plugins (+ metadata/version)
 build/
   generate.py                        # skills + plugins.json -> wrappers   (--check for CI)
