@@ -14,4 +14,6 @@ When you change a skill:
 
 Users get the skills a leap CLI release names in `pkg/version/skills-ref` (tensorleap/leap-cli), never `main`: `leap mcp config` installs that tag and each skill's `self_update.sh` moves to it when the user upgrades the CLI. So merging here is always safe; nothing reaches users until a CLI release points at it.
 
-To ship: tag `main` here with the next `skills-vN` (`git tag skills-vN && git push origin skills-vN`), then set `pkg/version/skills-ref` to that tag in a leap-cli PR, usually the one this change goes with. The CLI and server are released together, so the skills, CLI and server a user gets were released together.
+To ship: merge to `main`. The next CLI release (helm-charts' Release CLI, `scripts/resolve-skills-ref.sh`) tags `main` with the next `skills-vN` and pins that tag in leap-cli's `pkg/version/skills-ref`; don't tag here or edit `skills-ref` by hand. The CLI and server are released together, so the skills, CLI and server a user gets were released together.
+
+A new skill or Claude plugin also needs its name in leap-cli's `skillNames` / `claudePlugins` (`cmd/mcp/config.go`). Merge that leap-cli change only after the skill is on `main` here: `leap mcp config` checks that every listed skill was installed from the pinned tag, and reports the skills as not installed otherwise.

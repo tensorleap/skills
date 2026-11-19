@@ -48,6 +48,17 @@
       },
       "homepage": "https://github.com/tensorleap/skills",
       "license": "Apache-2.0"
+    },
+    {
+      "name": "troubleshooting",
+      "source": "./dist/claude/troubleshooting",
+      "description": "Tensorleap's AI-assistant skill for a Tensorleap server that stopped working: collects redacted evidence, finds the root cause in a field-sourced incident catalog, fixes it with your consent, and writes a support report when the fix needs a new release.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Tensorleap"
+      },
+      "homepage": "https://github.com/tensorleap/skills",
+      "license": "Apache-2.0"
     }
   ]
 }
