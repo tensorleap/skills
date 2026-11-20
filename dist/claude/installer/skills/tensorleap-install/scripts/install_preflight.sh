@@ -107,6 +107,26 @@ for p in 4589 5699; do
   fi
 done
 
+ARCH="$(uname -m)"
+if [ "$(uname -s)" = "Linux" ] && { [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; }; then
+  echo "== ARM Linux host =="
+  # node-server, web-ui and zot ship amd64 only: on ARM Linux they run under qemu (catalog #13d).
+  if [ "$(docker run --rm --platform linux/amd64 alpine:3.18.3 uname -m 2>/dev/null)" = "x86_64" ]; then
+    ok "ARM Linux ($ARCH): amd64 emulation works"
+  else
+    fail "ARM Linux ($ARCH): docker cannot run amd64 images - sudo apt-get install -y qemu-user-static, then re-run (catalog #13d)"
+  fi
+  # Emulation never carries the GPU: a GPU install needs an arm64 build of the GPU node image.
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    GPU_NODE_IMAGE="public.ecr.aws/tensorleap/k3s:v1.26.4-k3s1-cuda-11.8.0-ubuntu-22.04-v1"
+    if docker manifest inspect "$GPU_NODE_IMAGE" 2>/dev/null | grep -q '"arm64"'; then
+      ok "GPU node image has an arm64 build"
+    else
+      warn "GPU node image has no arm64 build (or could not be checked): a GPU install dies at cluster creation - install with --cpu, reinstall with GPUs later (catalog #13d)"
+    fi
+  fi
+fi
+
 echo "== GPU =="
 if [ "$(uname -s)" = "Darwin" ]; then
   ok "macOS: no GPU support - never pass GPU flags"

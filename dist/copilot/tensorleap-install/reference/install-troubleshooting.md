@@ -229,6 +229,28 @@ must keep running, install with `--port <free>` (and/or `--registry-port <free>`
 is sticky, so changing it later forces a reinstall; use it consistently in tunnels and the
 `leap auth` URL afterwards.
 
+### 13d. ARM Linux (NVIDIA DGX Spark): cluster dies seconds after creation
+```
+Failed to start server k3d-tensorleap-server-0: Node k3d-tensorleap-server-0 failed to get ready:
+error waiting for log line `k3s is up and running` ... stopped returning log lines:
+node k3d-tensorleap-server-0 is running=true in status=running
+Cluster creation FAILED, all changes have been rolled back!
+```
+On an aarch64 Linux host (`uname -m`; DGX Spark kernels end in `-nvidia`) the node container
+crashes a few seconds after it starts, Docker restarts it, and k3d reports the lines it was
+waiting for as stopped. Seen on two DGX Sparks (2026-09, 2026-11), every retry identical. Cause:
+images published for amd64 only. Up to 2026-11 that included the GPU node image
+(`tensorleap/k3s:v1.26.4-k3s1-cuda-…`), so every GPU install died here; `node-server`,
+`web-ui` and the zot registry are still amd64 only.
+**Fix:** let Docker run amd64 images, persistently: `sudo apt-get install -y qemu-user-static`;
+check with `docker run --rm --platform linux/amd64 alpine:3.18.3 uname -m` (prints `x86_64`).
+The `tonistiigi/binfmt` container also works but is lost on reboot. Then confirm the GPU node
+image has an arm64 build: `docker manifest inspect public.ecr.aws/tensorleap/k3s:v1.26.4-k3s1-cuda-11.8.0-ubuntu-22.04-v1`
+lists `arm64`. If it does not, install with `--cpu` now and `leap server reinstall` with GPUs
+once it does. Emulation never carries the GPU: only the node image and the engine images
+(both arm64) touch it. The user's own model needs ARM CUDA wheels for GB10 (PyTorch cu128/cu130),
+or it runs on CPU.
+
 ### 14. "network <id> not found"
 `docker network prune` or a Docker reset removed the k3d network.
 **Fix:** `leap server uninstall` (data survives) then reinstall.

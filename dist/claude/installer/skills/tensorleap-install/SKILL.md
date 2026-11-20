@@ -260,6 +260,10 @@ before compacting to 50–150 GB.
   macOS until Docker Desktop restarts the VM under load (catalog #1d). With the 12GB
   Elasticsearch floor (#1b) that means a 16GB Mac is the smallest that works. Virtual disk
   ≥150GB. No GPU support.
+- **ARM Linux (aarch64, e.g. NVIDIA DGX Spark)** — some Tensorleap images are amd64 only, so
+  Docker must be able to run amd64 images: `sudo apt-get install -y qemu-user-static` before
+  installing (the preflight checks it). Without it, the cluster dies seconds after creation
+  (catalog #13d). Don't retry an install that failed there unchanged.
 - **Linux + GPU** — the canonical pre-check (the single most commonly forgotten prerequisite is
   nvidia-container-toolkit):
 
