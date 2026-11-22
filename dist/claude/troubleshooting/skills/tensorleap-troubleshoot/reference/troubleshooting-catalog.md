@@ -372,11 +372,13 @@ shows where it waits: add it to the report.
 or `Main engine process ran out of memory. Minimize model/data memory usage or contact Tensorleap for support.`
 (the model and the main loop), and the worker variants
 `OOMKilled: Engine worker ran out of memory. …` / `Engine worker ran out of memory. Minimize data loader memory usage …`
-(the user's integration code: data loading, metrics, visualizers). The CLI can show the run
-FAILED with no reason while the run's details in the UI show this text.
-**Confirm:** `job-<id>/pods.txt` (the summary prints it): a pod's last state `OOMKilled`, exit
-code 137, and its memory limit. A `generic-process-…` pod is a worker, the run's Redis or a
-`streaming-handler-…` pod is F9, the run's remaining pod is the main process.
+(the user's integration code: data loading, metrics, visualizers). The run's error report
+(`job-<id>/info.txt`) and its details in the UI both show this text.
+**Confirm:** the pod's describe output (the summary prints it): its last state `OOMKilled`,
+exit code 137, and its memory limit. It is in `job-<id>/pods.txt` while the pod exists, and at
+the end of `job-<id>/logs.txt` once the run has ended. A `generic-process-…` pod is a worker,
+the run's Redis or a `streaming-handler-…` pod is F9, the run's remaining pod is the main
+process.
 **Fix:** PROJECT SETTINGS: Main → Engine Memory (GB) for the main process, Workers → Worker
 Memory (GB) for workers, or that tab's Auto-Settings on. Population Exploration and other light
 runs use Pop. Exp. Settings. Update Evaluate and visualization runs use Main's Engine Memory (GB)
@@ -444,9 +446,12 @@ storage, not from Kubernetes, is U3.)
 Often with `Error 111 connecting to redis…:6379. Connection refused.` Servers with one Redis per
 run (from mid-2026) say instead `OOMKilled: Process ran out of memory. Try increasing the process
 Memory limit by 25% and re-running the job.`, which they also give for a streaming handler (its
-fix: Streaming Handler → Streaming Handler Memory (GB)).
-**Confirm:** `job-<id>/pods.txt` (the summary prints it): the run's Redis pod last state
-`OOMKilled` at its memory limit, while the machine has room (not D2).
+fix: Streaming Handler → Streaming Handler Memory (GB)). Newer servers name the pod:
+`OOMKilled: The run's Redis ran out of memory. …` or `OOMKilled: The run's streaming handler ran
+out of memory. …`.
+**Confirm:** `job-<id>/pods.txt`, or the end of `job-<id>/logs.txt` once the run has ended (the
+summary prints it): the run's Redis pod last state `OOMKilled` at its memory limit, while the
+machine has room (not D2).
 **Cause:** the run's own Redis ran out of memory; a retry unchanged fails the same way.
 **Fix:** either more memory in PROJECT SETTINGS → Redis → Redis Memory (GB) (default 1 GB:
 double what the pod's limit shows), then **Continue Evaluate**; or a smaller batch size (in the
@@ -584,6 +589,8 @@ recommended), 16+ CPUs, 150 to 300 GB for the data directory.
 ## X. Airgapped servers
 
 ### X1. A run's pod can't pull its image (`ImagePullBackOff`, `ErrImagePull`)
+The run's error report says `Failed to pull the required Docker image. Please contact support if
+this persists.`
 **Cause:** the airgap pack lacks an image the server creates while running (in the field: the
 per-run Redis), so the first run that needs it fails. **Fix:** report it with the image name
 from the pod's describe and the pack's file name; Tensorleap re-packs it. Upgrading an airgapped
