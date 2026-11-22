@@ -86,8 +86,9 @@ Hard rules:
   (status, error report, logs) works from wherever the CLI is signed in; machine and cluster
   evidence needs a shell on the server, as the user who installed Tensorleap (its leap config is
   per user; an SSM session starts as `ssm-user`: `sudo su - <that user>` first).
-- **`leap server check` is not a diagnostic.** The shipped CLI has no such subcommand: it prints
-  the `leap server` help and exits 0, so it looks like success. Never use it.
+- **`leap server check` is not a diagnostic.** The CLI has no such subcommand: it fails with
+  `unknown command`, and an older CLI prints the `leap server` help and exits 0, which looks like
+  success. Never use it.
 
 ## Step 1: What broke
 
@@ -173,12 +174,16 @@ them; otherwise the CLI:
   returned when the run was created (`Message: Unknown API Status Code!` only wraps it: the
   reason is in `Body`). A run whose pods never got scheduled has no logs either:
   its evidence is the pods' describe output and the events, which the collector gathers. A run
-  the CLI shows as FAILED with no reason can still have one in the run's details in the UI (out
-  of memory, for example): when the logs don't explain the failure either, ask the user for
-  that text or a screenshot.
+  that failed because one of its pods died (out of memory, an image that can't be pulled, a
+  crash loop) has the reason in its error report, as an `[Error]` entry such as
+  `Main engine process ran out of memory. …`; its logs often hold no error line at all. When
+  neither the error report nor the logs explain the failure, the run's details in the UI can
+  still show a reason: ask the user for that text or a screenshot.
 - **Logs outlive the pods.** When a run ends, Tensorleap archives every pod's log at that
   moment; `leap run logs`, `tl_get_job_logs` and the UI's log download all read that archive,
-  so a finished run's traceback is there even after its worker pods are gone.
+  so a finished run's traceback is there even after its worker pods are gone. `leap run logs`
+  (not `tl_get_job_logs`) also prints each pod's describe output from that moment, under
+  `Logs for describe-<pod>`: its last state, such as `OOMKilled`, and its memory limit.
   `leap server tools kubectl logs` only sees pods that still exist.
 - The user downloaded logs from the UI, or has any other file to send: redact it first with
   `bash <this skill's dir>/scripts/tl_collect.sh --redact <file-or-folder>`.

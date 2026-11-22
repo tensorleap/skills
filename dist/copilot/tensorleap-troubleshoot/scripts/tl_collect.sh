@@ -209,7 +209,11 @@ summary() {
   for id in ${JOBS[@]+"${JOBS[@]}"}; do
     echo "  run $id: $(grep -m1 -E 'status:' "$OUT/job-$id/info.txt" | tr -s ' ')"
     sed -n -E 's/^[[:space:]]+FAILED[[:space:]]+/    failed step: /p' "$OUT/job-$id/info.txt" 2>/dev/null | head -3
-    awk '/^Name:/ { pod = $2; oom = 0 } /Reason:[[:space:]]+OOMKilled/ { oom = 1 } oom && /^[[:space:]]+memory:/ && !seen[pod]++ { printf "    pod %s OOMKilled at its memory limit %s\n", pod, $2 }' "$OUT/job-$id/pods.txt" 2>/dev/null
+    # The reason under each [Error] entry of the error report; the grep below prints the HTTP-Code, Body and error: lines.
+    awk '/\[Error\] / { hdr = 1; next } hdr { hdr = 0; gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 != "" && $0 !~ /^(HTTP-Code|Body):|error:/ && !seen[$0]++) print "    error: " substr($0, 1, 300) }' "$OUT/job-$id/info.txt" 2>/dev/null | head -3
+    # pods.txt has only the pods that still exist; the run's archived logs end with every pod's describe output.
+    # cat, not two awk operands: macOS awk stops at a missing file.
+    cat "$OUT/job-$id/pods.txt" "$OUT/job-$id/logs.txt" 2>/dev/null | awk '/^Name:/ { pod = $2; oom = 0 } /Reason:[[:space:]]+OOMKilled/ { oom = 1 } oom && /^[[:space:]]+memory:/ && !seen[pod]++ { printf "    pod %s OOMKilled at its memory limit %s\n", pod, $2 }'
     grep -h -m4 -E '^[[:space:]]*(HTTP-Code|Body):|error:' "$OUT/job-$id/info.txt" 2>/dev/null | sed 's/[[:space:]]*$//' | cut -c1-300 | sed 's/^[[:space:]]*/    /'
     grep -h -m5 -iE 'error|exception|traceback|oomkilled|evicted|denied' "$OUT/job-$id/logs.txt" 2>/dev/null | cut -c1-300 | sed 's/^[[:space:]]*/    /'
   done
