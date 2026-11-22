@@ -1,5 +1,5 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-install -->
-<!-- Tensorleap skill 'tensorleap-install' v0.1.12, generated from skills/tensorleap-install/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-install' v0.1.13, generated from skills/tensorleap-install/skill.md; do not edit here. -->
 # Install Tensorleap
 
 `leap server install` creates a single-node k3d Kubernetes cluster inside Docker, then installs
@@ -246,6 +246,12 @@ before compacting to 50–150 GB.
   macOS until Docker Desktop restarts the VM under load (catalog #1d). With the 12GB
   Elasticsearch floor (#1b) that means a 16GB Mac is the smallest that works. Virtual disk
   ≥150GB. No GPU support.
+- **ARM Linux (aarch64, e.g. NVIDIA DGX Spark)** — some Tensorleap images are amd64 only, so
+  Docker must be able to run amd64 images: `sudo apt-get install -y qemu-user-static` before
+  installing (the preflight checks it). Without it, the cluster dies seconds after creation
+  (catalog #13d). Don't retry an install that failed there unchanged. If the preflight warns
+  that the GPU node image has no arm64 build, a GPU install dies the same way: install with
+  `--cpu`, and `leap server reinstall` with GPUs once the preflight shows `[ok]` for it.
 - **Linux + GPU** — the canonical pre-check (the single most commonly forgotten prerequisite is
   nvidia-container-toolkit):
 
