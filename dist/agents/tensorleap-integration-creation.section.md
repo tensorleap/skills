@@ -866,7 +866,8 @@ Add these one at a time, running after each:
   metric named `kpi` that returns a dict, one key per KPI; each key becomes the
   field `kpi_<key>`, with its own direction.
   ```python
-  @tensorleap_custom_metric("kpi", direction={"accuracy": MetricDirection.Upward})
+  @tensorleap_custom_metric("kpi", direction={"accuracy": MetricDirection.Upward},
+                          compute_insights=False)
   def kpi(pred: np.ndarray, gt: np.ndarray):   # (batch, num_classes) each, one-hot GT
       correct = np.argmax(pred, axis=-1) == np.argmax(gt, axis=-1)
       return {"accuracy": correct.astype(np.float32)}   # -> kpi_accuracy
@@ -893,6 +894,8 @@ Add these one at a time, running after each:
        left out of `direction` defaults to `Downward`.
     3. **`NaN` where there is nothing to measure** (Metrics rule 3 above),
        never `0` or `1` as a stand-in.
+  KPIs are overall metrics only: keep `compute_insights=False` so they never
+  drive failure modes or other insights.
   Name the keys in short snake_case the customer recognizes (`top5_accuracy`).
   Keep the metrics the integration already has; `kpi` goes beside them. When
   you tell the user what the integration contains, name each `kpi_<key>` field
