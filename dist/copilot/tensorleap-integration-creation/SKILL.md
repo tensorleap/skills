@@ -867,9 +867,9 @@ Add these one at a time, running after each:
   model, so comparing two versions shows the customer's own numbers (with no
   KPI, the comparison falls back to the loss). They all go in **one** custom
   metric named `kpi` that returns a dict, one key per KPI; each key becomes the
-  field `kpi_<key>`.
+  field `kpi_<key>`, with its own direction.
   ```python
-  @tensorleap_custom_metric("kpi", direction=MetricDirection.Upward)
+  @tensorleap_custom_metric("kpi", direction={"accuracy": MetricDirection.Upward})
   def kpi(pred: np.ndarray, gt: np.ndarray):   # (batch, num_classes) each, one-hot GT
       correct = np.argmax(pred, axis=-1) == np.argmax(gt, axis=-1)
       return {"accuracy": correct.astype(np.float32)}   # -> kpi_accuracy
@@ -879,18 +879,21 @@ Add these one at a time, running after each:
   argmax a one-hot GT, compare a class index as it is. Then add one key per KPI
   the customer reports (Authoring order, Step 0). Each key must be:
     1. **A per-sample value whose mean over samples is the KPI itself** —
-       per-sample correctness for accuracy (top-k accuracy alike), a per-sample
-       hit for a hit rate (e.g. a prediction within the customer's tolerance),
-       an image's IoU when they report the mean IoU over images. A KPI computed
-       from dataset totals or a ranking (mAP, F1, AUC, precision or recall over
-       the whole set, an mIoU accumulated over the dataset, RMSE) is not a mean
-       of per-sample values: never fake it with a per-sample stand-in under its
-       name. Tell the user it can't be a KPI field and why, and log it in
-       `integration-report.md`.
-    2. **Higher is better.** A lower-is-better KPI goes in as its complement
-       when it has one (error rate → `accuracy`). One without (MAE) is not a KPI
-       field: keep it as an ordinary metric with `direction=MetricDirection.Downward`
-       and tell the user.
+       per-sample correctness for accuracy (top-k accuracy alike), the absolute
+       error for MAE (the squared error for MSE), a per-sample hit for a hit rate
+       (e.g. a prediction within the customer's tolerance), an image's IoU when
+       they report the mean IoU over images. A KPI computed from dataset totals
+       or a ranking (mAP, F1, AUC, precision or recall over the whole set, an
+       mIoU accumulated over the dataset) is not a mean of per-sample values:
+       never fake it with a per-sample stand-in under its name. Tell the user it
+       can't be a KPI field and why, and log it in `integration-report.md`.
+       RMSE is the square root of a mean: add `mse` and tell the user the
+       comparison shows MSE, whose square root is their RMSE.
+    2. **Its own direction.** `direction` names every key:
+       `MetricDirection.Upward` when higher is better (accuracy),
+       `MetricDirection.Downward` when lower is better (MAE, MSE, error rate).
+       Keep each KPI in the form the customer reports it; don't flip it. A key
+       left out of `direction` defaults to `Downward`.
     3. **`NaN` where there is nothing to measure** (Metrics rule 3 above),
        never `0` or `1` as a stand-in.
   Name the keys in short snake_case the customer recognizes (`top5_accuracy`).
