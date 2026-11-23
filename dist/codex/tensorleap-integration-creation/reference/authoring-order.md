@@ -46,7 +46,7 @@ import numpy as np
 
 from code_loader.contract.datasetclasses import PreprocessResponse, PredictionTypeHandler
 from code_loader.contract.datasetclasses import FoundationInput, ImageRange   # code-loader >= 1.0.221
-from code_loader.contract.enums import DataStateType
+from code_loader.contract.enums import DataStateType, MetricDirection
 from code_loader.inner_leap_binder.leapbinder_decorators import (
     tensorleap_preprocess,
     tensorleap_input_encoder,
@@ -403,7 +403,9 @@ drift. Then add custom loss / metadata / visualizers / metrics **one at a time**
 define -> call directly if possible -> call from `integration_test` -> rerun -> fix
 before adding the next. The **custom loss is required to push** (the platform build
 fails without one) even though `check_dataset()` can report `isValid: True` without
-it; metadata / visualizers / metrics are optional.
+it. The `kpi` metric comes next whenever the customer has a KPI (a
+classification model always does: see skill.md **KPIs**); metadata / visualizers /
+other metrics are optional.
 
 ## leap.yaml
 
