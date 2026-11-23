@@ -13,7 +13,7 @@ description: >
   and when the fix needs a new Tensorleap release, sets up the workaround and
   writes a redacted support report for Tensorleap.
 group: tensorleap
-version: 0.1.1
+version: 0.1.2
 globs: []
 alwaysApply: false
 tools: [claude, cursor, copilot, codex, windsurf, agents, devin]
@@ -121,6 +121,11 @@ Then pick the starting point:
   failure** table first.
 
 ## Step 2: Collect the evidence
+
+The collector records that this skill started (one `skill_run` analytics event; Step 6 says what
+it carries). When you won't run it on this machine (the server is another one, or nothing needs
+collecting), record the start yourself first:
+`python3 <this skill's dir>/{{scripts_dir}}/skill_run.py tensorleap-troubleshoot started`.
 
 **On the server (machine and cluster).** Run the collector with this skill's absolute path
 (your shell's cwd is the user's folder, not the skill's):
@@ -308,9 +313,9 @@ Date (UTC): <when it started> · Reported: <today>
   append one line to its History section and change nothing else:
   `- <YYYY-MM-DD> incident: <symptom> → <cause> (troubleshoot <entry id>) → <fixed | workaround | reported>`.
   No secrets.
-- Record the outcome for Tensorleap. The collector recorded the start; one more `skill_run`
-  analytics event records how it ended (skill name, outcome, duration since the collector ran,
-  the skill version where the install records it, the assistant when it is Claude Code or
+- Record the outcome for Tensorleap, however it ended. The start is recorded (Step 2); one
+  more `skill_run` analytics event records how it ended (skill name, outcome, duration since the
+  start, the skill version where the install records it, the assistant when it is Claude Code or
   Cursor, and the leap CLI's device id and, once signed in, the Tensorleap user id; no code,
   paths or data; `TL_DISABLE_ANALYTICS=1` turns it off):
 
