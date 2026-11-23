@@ -1,10 +1,10 @@
 <!-- BEGIN TENSORLEAP SKILL: tensorleap-analysis -->
-<!-- Tensorleap skill 'tensorleap-analysis' v0.4.11, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
+<!-- Tensorleap skill 'tensorleap-analysis' v0.5.0, generated from skills/tensorleap-analysis/skill.md; do not edit here. -->
 # Analyzing Tensorleap results
 
-You produce a self-contained HTML report (plus a short markdown companion
-for tickets) from the insights Tensorleap generated for one evaluated model
-version. The platform did the numeric analysis; you add the analyst layer:
+You produce a report the team reads in the project's Reports tab (plus a
+short markdown companion for tickets) from the insights Tensorleap generated
+for one evaluated model version. The platform did the numeric analysis; you add the analyst layer:
 explain it, LOOK at the failing samples yourself, report what the platform's
 metadata can't show, and turn it all into action items the user can execute.
 Do not relay the platform's output uncritically. You have the samples;
@@ -13,8 +13,8 @@ form an opinion.
 Data comes from the Tensorleap MCP server (`leap mcp`, part of the leap
 CLI), through its tools: `tl_status`, `tl_list_projects`, `tl_list_versions`,
 `tl_get_insights`, `tl_export_analysis`, `tl_get_integration_code`,
-`tl_view_samples`, `tl_list_samples`, `tl_query`, and `tl_publish_report`
-for the finished report. Read its
+`tl_view_samples`, `tl_list_samples`, `tl_query`, `tl_list_jobs`, and
+`tl_publish_report` for the finished report. Read its
 `tensorleap://glossary` resource once. The report plumbing is one script
 (python3, stdlib only):
 
@@ -22,9 +22,8 @@ for the finished report. Read its
 python3 .tensorleap/scripts/tl_api.py digest DIR         # manifest.json -> insights.json (the digest you read)
 python3 .tensorleap/scripts/tl_api.py render-charts DIR  # chart.png / boxes.jpg for non-image payloads
 python3 .tensorleap/scripts/tl_api.py summarize DIR      # per-insight composition stats from samples.csv
-python3 .tensorleap/scripts/tl_api.py build-report DIR   # assemble report.html + report.txt from DIR/report.json
-python3 .tensorleap/scripts/tl_api.py inline-html FILE   # embed <img src> files as data URIs, in place
-python3 .tensorleap/scripts/tl_api.py open-report FILE   # open report.html in the user's browser, or say how to reach it
+python3 .tensorleap/scripts/tl_api.py check-report DIR   # check DIR/report.json before publishing, write report.txt
+python3 .tensorleap/scripts/tl_api.py open-report LINK   # open the published report in the user's browser, or say how to reach it
 ```
 
 > `.tensorleap/scripts/tl_api.py` lives in this skill's own directory, NOT in
@@ -33,12 +32,12 @@ python3 .tensorleap/scripts/tl_api.py open-report FILE   # open report.html in t
 > (an absolute path is safest) and never copy it into the project.
 
 Exit codes: `0` ok · `2` bad args · `5` no manifest / no insights · `6`
-matplotlib missing (render-charts only) · `7` inline-html src unresolved ·
-`8` build-report input invalid. Auth and the server come from the leap CLI's
+matplotlib missing (render-charts only) · `8` check-report: report.json
+invalid. Auth and the server come from the leap CLI's
 own login; `leap mcp` talks to whichever server `leap auth select` points at
 (or the `--env` its MCP registration pins), exactly like the UI does.
 
-`digest` and `build-report` also record the run's start and end: one
+`digest` and `check-report` also record the run's start and end: one
 `skill_run` analytics event each (skill name, stage, outcome, exit code,
 duration, the skill version where the install records it, the assistant when
 it is Claude Code or Cursor, and the leap CLI's device id and, once signed in,
@@ -55,9 +54,10 @@ update, ask before running the printed command. When it says the Tensorleap
 plugins moved (Claude Code), the user should run `/reload-plugins` and ask
 again; continue with the installed version meanwhile.
 
-Then run `bash .tensorleap/scripts/compat_check.sh 0`. A `WARNING:` line means
+Then run `bash .tensorleap/scripts/compat_check.sh 2`. A `WARNING:` line means
 this skill needs a newer Tensorleap server than the user has: tell the user
-what it says, then continue.
+what it says, then continue. On such a server the analysis and `report.md`
+still work, and the report cannot be published (Step 6).
 
 Then call `tl_status`. **If the Tensorleap tools aren't available** (none, or
 only `tl_status`), now or later in this chat, tell the user first and give them
@@ -267,11 +267,11 @@ Then render charts for non-image modalities:
 python3 .tensorleap/scripts/tl_api.py render-charts tensorleap-analysis/<version>
 ```
 
-Exit 6 means no matplotlib in this environment, fall back to compact
-HTML tables built from the payload JSON (do NOT install anything).
+Exit 6 means no matplotlib in this environment: read those payloads'
+numbers from the JSON instead (do NOT install anything).
 render-charts also writes a `<name>.thumb.jpg` (max 640 px) beside every
-larger image, the copies you view in Step 5. They never go in the report;
-build-report rejects them.
+larger image, the copies you view in Step 5. Everything it writes is for
+your eyes only: the report names samples and views, never files.
 
 **Repeat runs re-export.** The export tool rewrites the directory in a few
 seconds; after a crash or a report edit just call it again and re-run
@@ -378,6 +378,18 @@ what they will see. Viewing happens at two levels:
   report you can produce, and an observation nobody in this context ever
   verified is exactly how that happens.
 
+**A clip or a recording you cannot play.** Look at a still view of the same
+sample when the integration declares one (a frame grid, a first frame, a
+spectrogram): that is how you know what a clip holds, and it is enough to put
+the clip itself on the card. When a sample has no view you can look at, the
+card still shows it, your observations say only what the numbers support, and
+one Notes line says the clips were not viewed.
+
+**A view that failed to render.** A `payload.json` with `has_error` is a
+visualizer that raised for that sample (often an overlay beside a view that
+did render). Never show it and never quote its message as a sample; one Notes
+line names the view and the stored message, so the integration can be fixed.
+
 You are looking for what the platform cannot see:
 
 - **Content contradicting a label/metadata value**, but ONLY when the value
@@ -434,10 +446,9 @@ space, an algorithm edge case, anything). Then:
 
 1. **Check its subinsights first** (same discipline: composition, metric
    signature, your own look at the samples). A subinsight that isolates one
-   clear story gets its own card, standing in for the parent, its chips
-   carry both identities ("insight #3 · sub-insight #9") and its explore
-   line points at the parent in the panel. Several coherent subs → several
-   cards.
+   clear story gets its own card, standing in for the parent, and its `id`
+   carries both identities (`insight-3-sub-9`; the report shows
+   "#3 · sub #9"). Several coherent subs → several cards.
 2. **No coherent story → ignore the insight**, the report equivalent of
    archiving it in the panel. Nothing in the report; one terse line in the
    companion's Notes naming it a candidate for archiving, with the
@@ -460,7 +471,7 @@ per card:
 - Subs merely refine the parent (same story, tighter slices, no distinct
   action) → the parent gets the card; subinsights appear nowhere in it.
 - A sub carries a distinct story or action → promote it to its OWN card
-  (chips: "insight #3 · sub-insight #9"). The parent keeps a card only if
+  (`id`: `insight-3-sub-9`). The parent keeps a card only if
   its story minus that sub still stands with its own action; otherwise the
   sub's card replaces it, and the parent appears only as one orienting
   sentence of context in the sub's prose.
@@ -471,75 +482,77 @@ per card:
 ## Step 6: Write the report
 
 Follow **`.tensorleap/reference/report-template.md`** (report.json schema,
-per-insight anatomy, language rules). You never write HTML: author
-`<out-dir>/report.json`, content only, image paths relative to `<out-dir>`,
-and the script renders the page. **The body is grouped by insight TYPE in the
-Insights panel's order** (Failure Mode → Out of Distribution → Duplication →
-Data Leakage → Domain Gap → Mislabeled; the template has the display names
-and one-line meanings), one group per type present, ordered by severity
-then affected-sample count within the group (the rendered table says so),
-and the overview table mirrors the same order with a subheader
-row per type. Each insight gets: chips, a bold
-one-sentence **bottom line**, the **root-cause label** (Data gap / Label
-quality / Mislabeling / Split problem / Model behavior, the family your playbook walk
-diagnosed, with a one-line caption; fixed vocabulary so it reads as a
-consistent grammar), the **split-composition bar** and **metric-contrast
-rows** (population
-value from `population_metrics` in insights.json; omit if absent),
-the samples (behind a collapsed "Samples (N)" fold that shows all of them
-when opened), action items,
-the **download button** (`download_csv`) when the digest has
-`files.fixing_csv`, the platform's selected samples to label/acquire,
-the **"Test" header button** (`add_test`) when the digest has `add_test_link`,
-the **"Add comment" header button** (`add_comment`) when the digest has
-`add_comment_link`,
-and the **"Analyze insight"** header button using the insight's
-`deep_link` (lands on the insight already analyzed, opened as the
-dashboard's top panel with its cluster filter applied, what the panel's
-"Analyze" button does; insights without a cluster blob fall back to the
-version-level Insights-panel link). The script adds an **Approve** toggle to
-every card, approving the insight on the platform it was exported from (on
-servers that support it, server versions > 1.6.100; on older ones approvals
-stay in the reader's browser), and a review box to the header that shares a
-read-only copy; they need nothing from you.
-Then render and make it self-contained:
+per-card anatomy, language rules). You never write HTML and never embed a
+picture: author `<out-dir>/report.json`, content only, and the platform
+renders it. **The body is grouped by insight TYPE in the Insights panel's
+order** (Failure Mode → Out of Distribution → Duplication → Data Leakage →
+Domain Gap → Mislabeled; the template has each type's plain-word title, its
+`kind` and one-line meaning), one group per type present, ordered by
+severity then affected-sample count within the group (the report's findings
+table says so). Each finding gets: chips, a bold one-sentence **bottom
+line**, the **root-cause label** (Data gap / Label quality / Mislabeling /
+Split problem / Model behavior, the family your playbook walk diagnosed,
+with a one-line caption; fixed vocabulary so it reads as a consistent
+grammar), the **split-composition bar** and **metric-contrast rows**
+(both values from the insight's `summary.contrast` in the digest; leave
+empty if absent), the samples (named by sample id and view, behind a collapsed
+"Samples (N)" fold that shows all of them when opened), action items, and
+`test` when the digest has `add_test_link` (the card then offers **Add the
+regression test**). The platform adds the rest by itself: each finding's
+status with its **Acknowledge** and **Open proof** buttons, the review
+progress, the findings table, and **Export HTML**, which saves the report
+as one file a reader can mail or Slack. They need nothing from you.
+
+**The reader has never opened Tensorleap.** Nothing they read says
+"Tensorleap", "insight" or "Failure Mode", or names a visualizer, a function
+or a field from the integration (template: language rules). The insight
+numbers live in each finding's `id`, not in its text.
+
+**Show each sample the way the platform shows that kind of data.** The
+platform has its own control for every kind of view, and the report uses it:
+you only name the view. The first view of an item is the sample in its own
+form: the clip for a video dataset, the picture, the text, the recording. A
+still summary you used for looking (a frame grid, a spectrogram) goes on the
+card only when the data has no form of its own to show, or as the second
+view. A second view, when it earns its place, is evidence about the same
+sample: the model's scores, the ground truth beside the prediction, the
+sample with its attention overlay. Never more than two. Prefer samples that
+no other card shows.
+
+Per sample `payload.json` (`data.type`):
+
+| `data.type` | What the platform shows for `sampleId` + `visualizers` | In a saved copy |
+|---|---|---|
+| `image`, `bbox_image` | the picture, with its boxes (GT and prediction decoders are separate visualizers, caption which one you show) | kept |
+| `image_heatmap`, `mask_image` | the picture with the heatmap or mask drawn over it | the picture, without the overlay |
+| `video` | the clip, in the platform's player | kept |
+| `video_heatmap` | the clip with its attention overlay, in the player: a second view, never the first | the clip, without the overlay |
+| `audio` | the recording, in the platform's player | kept |
+| `text`, `mask_text` | the text, with its highlights. Use the item's `text` field instead only to quote a short excerpt word for word | the text, without highlights |
+| `hbar` | the bar chart (scores per class) | kept |
+| `graph`, any other type | the platform's control for it (a line chart, a 3D view) | left out, with a note |
+
+The last column is what **Export HTML** keeps when a reader saves the report
+as one file. Never make a card's case rest on something that file leaves
+out.
+
+`chart.png`, `boxes.jpg` and the thumbnails from render-charts are how YOU
+look at those payloads; they are never named in report.json. Set the
+report's `modality` to what most of the samples are (`visual` for pictures
+and video, `textual`, or `auditory`).
+
+Then check it:
 
 ```
-python3 .tensorleap/scripts/tl_api.py build-report <out-dir>
-python3 .tensorleap/scripts/tl_api.py inline-html <out-dir>/report.html
+python3 .tensorleap/scripts/tl_api.py check-report <out-dir>
 ```
 
-build-report exit 8 means report.json is invalid or an image path didn't
-resolve; inline-html exit 7 means a `src` didn't resolve, fix (stderr lists
-which) and re-run; never ship a report with broken images. The result is ONE file
-the user can mail or Slack.
-
-**Then publish it, without asking**: call `tl_publish_report` with `dir` =
-the absolute `<out-dir>`. It uploads report.html (with report.md and
-report.json) to the Tensorleap server; the team finds it in the project's
-Reports tab in the UI and the returned `link` opens it. Every publish adds
-a new report, so after an edit tell the user the earlier card is still
-there. Skip it only when the user asked not to publish; if the
-tool refuses (an older server, no connection), keep the local files and
-say so in the closing message. Also write `<out-dir>/report.md`, the
-executive summary, summary table, per-insight action checklists, and the
-**Notes** section (template: one line per insight without a card, ending in
-what the reader can do; unrendered visualizations as on-demand behavior;
-export notes). It is the paste-into-a-ticket companion; no images.
-
-Modality handling per sample `payload.json` (`data.type`):
-
-| `data.type` | Sample entry in report.json |
-|---|---|
-| `image`, `image_heatmap`, `mask_image` | `images`: the downloaded `.jpg`/`.png` from `assets/` |
-| `bbox_image` | `images`: `boxes.jpg` rendered by render-charts next to the payload (GT and prediction decoders are separate visualizers, caption which one you show); the raw asset has no boxes |
-| `text`, `mask_text` | `text`: the joined `data.body` tokens |
-| `graph`, `hbar` | `images`: `chart.png` next to the payload (no matplotlib → a small HTML table in the card's prose instead) |
-| `video`, `audio` | note it exists; don't inline media files |
-
-Careful: `insights.json` lists files as of export time, `chart.png` /
-`boxes.jpg` appear on disk only after render-charts, so resolve them from the
-payload's directory, not from the digest's file list.
+Exit 8 means report.json is not ready: a field is missing or mistyped, a
+finding's number is not a group of this export, a card shows a sample of
+another group, a view the export did not download or one that failed to
+render, the root cause or the order of the cards breaks the fixed rules, or
+the text uses the platform's vocabulary. stderr lists every problem; fix
+them all and re-run. Never publish a report that did not pass.
 
 **At most 6 insights get a card.** When the run has more, keep the 6 with
 the strongest case, severity first, then how much of the data the finding
@@ -547,57 +560,80 @@ touches and whether it carries a distinct action, and give every other
 insight its one-line Notes entry. Fewer than 6 worth carding → write fewer;
 never pad.
 
-Order insights by `severity` descending. **Lead every insight with what
+Order insights by `severity` descending. **Lead every card with what
 is going wrong**, what fails and why, named in plain ML terms, and write for
-an ML engineer with zero knowledge of Tensorleap internals: no blob paths,
-filter JSON, or raw payload field names in the prose (the template's language
-rules are binding). Keep the executive summary honest, if the insights are
-low-severity or repetitive, say so. The HTML ends with the last insight
-card, **no Notes section in the HTML.**
+an ML engineer with zero knowledge of Tensorleap: no blob paths, filter
+JSON, or raw payload field names (the template's language rules are
+binding). Keep the executive summary honest, if the insights are
+low-severity or repetitive, say so. The report ends with the last card,
+**no Notes section in report.json.**
 
-**Before finishing, read the rendered report as its reader would**, via
-`<out-dir>/report.txt` (build-report's text linearization of the full page:
-every sentence, chips, captions, link texts), plus the companion's Notes.
-Never re-read report.html for this, report.txt is the same content without
-the markup. Assembled text is where
-clumsiness hides ("this insight is insight #2", repeated phrases, stale
-numbers). Fix anything you would not have written in a single pass, in
-report.json, then re-run build-report and inline-html. Ship
-only what reads clean end-to-end.
+**Before publishing, write `<out-dir>/report.md`** (template: the last
+section), without its link line, which you add after publishing.
+
+**Then read both as their reader would**: `<out-dir>/report.txt`
+(check-report's text linearization of the full report: every sentence,
+chips, captions) and report.md's Notes. Assembled text is where clumsiness
+hides ("this group is group #2", repeated phrases, stale numbers). **Derive
+every number in the report again** from where it came from (the `summarize`
+output, the digest, your `tl_query` results, the csv files, the payloads),
+and make sure each one counts what its sentence says (errors on
+clips of one class are not all errors in the group): a published report
+cannot be corrected, only followed by another. Fix anything you would not
+have written in a single pass, in report.json, then re-run check-report.
+Publish only what reads clean end-to-end.
 
 **Cards use only what the export rendered.** A sample with
-`missing_visualization` is named by id with its insight link; never
-re-render samples yourself from the dataset, local files or the integration
-code (an admin's AI-access settings cannot see local renders, and the
-result would differ from what the platform shows).
+`missing_visualization` is named by id in the analysis; never re-render
+samples yourself from the dataset, local files or the integration code (an
+admin's AI-access settings cannot see local renders, and the result would
+differ from what the platform shows).
+
+**Then publish it, without asking**: call `tl_publish_report` with `dir` =
+the absolute `<out-dir>`. It uploads report.json to the Tensorleap server;
+the team finds the report in the project's Reports tab in the UI and the
+returned `link` opens it. Every publish adds a new report, so publish once
+the report reads clean, and after a later edit tell the user the earlier
+one is still there. Skip it only when the user asked not to publish. If the
+tool refuses (an older server, no connection), there is no report to open:
+keep the local files and say so in the closing message. If it asks for
+`report.html`, the leap CLI is older than this skill: ask the user to run
+`leap cli upgrade -s | bash`, give the reload step (Step 1), and publish
+after it. Then add the published link to report.md, under its title.
 
 **Hand the report over.** First run
-`python3 .tensorleap/scripts/tl_api.py open-report <out-dir>/report.html`. On a
-local machine with a desktop (macOS, or Linux with a display) it opens the
-report in the user's browser and prints `opened: <path>`. In an SSH session,
-or on Linux without a display, it opens nothing and prints `not opened:`,
-`report:`, a `copy:` command (scp, run on the user's own machine) and, when the
-report's server is on this machine, a `tunnel:` command for its port. It
-always prints `insights panel:` when the export had that link.
+`python3 .tensorleap/scripts/tl_api.py open-report <link>` with the `link`
+tl_publish_report returned. On a local machine with a desktop (macOS, or
+Linux with a display) it opens the report in the user's browser and prints
+`opened: <link>`. In an SSH session, or on Linux without a display, it
+opens nothing and prints `not opened:`, `report: <link>` and, when the
+report's server is on this machine, a `tunnel:` command for its port.
 
 **Your closing message hands the report over and stops.** At most four short
-sentences, plus one code block only when you give the `copy:`/`tunnel:`
-commands; no bullet lists:
-1. Where the report is: the `link` tl_publish_report returned (it opens the
-   report in the project's Reports tab), and `<path>/report.html` (say you
-   opened it when the script printed `opened:`), with the ticket companion at
-   `<path>/report.md`.
-   After `not opened:` in an SSH session or without a display, give the `copy:`
-   command and, when printed, the `tunnel:` command in one code block, and say
-   to keep the tunnel open while reviewing: the report's **Approve** buttons
-   and links reach the server through it (`localhost:4589` on the user's own
-   machine). If those commands contain `<server>` (the session came through a
-   local forward such as AWS SSM, so the script can't know the machine's
+sentences, plus one code block only when you give the `tunnel:` command; no
+bullet lists:
+1. Where the report is: the `link` tl_publish_report returned (say you
+   opened it when the script printed `opened:`), with the ticket companion
+   at `<path>/report.md`. If you published more than once, say here that
+   the earlier copies are still in the Reports tab, where each one's menu
+   has Delete.
+   After `not opened:` with a `tunnel:` line, give that command in one code
+   block and say to keep the tunnel open while reviewing: the link reaches
+   the server through it (`localhost:4589` on the user's own machine). If
+   the command contains `<server>` (the session came through a local
+   forward such as AWS SSM, so the script can't know the machine's
    address), tell the user to replace it with the address they use to reach
-   this machine. On any other `not opened:`, ask the user to open the path.
-2. The ask, verbatim: "Review the insights and press **Approve** on each one
-   you agree with; approvals are saved in Tensorleap."
-3. The Insights panel link from `insights panel:`, to review them there too.
+   this machine. On any other `not opened:`, ask the user to open the link.
+2. The ask, verbatim: "Review the findings and press **Acknowledge** on each
+   one you agree with; it is saved in Tensorleap."
+3. How to pass it on: "**Export HTML** in the report saves a copy to send to
+   someone without access."
+
+When the report was not published, the message is instead: why (the tool's
+message, with the upgrade step from Step 1's warning when the server is too
+old), that the findings and their action items are in `<path>/report.md`,
+and that you will publish `<path>/report.json` once they say the server is
+upgraded.
 
 No findings, no summaries, no severity counts, no
 recommended first action, no observations, everything you have to say lives
@@ -609,8 +645,8 @@ Then answer follow-up questions from the analysis you already did, the
 conversational depth is for when the user asks, never volunteered up front.
 
 **Last rule, binding: the closing message is at most four short sentences:
-the published link, where `report.html` and `report.md` are, the ask to approve the insights the
-user agrees with, and the Insights panel link; plus one code block with the
-`copy:`/`tunnel:` commands when the script printed them. No bullet lists,
-findings or extra sections.**
+the published link, where `report.md` is, the ask to acknowledge the
+findings the user agrees with, and how to save a copy to pass on; plus one
+code block with the `tunnel:` command when the script printed it. No bullet
+lists, findings or extra sections.**
 <!-- END TENSORLEAP SKILL: tensorleap-analysis -->
