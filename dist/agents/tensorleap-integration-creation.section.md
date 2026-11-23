@@ -850,7 +850,7 @@ Add these one at a time, running after each:
   prediction, it does not measure quality, so it is the one exception to the
   "doesn't track quality" rule above and needs no `direction`.
   ```python
-  @tensorleap_custom_metric("prediction", compute_insights=False)
+  @tensorleap_custom_metric("prediction", compute_insights={"prd_idx": False})
   def predicted_class(pred: np.ndarray):   # pred: (batch, num_classes)
       return {"prd_idx": np.argmax(pred, axis=-1).astype(np.float32)}   # -> prediction_prd_idx
   ```
@@ -867,7 +867,7 @@ Add these one at a time, running after each:
   field `kpi_<key>`, with its own direction.
   ```python
   @tensorleap_custom_metric("kpi", direction={"accuracy": MetricDirection.Upward},
-                          compute_insights=False)
+                          compute_insights={"accuracy": False})
   def kpi(pred: np.ndarray, gt: np.ndarray):   # (batch, num_classes) each, one-hot GT
       correct = np.argmax(pred, axis=-1) == np.argmax(gt, axis=-1)
       return {"accuracy": correct.astype(np.float32)}   # -> kpi_accuracy
@@ -894,8 +894,10 @@ Add these one at a time, running after each:
        left out of `direction` defaults to `Downward`.
     3. **`NaN` where there is nothing to measure** (Metrics rule 3 above),
        never `0` or `1` as a stand-in.
-  KPIs are overall metrics only: keep `compute_insights=False` so they never
-  drive failure modes or other insights.
+  KPIs are overall metrics only: turn their insights off so they never drive
+  failure modes or other insights. Like `direction`, `compute_insights` names
+  every key; a plain `False` on a metric that returns a dict fails on
+  code-loader before 1.0.166.
   Name the keys in short snake_case the customer recognizes (`top5_accuracy`).
   Keep the metrics the integration already has; `kpi` goes beside them. When
   you tell the user what the integration contains, name each `kpi_<key>` field
