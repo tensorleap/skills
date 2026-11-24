@@ -28,10 +28,10 @@ subinsight you elaborate). Each check names the payload fields that answer it.
 insight carries the payload (the Insights panel shows its Aggressor Fixing
 button), the card's "Do next" MUST include the platform's suggestion with
 its numbers, the samples to label and/or to acquire, regardless of which
-branch your diagnosis takes, and the card sets `download_csv` to the digest's
-`files.fixing_csv` so the reader can download that selection (template,
-card item 9). Your judgment may rank or sequence it ("after
-the label audit"), never omit it. This binds every insight that has a card
+branch your diagnosis takes (template, card item 9; the digest's
+`files.fixing_csv` holds that selection, and the reader reaches it on the
+platform through the card's Open proof button). Your judgment may rank or
+sequence it ("after the label audit"), never omit it. This binds every insight that has a card
 (a sub-based card cites its parent's payload); an insight ignored through
 the coherence gate is instead handled by its archive suggestion in Notes.
 
@@ -103,7 +103,7 @@ also recommend rebalancing the splits.
 | `duplication` | Near-duplicate samples inside `subset`. | `subset` | Deduplicate; make sure duplicates don't straddle splits; stop spending labeling budget on them. |
 | `data_leakage` | Near-identical samples appear in both subsets, eval metrics are inflated. | `first_subset`, `second_subset` | Re-split so duplicates stay on one side; remove leaked samples from eval; re-evaluate and treat previous metrics as optimistic. |
 | `domain_gap` | Performance differs across two values of a metadata field. | `metadata_name`, `domain_gap_score`, `domain_a`, `domain_b` | Balance training data across the domains; domain-specific augmentation; per-domain eval tracking; boost the weak domain via loss weighting. |
-| `mislabeled_samples` | Candidate labeling errors in `subset`. | `subset` | Manually review the top samples (embed them in the report); relabel confirmed ones; re-evaluate. |
+| `mislabeled_samples` | Candidate labeling errors in `subset`. | `subset` | Manually review the top samples (show them on the card); relabel confirmed ones; re-evaluate. |
 
 ## Characterize by composition, not by the tail
 
@@ -176,8 +176,8 @@ top samples and ask:
    **Root cause `Mislabeling`.** Use the family `Mislabeling` (alone) for a
    card whose group fails because its annotations are consistently wrong
    and the model is actually right: annotation work, not model work.
-   build-report then adds the `Mislabeled` chip; never write that chip
-   yourself. Today this covers a wrong class label, in classification or
+   The report then shows the `Mislabeled` chip by itself; never write that
+   chip yourself. Today this covers a wrong class label, in classification or
    instance datasets; missed objects, annotations of nothing, and wrong box
    or mask extent stay `Label quality` for now. Judge in this order:
    1. **Gate.** It is a Failure Mode card that passed the coherence gate
@@ -247,7 +247,9 @@ group your analysis enriches.
 
 An integration can declare many visualizers per sample (raw input, GT and
 prediction overlays, instance crops, grids, bar plots, videos, 3D). The
-card embeds the 1–2 that prove the insight's claim, chosen per insight:
+card shows the 1–2 that prove the insight's claim, chosen per insight.
+Items 1–4 choose what you look at and what goes beside the sample; item 5
+fixes which view comes first:
 
 1. **State the claim first.** What is this insight asserting is wrong? The
    selection criterion is then concrete, which visualizer lets a skeptical
@@ -273,10 +275,12 @@ card embeds the 1–2 that prove the insight's claim, chosen per insight:
    never a function name. Why this view was chosen stays out of the
    report: the samples either show the story on their own or the choice
    was wrong.
-5. **Embeddability constrains, never decides silently.** Video and
-   interactive 3D don't ship in static HTML: embed the best static proxy
-   (a representative frame, a rendered view) and say the full version is
-   one click away via the deep link.
+5. **The data's own form comes first.** The platform has a control for
+   every kind of view (picture, clip, recording, text, chart) and the report
+   uses it, so the first view of a sample is the sample itself: the clip for
+   a video dataset, not a still made from it. A still summary is how you
+   looked; it goes on the card as the second view when it adds something,
+   or alone when the data has no form of its own to show (skill Step 6).
 
 The audition doubles as the coherence gate: when no visualizer at any
 granularity makes the group cohere, that is the "no coherent story" path,
