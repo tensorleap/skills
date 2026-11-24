@@ -498,6 +498,12 @@ order:
      Use the agreed environment for every command below; the bundled scripts default
      to `poetry run …`, so set `TL_PY=<path-to-python>` to point them at a different
      interpreter.
+   - **Learn the customer's KPIs** (for the `kpi` metric, see **KPIs** under
+     Optional surfaces). Read them from the repo first: its evaluation or test
+     script, notebooks, the results in its README, the `metrics=` it trains
+     with. If the repo names none, ask the user which KPIs they report for this
+     model, in the same message as the environment confirmation above, so it
+     costs no extra stop. A classification model gets `accuracy` either way.
    - **Use a Python version `code-loader` supports.** Create the env with an
      explicit interpreter (`python<version> -m venv .venv`, `poetry env use
      <version>`, `uv venv -p <version>`), never a bare `python`, which may be a
@@ -569,9 +575,10 @@ order:
    until the loss is in the test).
 7. Remaining input encoders if the model has more inputs.
 8. GT encoder(s) — call directly, then via `integration_test`.
-9. Expand from one sample to several in training AND validation; then add
-   optional metadata / visualizers / metrics / custom loss **one at a time**,
-   running between each. For metadata, sweep the four sources in
+9. Expand from one sample to several in training AND validation; then add the
+   custom loss, the `kpi` metric (**KPIs** under Optional surfaces) and the
+   optional metadata / visualizers / metrics **one at a time**, running between
+   each. For metadata, sweep the four sources in
    `reference/metadata.md` (documents, directory, GT-derived, domain
    knowledge) rather than adding generic statistics. Last, add **one custom
    latent space** chosen for the task (`reference/custom-latent-space.md`);
@@ -846,7 +853,7 @@ Add these one at a time, running after each:
   prediction, it does not measure quality, so it is the one exception to the
   "doesn't track quality" rule above and needs no `direction`.
   ```python
-  @tensorleap_custom_metric("prediction", compute_insights=False)
+  @tensorleap_custom_metric("prediction", compute_insights={"prd_idx": False})
   def predicted_class(pred: np.ndarray):   # pred: (batch, num_classes)
       return {"prd_idx": np.argmax(pred, axis=-1).astype(np.float32)}   # -> prediction_prd_idx
   ```
@@ -856,6 +863,48 @@ Add these one at a time, running after each:
   renaming its key to `prd_idx` if its name doesn't already end in `_prd_idx`.
   No `ConfusionMatrixElement` metric. When you tell the user what the
   integration contains, name this field and say it is there for the analysis.
+- **KPIs (every integration)** — add the KPIs the customer reports for this
+  model, so comparing two versions shows the customer's own numbers (with no
+  KPI, the comparison falls back to the loss). They all go in **one** custom
+  metric named `kpi` that returns a dict, one key per KPI; each key becomes the
+  field `kpi_<key>`, with its own direction.
+  ```python
+  @tensorleap_custom_metric("kpi", direction={"accuracy": MetricDirection.Upward},
+                          compute_insights={"accuracy": False})
+  def kpi(pred: np.ndarray, gt: np.ndarray):   # (batch, num_classes) each, one-hot GT
+      correct = np.argmax(pred, axis=-1) == np.argmax(gt, axis=-1)
+      return {"accuracy": correct.astype(np.float32)}   # -> kpi_accuracy
+  ```
+  **Classification models always get `accuracy`**: the predicted class (the
+  argmax `prd_idx` holds) equals the ground-truth class. Match the GT encoder:
+  argmax a one-hot GT, compare a class index as it is. Then add one key per KPI
+  the customer reports (Authoring order, Step 0). Each key must be:
+    1. **A per-sample value whose mean over samples is the KPI itself** —
+       per-sample correctness for accuracy (top-k accuracy alike), the absolute
+       error for MAE (the squared error for MSE), a per-sample hit for a hit rate
+       (e.g. a prediction within the customer's tolerance), an image's IoU when
+       they report the mean IoU over images. A KPI computed from dataset totals
+       or a ranking (mAP, F1, AUC, precision or recall over the whole set, an
+       mIoU accumulated over the dataset) is not a mean of per-sample values:
+       never fake it with a per-sample stand-in under its name. Tell the user it
+       can't be a KPI field and why, and log it in `integration-report.md`.
+       RMSE is the square root of a mean: add `mse` and tell the user the
+       comparison shows MSE, whose square root is their RMSE.
+    2. **Its own direction.** `direction` names every key:
+       `MetricDirection.Upward` when higher is better (accuracy),
+       `MetricDirection.Downward` when lower is better (MAE, MSE, error rate).
+       Keep each KPI in the form the customer reports it; don't flip it. A key
+       left out of `direction` defaults to `Downward`.
+    3. **`NaN` where there is nothing to measure** (Metrics rule 3 above),
+       never `0` or `1` as a stand-in.
+  KPIs are overall metrics only: turn their insights off so they never drive
+  failure modes or other insights. Like `direction`, `compute_insights` names
+  every key; a plain `False` on a metric that returns a dict fails on
+  code-loader before 1.0.166.
+  Name the keys in short snake_case the customer recognizes (`top5_accuracy`).
+  Keep the metrics the integration already has; `kpi` goes beside them. When
+  you tell the user what the integration contains, name each `kpi_<key>` field
+  and each KPI you left out, and why.
 
 ## Acceptance (staged definition of done)
 
@@ -870,8 +919,9 @@ Use the validator as a staged signal, not a binary oracle.
   encoder, and load_model all exercised, with no unresolved mandatory rows.
 - **Real:** several training AND validation samples pass through
   `integration_test(...)`, no default-use warnings remain, the structured parse is
-  clean, **and a custom loss is registered** (required to push — the platform build
-  fails without one).
+  clean, **a custom loss is registered** (required to push — the platform build
+  fails without one), **and the `kpi` metric is called in the test** whenever
+  there is a KPI to add (always for a classification model; see **KPIs**).
 
 For the Core/Real decision, account for **both** signals — they cover different
 scopes (see above):
@@ -1008,7 +1058,8 @@ refused → wait a minute and rerun it. If they have no such email and more than
      to check it themselves: `leap run info <id>` with the id from
      `.tensorleap/runs.json`. For a classification model, also name the
      predicted-class field you added (`<name>_prd_idx`, see **Optional
-     surfaces**) and say it is there for the analysis.
+     surfaces**) and say it is there for the analysis. Name the KPI fields
+     (`kpi_<key>`) and any KPI you left out, and why.
    - **End your turn.** Ending the turn here is correct — the task is not
      finished, it is waiting. Don't poll: no repeated `leap run info` calls, no
      `sleep` loops in your own turns, and **don't read the watcher's output while

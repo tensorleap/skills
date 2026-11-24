@@ -175,6 +175,7 @@ finally:
 | `direction must be a MetricDirection or a Dict[…]` | Fix the direction declaration. |
 | `Argument #… first dim should be as the batch size` | Metrics operate on batched arrays. |
 | `has returned unsupported type` / `The return shape should be 1D` / `The return len … should be as the batch size` | Return a batch-aligned 1D result, one value per sample. |
+| `compute_insights should be dict if using the dict results` | code-loader before 1.0.166 takes only a dict here: name every key the metric returns, e.g. `compute_insights={"accuracy": False, "error_rate": False}`. |
 
 ## Legacy-binder compatibility
 
