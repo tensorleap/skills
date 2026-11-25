@@ -194,11 +194,17 @@ One row per insight:
 
 ## 5. Drop
 
-- Groups under about 1.2x worse than all data.
+- Groups under about 1.2x worse than all data on the user's KPI, as targets
+  for that KPI. A group that fails on another metric can still move the
+  model forward: keep it and say which metric it fails on. Under 1.2x
+  against samples of the same content usually means the metric is at fault,
+  not the model.
 - Parents fully covered by their sub-insights.
-- Groups with no single story (no shared cause in the samples or the
-  metadata). Mark them "no single cause"; they are not targets. Their
-  to-label lists are close to a random draw from the pool.
+- Groups where you cannot point to a single cause in the samples or the
+  metadata. Mark them "no single cause I can point to", and do not make
+  them targets on their own. On one benchmark (NICO) the to-label lists of
+  such groups came out close to the pool's base rate; check a list before
+  using it.
 
 Groups too small to show a win above noise on their own (wide bootstrap
 interval on the user's model) are not dropped. Several failure modes are
