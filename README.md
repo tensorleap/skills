@@ -17,6 +17,11 @@ ships the shared scripts each skill needs.
 > - [`tensorleap-analysis`](skills/tensorleap-analysis/skill.md) — reading an evaluated
 >   model version's results through the Tensorleap MCP server and writing a report:
 >   where the model fails and why, with evidence samples and concrete next steps.
+> - [`tensorleap-aggressor-fixing`](skills/tensorleap-aggressor-fixing/skill.md) — fixing
+>   the failure modes the analysis found: checks that the insights can be trusted, one
+>   round of questions, a ranked inventory, a plan you approve (label fixes, cheap checks,
+>   more data, then oversampling or augmentation), training, and a verdict against seed
+>   noise.
 > - [`tensorleap-runtime-optimization`](skills/tensorleap-runtime-optimization/skill.md)
 >   — measuring and optimizing a working integration's runtime and memory: the model's
 >   inference floor, component-level profiling the way Tensorleap runs it, fixes kept only

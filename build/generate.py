@@ -258,7 +258,8 @@ def _copy_assets(name, skill_out):
     """scripts/ + reference/ of the skill, plus skills/_shared/scripts (the
     self-updater every skill folder carries). Shell scripts made executable."""
     src = os.path.join(SKILLS_DIR, name)
-    _copytree(os.path.join(src, "scripts"), os.path.join(skill_out, "scripts"))
+    if os.path.isdir(os.path.join(src, "scripts")):
+        _copytree(os.path.join(src, "scripts"), os.path.join(skill_out, "scripts"))
     _copytree(SHARED_SCRIPTS_DIR, os.path.join(skill_out, "scripts"))
     _copytree(os.path.join(src, "reference"), os.path.join(skill_out, "reference"))
     for fname in os.listdir(os.path.join(skill_out, "scripts")):
