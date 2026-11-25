@@ -14,6 +14,7 @@ group: tensorleap
 
 | # | Step | User |
 |---|---|---|
+| 0 | Preflight: the leap CLI is the latest | upgrades if asked |
 | 1 | Read | |
 | 2 | Check the analysis | |
 | 3 | Intake: findings and questions | asks |
@@ -59,6 +60,27 @@ platform. Internal terms never reach the user.
 | Noise / yardstick | "How much the score moves when the same model is simply retrained. A real gain has to be clearly bigger than that." |
 | Fetch similar | Never said. Describe it: "more samples like these". |
 | Paired bootstrap / confidence | Say how sure we are in plain words that fit the case. |
+
+## 0. Preflight
+
+The Tensorleap tools reach you through the leap CLI (`leap mcp`), so the CLI
+must be the latest release.
+
+1. Compare the installed CLI with the latest release:
+   `leap --version` and
+   `curl -s https://api.github.com/repos/tensorleap/leap-cli/releases/latest | grep -m1 '"tag_name"'`.
+   - `leap` missing: tell the user to install it
+     (`curl -s https://raw.githubusercontent.com/tensorleap/leap-cli/master/install.sh | bash`),
+     then restart their assistant so it loads the Tensorleap tools. Stop.
+   - Older than the latest: tell the user which version they have and which
+     is the latest, and ask them to upgrade (`leap cli upgrade` prints the
+     command), then restart their assistant. Below v0.0.163 there is no
+     `leap mcp` at all: stop. Otherwise continue on the installed version
+     if they prefer, and say that some tools may be missing.
+   - The latest release can't be read (offline): say so and continue.
+2. Run `bash scripts/self_update.sh`. Exit 0: nothing to do. Exit 10:
+   the skill's files were just refreshed; re-read this file and start over.
+   Relay any `NOTE:` line to the user.
 
 ## 1. Read
 
@@ -394,8 +416,11 @@ you can back with a stated mechanism on a cause you verified on samples.
   content mix, (b) training members fail beyond theirs, (c) the labels are
   learnable from the input. One run at a moderate dose (x5 to x10, group
   under about a third of draws).
-- Larger changes (a loss term, a different model input) are written as
-  recommendations, not run.
+- Larger changes: a loss term, a different input resolution (often helps
+  segmentation of small or thin structures), a different model input, an
+  architecture change. Propose them like any lever, with the mechanism and
+  the cost (usually a from-scratch retrain), and run them once the user
+  approves. Compare against a from-scratch retrain of the current recipe.
 
 ## Reference B: Noise and what counts as a win
 
