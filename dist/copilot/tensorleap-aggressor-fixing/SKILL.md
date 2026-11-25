@@ -251,11 +251,16 @@ Then the plan as a table, one row per target:
 State which one you ran, fine-tune or from scratch; a fine-tune result is not
 verified for a from-scratch retrain, and the other way round.
 
-**When no aggressor lever can be argued with confidence**, there is still a
-plan. Propose Label Next (if there is an unlabeled pool and a labeling
-budget), plus global post-processing (A.2 A) if you think it may work in this
-case. Say plainly that this aims at a global-only win (Reference B), not at
-the aggressors. Stop only when neither applies.
+**When failure modes were found but no way to fix them can be argued with
+confidence**, there is still a plan. First say what the gap is, as far as
+the evidence shows. For example: the pool may hold too few samples like the
+failing ones (more targeted unlabeled data is needed), the model may lack the
+capacity to separate them, or the labels may not be learnable from the
+input. Say what you checked and what you could not. Then say what is still
+on the table: Label Next (if there is an unlabeled pool and a labeling
+budget), and global post-processing (A.2 A) if you think it may work in this
+case. Say plainly that these aim at a global-only win (Reference B), not at
+the failure modes. Stop only when neither applies.
 
 ## 8. Run: train, check, decide the next step
 
